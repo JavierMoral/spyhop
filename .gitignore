@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Spyhop: machine-specific files never belong in the repository
+config.yaml
+env
+*.db
+*.db-wal
+*.db-shm
