@@ -246,6 +246,7 @@ projects:
 | --- | --- | --- |
 | `application.polling_interval` | `45` | Seconds between polls (minimum 10). |
 | `application.max_concurrent_agents` | `1` | Agents running at the same time. |
+| `application.min_free_disk_gb` | `20` | No new worktree is created while the disk that would hold it (Orca's worktree directory for the repository, else the repository's) has less free space. Runs wait in `DISCOVERED` with `disk_space` and resume by themselves. `0` disables it. |
 | `application.dry_run` | `true` | Detect and record only; uses a separate database. |
 | `application.timezone` | system | Time zone for display. |
 | `jira.base_url` | — | Your JIRA Cloud site. **Required.** |
@@ -332,6 +333,14 @@ To review a plan, read `PLAN.md` in the worktree, then either:
   Spyhop types the implementation `/goal` into the agent's terminal;
 - **ask for changes**: answer the agent in its terminal. It updates `PLAN.md`
   and moves the card back to plan review.
+
+A run that needs a new worktree while the disk is below
+`application.min_free_disk_gb` waits before it starts: it stays `DISCOVERED`
+with `waiting: disk_space` and the free space in `spyhop status`, holds no agent
+slot and makes no JIRA requests. Each cycle measures again, oldest run first, so
+it starts as soon as space is freed, for example when the worktree of a closed
+ticket is removed. Runs that reuse an existing worktree are not held back, and a
+waiting run is cancelled if its ticket closes.
 
 A run waiting for you keeps its agent slot. One in `unknown_state` stays there
 until the agent works again or you give up on it with `spyhop fail <KEY>`. Only
