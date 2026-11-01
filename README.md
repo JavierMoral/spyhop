@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white" alt="Python 3.12+"/>
   <img src="https://img.shields.io/badge/managed%20with-uv-DE5FE9" alt="Managed with uv"/>
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20systemd-informational" alt="Linux and systemd"/>
-  <img src="https://img.shields.io/badge/status-phase%201%20of%204-orange" alt="Phase 1 of 4"/>
+  <img src="https://img.shields.io/badge/status-phase%203%20of%204-orange" alt="Phase 3 of 4"/>
 </p>
 
 ---
@@ -58,7 +58,14 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
   the agent starts.
 - **Launches that are never duplicated.** Every launch carries an operation id
   stored beforehand, so a lost answer, a timeout or a restart replays the same
-  launch instead of starting a second agent.
+  launch instead of starting a second agent. Prompts typed into a running agent
+  work the same way.
+- **Plan review from the Orca board.** The agent stops after writing `PLAN.md`;
+  dragging its card to *In progress* approves the plan and starts the
+  implementation.
+- **Completion is declared, never guessed.** A run is `COMPLETED` only when the
+  agent moves its card to *In review* with a `RESULT.md`. Anything Spyhop cannot
+  determine is handed to you, not assumed.
 - **Safe dry-run mode**, with its own database, to see what *would* be
   automated before anything is.
 - **Runs in the background** as a systemd user service that starts at boot.
@@ -89,8 +96,9 @@ flowchart LR
    `/goal`: first a `PLAN.md` for you to approve, then the implementation, ending
    with local commits and a `RESULT.md`. The agent marks its Orca card when each
    step is done.
-4. *(Coming next)* Spyhop follows each agent through Orca and records when it
-   waits for you and when it is done.
+4. Every cycle it follows each agent through Orca: working, asking you
+   something, waiting for its plan to be approved, or done. When you approve the
+   plan, it sends the agent the implementation `/goal`.
 5. *(Coming next)* When the ticket is closed, the worktree is removed. Orca
    deletes the branch only if it is already merged.
 
@@ -98,16 +106,15 @@ Spyhop never pushes, opens pull requests or changes tickets: that stays with you
 
 ## Project status
 
-Spyhop is being built in phases. **Phases 1 and 2 are implemented**: it detects
-tickets and launches their agents, but does not follow them afterwards yet. Until
-phase 3, a launched run stays `RUNNING` and keeps its agent slot, so with
-`max_concurrent_agents: 1` only the first ticket is launched.
+Spyhop is being built in phases. **Phases 1 to 3 are implemented**: it detects
+tickets, launches their agents and follows them until they are done. Worktrees
+of closed tickets are not removed yet.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Configuration, JIRA detection, SQLite, `doctor`, systemd service | ✅ Done |
 | 2 | Worktree creation and agent launch in Orca | ✅ Done |
-| 3 | Agent supervision and plan review | ⏳ Planned |
+| 3 | Agent supervision and plan review | ✅ Done |
 | 4 | Worktree cleanup on close, `retry` and `cleanup` commands | ⏳ Planned |
 
 ## Requirements
@@ -257,6 +264,7 @@ projects:
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
 | `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready. For a separate "Plan review" column, create it in Orca and use the id Orca gives it (`status-N`). |
+| `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there sends the implementation `/goal`. |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
 | `cleanup.close_status_categories` | `["done"]` | JIRA status categories that count as closed. |
@@ -300,9 +308,31 @@ Before launching, Spyhop writes three things into the worktree:
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
 `PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
-with an unread dot. Approve the plan by answering the agent in Orca; the `/goal` for the
-implementation phase is at the end of `TASK.md`. With `plan_review: false`, one
-`/goal` covers plan and implementation and ends with the card in `in-review`.
+with an unread dot. With `plan_review: false`, one `/goal` covers plan and
+implementation. Either way the agent ends by writing `RESULT.md` and moving its
+card to `in-review`.
+
+### Following a run
+
+| What you see in Orca | Run in `spyhop status` |
+| --- | --- |
+| The agent is working | `RUNNING` |
+| The agent asks you something or waits for a permission | `WAITING_FOR_HUMAN` (`agent_question`) |
+| Card in `orca.plan_review_status` with a `PLAN.md` of this run | `WAITING_FOR_HUMAN` (`plan_review`) |
+| Card in `in-review` with a `RESULT.md` of this run | `COMPLETED` |
+| The agent stopped without either, or is gone for three cycles | `WAITING_FOR_HUMAN` (`unknown_state`) |
+
+To review a plan, read `PLAN.md` in the worktree, then either:
+
+- **approve it**: drag the card to `orca.plan_approved_status` (*In progress*).
+  Spyhop types the implementation `/goal` into the agent's terminal;
+- **ask for changes**: answer the agent in its terminal. It updates `PLAN.md`
+  and moves the card back to plan review.
+
+A run waiting for you keeps its agent slot. One in `unknown_state` stays there
+until the agent works again or you give up on it with `spyhop fail <KEY>`. Only
+files written after the run's launch count, so a `PLAN.md` or `RESULT.md` left
+by an earlier run of the ticket is never taken as a signal.
 
 Every template can be replaced by a file with the same name in
 `~/.config/spyhop/templates/`: `task.md`, `goal.md`, `settings.local.json.j2`
@@ -347,6 +377,7 @@ spyhop service uninstall
 | --- | --- |
 | `spyhop run` | Run the daemon in the foreground. `--once` polls once; `--dry-run/--no-dry-run` overrides the configuration; `-v` for debug logs. |
 | `spyhop status [KEY]` | Last poll, watermark, last error and active runs. `--all` includes finished runs. |
+| `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
 | `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
 | `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
@@ -470,7 +501,8 @@ src/spyhop/
 ├── config/                     # settings model, XDG paths, credentials
 ├── domain/                     # models, enums, exceptions, ports
 ├── application/                # monitor, transition detector, workflow resolver,
-│                               # orchestrator, launcher, context builder
+│                               # orchestrator, launcher, context builder,
+│                               # supervisor
 ├── infrastructure/
 │   ├── jira/                   # REST v3 client, payload mapping, ADF to text
 │   ├── orca/                   # Orca CLI client, discovery and validation
@@ -482,5 +514,6 @@ src/spyhop/
 tests/
 ├── unit/
 ├── fixtures/orca/              # anonymized answers captured from Orca 1.4.245
-└── factories.py                # JIRA payload and settings builders
+├── factories.py                # JIRA payload and settings builders
+└── fakes.py                    # in-memory Orca and JIRA, launcher harness
 ```
