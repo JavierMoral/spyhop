@@ -53,6 +53,12 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
 - **Portable.** Nothing machine-specific in the code or the repository:
   configuration follows XDG, repositories are aliases, credential variable names
   are configurable.
+- **One worktree per ticket**, linked to the ticket in Orca and reused by later
+  runs, with the agent's context (`TASK.md`, permission profile) written before
+  the agent starts.
+- **Launches that are never duplicated.** Every launch carries an operation id
+  stored beforehand, so a lost answer, a timeout or a restart replays the same
+  launch instead of starting a second agent.
 - **Safe dry-run mode**, with its own database, to see what *would* be
   automated before anything is.
 - **Runs in the background** as a systemd user service that starts at boot.
@@ -78,23 +84,29 @@ flowchart LR
    into a configured start status since the last successful poll.
 2. For each one it reads the changelog to find the exact transition, resolves
    the workflow for that project and issue type, and records an automation run.
-3. *(Coming next)* It creates an Orca worktree linked to the ticket and launches
-   Claude Code with a verifiable `/goal`: first a plan for you to approve, then
-   the implementation, ending with local commits and a `RESULT.md`.
-4. *(Coming next)* When the ticket is closed, the worktree is removed. Orca
+3. It reuses the ticket's Orca worktree or creates one linked to the ticket,
+   writes `TASK.md` from the ticket, and launches Claude Code with a verifiable
+   `/goal`: first a `PLAN.md` for you to approve, then the implementation, ending
+   with local commits and a `RESULT.md`. The agent marks its Orca card when each
+   step is done.
+4. *(Coming next)* Spyhop follows each agent through Orca and records when it
+   waits for you and when it is done.
+5. *(Coming next)* When the ticket is closed, the worktree is removed. Orca
    deletes the branch only if it is already merged.
 
 Spyhop never pushes, opens pull requests or changes tickets: that stays with you.
 
 ## Project status
 
-Spyhop is being built in phases. **Only phase 1 is implemented today**: it
-detects tickets and records what it would do, but it does not launch agents yet.
+Spyhop is being built in phases. **Phases 1 and 2 are implemented**: it detects
+tickets and launches their agents, but does not follow them afterwards yet. Until
+phase 3, a launched run stays `RUNNING` and keeps its agent slot, so with
+`max_concurrent_agents: 1` only the first ticket is launched.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Configuration, JIRA detection, SQLite, `doctor`, systemd service | ✅ Done |
-| 2 | Worktree creation and agent launch in Orca | ⏳ Planned |
+| 2 | Worktree creation and agent launch in Orca | ✅ Done |
 | 3 | Agent supervision and plan review | ⏳ Planned |
 | 4 | Worktree cleanup on close, `retry` and `cleanup` commands | ⏳ Planned |
 
@@ -229,17 +241,22 @@ projects:
 | `jira.user_env` / `jira.token_env` | `JIRA_API_USER` / `JIRA_API_TOKEN` | Names of the credential variables. |
 | `jira.request_timeout` | `20` | Seconds per JIRA request. |
 | `jira.transition_margin_minutes` | `5` | Overlap between polls, because JQL dates work to the minute. |
+| `jira.acceptance_criteria_fields` | `[]` | Custom fields copied to `TASK.md` as acceptance criteria, such as `customfield_10048`. |
+| `jira.max_comments` | `20` | Latest comments copied to `TASK.md`. |
 | `repositories.<alias>.path` | — | Local checkout. Accepts `~` and `${VAR}`. |
 | `repositories.<alias>.default_base_branch` | `master` | Base branch for new worktrees. |
+| `repositories.<alias>.setup` | `inherit` | Orca setup hooks for new worktrees: `inherit` (the repository's policy in Orca), `run` or `skip`. |
+| `repositories.<alias>.build_commands` | `[]` | Commands added to the agent's allow list, such as `./gradlew`. |
 | `projects.<KEY>.enabled` | `true` | Ignore a project without deleting its workflows. |
 | `projects.<KEY>.workflows.<IssueType>.name` | — | Workflow name, shown in logs and `status`. |
 | `….trigger_statuses` | — | Statuses that start an automation for this issue type. |
 | `….repository` | — | Repository alias. |
 | `….base_branch` | repository default | Overrides the repository's base branch. |
-| `….prompt` | — | Prompt template for the agent. |
+| `….prompt` | — | Template with this workflow's guidance, added to `TASK.md`. |
 | `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
+| `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready. For a separate "Plan review" column, create it in Orca and use the id Orca gives it (`status-N`). |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
 | `cleanup.close_status_categories` | `["done"]` | JIRA status categories that count as closed. |
@@ -267,8 +284,30 @@ SPYHOP_APPLICATION__POLLING_INTERVAL=120 spyhop run
 | State | `~/.local/state/spyhop/spyhop.db` |
 | State in dry-run mode | `~/.local/state/spyhop/spyhop-dry-run.db` |
 | Service unit | `~/.config/systemd/user/spyhop.service` |
+| Custom templates (optional) | `~/.config/spyhop/templates/` |
 
 All of them follow `XDG_CONFIG_HOME` and `XDG_STATE_HOME`.
+
+### What the agent gets
+
+Before launching, Spyhop writes three things into the worktree:
+
+| File | Content |
+| --- | --- |
+| `TASK.md` | Title, description, acceptance criteria and latest comments from JIRA, fenced and marked as data rather than instructions; the workflow's guidance; rules; the deliverables for `RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
+| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (push, open pull requests, change JIRA, remove worktrees, `curl`, `wget`). |
+| `.git/info/exclude` | Entries for `TASK.md`, `PLAN.md`, `RESULT.md` and the permission profile, so they never end up in a commit. |
+
+The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
+`PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
+with an unread dot. Approve the plan by answering the agent in Orca; the `/goal` for the
+implementation phase is at the end of `TASK.md`. With `plan_review: false`, one
+`/goal` covers plan and implementation and ends with the card in `in-review`.
+
+Every template can be replaced by a file with the same name in
+`~/.config/spyhop/templates/`: `task.md`, `goal.md`, `settings.local.json.j2`
+and the workflow templates (`bug_fix.md`, `feature.md`, `technical_task.md`, or
+any name a workflow's `prompt` uses). `spyhop doctor` checks that they all exist.
 
 ## Running as a service
 
@@ -388,9 +427,13 @@ The token is wrong or expired. Update it in your session and in
   only travels in the HTTP `Authorization` header, and the credentials file is
   created with mode 600.
 - **No pushes, pull requests or ticket changes.** Publishing work stays with you.
-- **Ticket content is untrusted.** In the coming phases, ticket text reaches
-  agents as data, never as instructions, and agents run with an allow/deny list
-  that blocks pushing, JIRA writes and network tools.
+- **Ticket content is untrusted.** Ticket text reaches agents fenced in
+  `TASK.md` and marked as data, never as instructions.
+- **The deny list is the barrier, not the allow list.** Orca starts Claude Code
+  with `--dangerously-skip-permissions`, so everything not denied runs without
+  asking. Deny rules still apply in that mode (verified with Claude Code
+  2.1.316): pushing, pull requests, JIRA writes, removing worktrees, `curl` and
+  `wget` are blocked.
 - **A worktree is not a sandbox.** Agents run with your user's permissions. If
   your JIRA token is exported in your shell profile, processes started from your
   session, Orca and its agents included, inherit it.
@@ -426,14 +469,18 @@ src/spyhop/
 ├── doctor.py                   # `spyhop doctor` checks
 ├── config/                     # settings model, XDG paths, credentials
 ├── domain/                     # models, enums, exceptions, ports
-├── application/                # monitor, transition detector, workflow resolver, orchestrator
+├── application/                # monitor, transition detector, workflow resolver,
+│                               # orchestrator, launcher, context builder
 ├── infrastructure/
-│   ├── jira/                   # REST v3 client and payload mapping
-│   ├── orca/                   # Orca CLI discovery and validation
+│   ├── jira/                   # REST v3 client, payload mapping, ADF to text
+│   ├── orca/                   # Orca CLI client, discovery and validation
 │   ├── persistence/            # SQLite schema, migrations and repositories
+│   ├── process/                # subprocess runner
 │   └── service/                # systemd user unit
-└── templates/                  # example configuration and unit template
+└── templates/                  # TASK.md, goal, workflow guidance, permission
+                                # profile, example configuration, unit
 tests/
 ├── unit/
+├── fixtures/orca/              # anonymized answers captured from Orca 1.4.245
 └── factories.py                # JIRA payload and settings builders
 ```
