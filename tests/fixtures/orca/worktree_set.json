@@ -1,0 +1,68 @@
+{
+  "id": "da96fe52-1473-49d8-8234-1b87db36641a",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "bc8cbd3b-6629-4670-8f86-e580f76aaae4::/home/user/git/project/wt/PROJ-123",
+      "identity": {
+        "key": "wt2:local:5ba2f776-2a81-49ab-a5dd-1a1e67e2c611",
+        "executionHostId": "local",
+        "instanceId": "5ba2f776-2a81-49ab-a5dd-1a1e67e2c611"
+      },
+      "instanceId": "5ba2f776-2a81-49ab-a5dd-1a1e67e2c611",
+      "repoId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4",
+      "projectId": "github:example/project",
+      "hostId": "local",
+      "projectHostSetupId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4",
+      "creatorProvenance": {
+        "kind": "host"
+      },
+      "path": "/home/user/git/project/wt/PROJ-123",
+      "head": "2655e7d68f1141334e9f722812d3df8cde4d6968",
+      "branch": "refs/heads/jdoe/PROJ-123",
+      "isBare": false,
+      "isMainWorktree": false,
+      "displayName": "PROJ-123",
+      "displayNameMode": "fixed",
+      "comment": "PROJ-123: no se pudo borrar",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedLinearIssueWorkspaceId": null,
+      "linkedLinearIssueOrganizationUrlKey": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "linkedBitbucketPR": null,
+      "linkedAzureDevOpsPR": null,
+      "linkedGiteaPR": null,
+      "linkedWorkItem": null,
+      "linkedTaskSourceContext": null,
+      "isArchived": false,
+      "isUnread": true,
+      "isPinned": false,
+      "sortOrder": 1793573105498,
+      "lastActivityAt": 1793573105497,
+      "createdAt": 1793573105497,
+      "cliProvenance": {
+        "kind": "created-by-cli",
+        "createdAt": 1793573091942
+      },
+      "baseRef": "master",
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": null,
+      "childWorktreeIds": [],
+      "lineage": null,
+      "git": {
+        "path": "/home/user/git/project/wt/PROJ-123",
+        "head": "2655e7d68f1141334e9f722812d3df8cde4d6968",
+        "branch": "refs/heads/jdoe/PROJ-123",
+        "isBare": false,
+        "isMainWorktree": false
+      },
+      "linkedItems": []
+    }
+  },
+  "_meta": {
+    "runtimeId": "0e19a2d7-35cd-4680-b222-ecb1a69e876f"
+  }
+}

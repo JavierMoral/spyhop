@@ -339,3 +339,56 @@ async def test_lost_prompt_answer_is_uncertain() -> None:
 
     with pytest.raises(OrcaUncertainError):
         await client(runner).send_prompt("term_1", "text", "eb517396-0618-4ae5-9cfa-0ad029904ba5")
+
+
+async def test_close_terminals_stops_every_agent_of_the_worktree() -> None:
+    runner = FakeRunner(fixture("terminal_close.json"))
+
+    assert await client(runner).close_terminals(WORKTREE_ID) == 4
+    assert runner.calls[0][0][1:] == [
+        "terminal",
+        "close",
+        "--worktree",
+        f"id:{WORKTREE_ID}",
+        "--all",
+        "--json",
+    ]
+
+
+async def test_remove_worktree_is_never_forced() -> None:
+    runner = FakeRunner(fixture("worktree_rm.json"), fixture("worktree_rm_unmerged.json"))
+    orca = client(runner)
+
+    merged = await orca.remove_worktree(WORKTREE_ID)
+    unmerged = await orca.remove_worktree(WORKTREE_ID)
+
+    assert runner.calls[0][0][1:] == ["worktree", "rm", "--worktree", f"id:{WORKTREE_ID}", "--json"]
+    assert merged.preserved_branch is None
+    assert unmerged.preserved_branch == "jdoe/PROJ-123"
+
+
+async def test_worktree_with_changes_is_refused() -> None:
+    runner = FakeRunner(fixture("worktree_rm_dirty.json"))
+
+    with pytest.raises(OrcaCommandError) as raised:
+        await client(runner).remove_worktree(WORKTREE_ID)
+
+    assert raised.value.code == "runtime_error"
+    assert "??" in raised.value.message
+
+
+async def test_mark_card_comments_and_marks_unread() -> None:
+    runner = FakeRunner(fixture("worktree_set.json"))
+
+    await client(runner).mark_card(WORKTREE_ID, "PROJ-123: no se pudo borrar")
+
+    assert runner.calls[0][0][1:] == [
+        "worktree",
+        "set",
+        "--worktree",
+        f"id:{WORKTREE_ID}",
+        "--comment",
+        "PROJ-123: no se pudo borrar",
+        "--unread",
+        "--json",
+    ]

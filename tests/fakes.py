@@ -2,11 +2,13 @@
 database, the launcher and the supervisor."""
 
 import dataclasses
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from spyhop.application.context_builder import ContextBuilder, template_environment
+from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.workflow_resolver import WorkflowResolver
@@ -16,9 +18,11 @@ from spyhop.domain.models import (
     AgentRow,
     AutomationRun,
     IssueEntry,
+    JiraUser,
     LaunchResult,
     OrcaWorktree,
     PromptDelivery,
+    RemoveResult,
     TerminalRow,
 )
 from spyhop.infrastructure.jira.mapping import to_issue
@@ -39,6 +43,9 @@ ORCA = Path("/opt/orca/orca-ide")
 class FakeTickets:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.closed: set[str] = set()
+        self.queries: list[str] = []
+        self.search_error: Exception | None = None
 
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]:
         self.calls.append(issue_key)
@@ -61,6 +68,26 @@ class FakeTickets:
     async def comments(self, issue_key: str, limit: int) -> list[dict[str, Any]]:
         return []
 
+    async def myself(self) -> JiraUser:
+        return JiraUser("me", "Me", "UTC")
+
+    async def changelog(self, issue_key: str) -> list[dict[str, Any]]:
+        return []
+
+    async def search(
+        self, jql: str, fields: list[str], changelog: bool = True
+    ) -> list[dict[str, Any]]:
+        """Answers the janitor's query: the closed tickets among its keys."""
+
+        self.queries.append(jql)
+
+        if self.search_error is not None:
+            raise self.search_error
+
+        keys = jql.split("key in (", 1)[1].split(")", 1)[0].split(", ")
+
+        return [{"key": key} for key in keys if key in self.closed]
+
 
 class FakeOrca:
     def __init__(self, root: Path) -> None:
@@ -69,6 +96,7 @@ class FakeOrca:
         self.references: dict[str, str] = {}
         self.launches: list[dict[str, Any]] = []
         self.created: list[str] = []
+        self.bases: list[str] = []
         self.unavailable = False
         self.launch_errors: list[Exception] = []
         self.create_errors: list[Exception] = []
@@ -76,6 +104,10 @@ class FakeOrca:
         self.terminal_rows: dict[str, list[TerminalRow]] = {}
         self.prompts: list[dict[str, str]] = []
         self.prompt_errors: list[Exception] = []
+        self.closed_terminals: list[str] = []
+        self.removed: list[str] = []
+        self.remove_errors: list[Exception] = []
+        self.cards: dict[str, str] = {}
 
     @property
     def executable(self) -> Path:
@@ -129,6 +161,7 @@ class FakeOrca:
         self, repository_path: Path, name: str, base_branch: str, reference: str, setup: str
     ) -> OrcaWorktree:
         self.created.append(name)
+        self.bases.append(base_branch)
 
         worktree = self.add_worktree(name, reference)
 
@@ -182,6 +215,35 @@ class FakeOrca:
 
         return PromptDelivery(request_id, replayed, ("input_accepted", "turn_started"))
 
+    async def close_terminals(self, orca_worktree_id: str) -> int:
+        if orca_worktree_id not in self.worktrees:
+            raise OrcaCommandError("selector_not_found", "selector_not_found")
+
+        self.closed_terminals.append(orca_worktree_id)
+        self.agents.pop(orca_worktree_id, None)
+
+        return len(self.terminal_rows.pop(orca_worktree_id, []))
+
+    async def remove_worktree(self, orca_worktree_id: str) -> RemoveResult:
+        if self.remove_errors:
+            raise self.remove_errors.pop(0)
+
+        if orca_worktree_id not in self.worktrees:
+            raise OrcaCommandError("selector_not_found", "selector_not_found")
+
+        worktree = self.worktrees.pop(orca_worktree_id)
+
+        self.removed.append(orca_worktree_id)
+        self.references = {
+            key: value for key, value in self.references.items() if value != orca_worktree_id
+        }
+        shutil.rmtree(worktree.path)
+
+        return RemoveResult(preserved_branch=worktree.branch)
+
+    async def mark_card(self, orca_worktree_id: str, comment: str) -> None:
+        self.cards[orca_worktree_id] = comment
+
     def set_card(self, orca_worktree_id: str, status: str) -> None:
         self.worktrees[orca_worktree_id] = dataclasses.replace(
             self.worktrees[orca_worktree_id], workspace_status=status
@@ -215,6 +277,8 @@ class Harness:
         self.orca = FakeOrca(tmp_path)
         self.tickets = FakeTickets()
         self.history = 0
+        self.branches: set[str] = set()
+        self.dirty: set[Path] = set()
         self.context = ContextBuilder(
             template_environment(tmp_path / "templates"), ORCA, PLAN_REVIEW, PLAN_APPROVED
         )
@@ -229,6 +293,16 @@ class Harness:
             context=self.context,
             agents=self.config.agents,
             max_concurrent_agents=self.config.application.max_concurrent_agents,
+            branch_exists=lambda repository, branch: branch in self.branches,
+        )
+        self.remover = WorktreeRemover(self.runs, self.worktrees, self.orca)
+        self.janitor = WorktreeJanitor(
+            remover=self.remover,
+            worktrees=self.worktrees,
+            jira=self.tickets,
+            orca=self.orca,
+            settings=self.config.cleanup,
+            has_changes=lambda path: path in self.dirty,
         )
         self.supervisor = AgentSupervisor(
             runs=self.runs,
