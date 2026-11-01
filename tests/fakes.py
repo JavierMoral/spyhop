@@ -122,6 +122,9 @@ class FakeOrca:
 
         return self.worktrees[worktree_id] if worktree_id else None
 
+    async def worktree_base_path(self, repository_path: Path) -> Path | None:
+        return self.root / "wt"
+
     async def show_worktree(self, orca_worktree_id: str) -> OrcaWorktree:
         if orca_worktree_id not in self.worktrees:
             raise OrcaCommandError("selector_not_found", "selector_not_found")
@@ -278,6 +281,8 @@ class Harness:
         self.tickets = FakeTickets()
         self.history = 0
         self.branches: set[str] = set()
+        self.free_gb = 500.0
+        self.measured: list[Path] = []
         self.dirty: set[Path] = set()
         self.context = ContextBuilder(
             template_environment(tmp_path / "templates"), ORCA, PLAN_REVIEW, PLAN_APPROVED
@@ -293,11 +298,14 @@ class Harness:
             context=self.context,
             agents=self.config.agents,
             max_concurrent_agents=self.config.application.max_concurrent_agents,
+            min_free_disk_gb=self.config.application.min_free_disk_gb,
             branch_exists=lambda repository, branch: branch in self.branches,
+            free_bytes=lambda path: self.free_bytes(path),
         )
         self.remover = WorktreeRemover(self.runs, self.worktrees, self.orca)
         self.janitor = WorktreeJanitor(
             remover=self.remover,
+            runs=self.runs,
             worktrees=self.worktrees,
             jira=self.tickets,
             orca=self.orca,
@@ -313,6 +321,11 @@ class Harness:
             plan_review_status=PLAN_REVIEW,
             plan_approved_status=PLAN_APPROVED,
         )
+
+    def free_bytes(self, path: Path) -> int:
+        self.measured.append(path)
+
+        return int(self.free_gb * 1024**3)
 
     def discover(self, key: str = "LPD-1") -> AutomationRun:
         self.history += 1
