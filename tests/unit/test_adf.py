@@ -1,17 +1,21 @@
+from typing import Any
+
 from spyhop.infrastructure.jira.adf import adf_to_text
 
+Node = dict[str, Any]
 
-def doc(*content: dict) -> dict:
+
+def doc(*content: Node) -> Node:
     return {"type": "doc", "version": 1, "content": list(content)}
 
 
-def paragraph(*content: dict) -> dict:
+def paragraph(*content: Node) -> Node:
     return {"type": "paragraph", "content": list(content)}
 
 
-def text(value: str, *marks: str, href: str | None = None) -> dict:
-    node: dict = {"type": "text", "text": value}
-    node_marks = [{"type": mark} for mark in marks]
+def text(value: str, *marks: str, href: str | None = None) -> Node:
+    node: Node = {"type": "text", "text": value}
+    node_marks: list[Node] = [{"type": mark} for mark in marks]
 
     if href:
         node_marks.append({"type": "link", "attrs": {"href": href}})

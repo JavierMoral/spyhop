@@ -3,10 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.domain.enums import SessionStatus, WorktreeStatus
+from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import OrcaWorktree
 from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect
-from spyhop.infrastructure.persistence.repositories import SessionRepository, WorktreeRepository
+from spyhop.infrastructure.persistence.repositories import (
+    RunRepository,
+    SessionRepository,
+    WorktreeRepository,
+)
 
 
 def orca_worktree(path: str = "/wt/LPD-1") -> OrcaWorktree:
@@ -64,7 +68,7 @@ def test_launching_session_keeps_its_operation_id(tmp_path: Path) -> None:
 
     assert sessions.find_launching("r1") == session
 
-    sessions.mark_launched(session.id, "term_1")
+    sessions.mark_launched(session.id, "term_1", "tab:leaf")
 
     [launched] = sessions.list_for_run("r1")
 
@@ -72,3 +76,34 @@ def test_launching_session_keeps_its_operation_id(tmp_path: Path) -> None:
     assert launched.status is SessionStatus.LAUNCHED
     assert launched.agent_handle == "term_1"
     assert launched.launch_operation_id == "1-abc"
+
+
+def test_status_changes_are_timestamped(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "spyhop.db")
+
+    connection.execute(
+        "INSERT INTO automation_runs (id, issue_key, workflow_name, trigger_status, "
+        "trigger_history_id, triggered_at, status, created_at) "
+        "VALUES ('r1', 'LPD-1', 'bug_fix', 'In Progress', '7', '2026-11-01', 'RUNNING', "
+        "'2026-11-01')"
+    )
+
+    runs = RunRepository(connection)
+
+    runs.set_implement_request("r1", "req-1")
+    runs.mark_waiting("r1", WaitingReason.PLAN_REVIEW, "review PLAN.md")
+
+    waiting = runs.get("r1")
+
+    assert waiting is not None and waiting.status_changed_at is not None
+    assert waiting.implement_request_id == "req-1"
+
+    runs.mark_resumed("r1")
+
+    resumed = runs.get("r1")
+
+    assert resumed is not None
+    assert resumed.waiting_reason is None and resumed.error_message is None
+    assert resumed.implement_request_id is None
+    assert resumed.status_changed_at is not None
+    assert resumed.status_changed_at >= waiting.status_changed_at

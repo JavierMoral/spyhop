@@ -245,3 +245,97 @@ def test_operation_ids_follow_orca_format() -> None:
     assert milliseconds.isdigit() and len(milliseconds) == 13
     assert len(random_part) == 32 and int(random_part, 16) >= 0
     assert first != second
+
+
+async def test_launch_agent_returns_the_agents_pane() -> None:
+    runner = FakeRunner(fixture("agent_launch.json"))
+
+    result = await client(runner).launch_agent(WORKTREE_ID, "/goal x", "1-a", None, None)
+
+    assert result.pane_key is not None and ":" in result.pane_key
+
+
+async def test_agent_rows_carry_when_their_state_started() -> None:
+    runner = FakeRunner(fixture("worktree_ps_waiting.json"))
+
+    [agent] = (await client(runner).worktree_agents())[WORKTREE_ID]
+
+    assert agent.state == "waiting"
+    assert agent.state_started_at is not None
+    assert agent.state_started_at.year == 2026
+
+
+async def test_terminals_are_matched_to_agents_by_pane() -> None:
+    runner = FakeRunner(fixture("worktree_ps_waiting.json"), fixture("terminal_list.json"))
+    orca = client(runner)
+
+    [agent] = (await orca.worktree_agents())[WORKTREE_ID]
+    terminals = await orca.terminals(WORKTREE_ID)
+
+    [claude] = [terminal for terminal in terminals if terminal.pane_key == agent.pane_key]
+
+    assert claude.title == "Claude Code"
+    assert claude.handle.startswith("term_")
+    assert runner.calls[1][0][1:] == [
+        "terminal",
+        "list",
+        "--worktree",
+        f"id:{WORKTREE_ID}",
+        "--json",
+    ]
+
+
+async def test_send_prompt_submits_with_its_request_id() -> None:
+    runner = FakeRunner(fixture("terminal_send.json"), fixture("terminal_send_replayed.json"))
+    orca = client(runner)
+
+    sent = await orca.send_prompt(
+        "term_1", "/goal Implementa", "eb517396-0618-4ae5-9cfa-0ad029904ba5"
+    )
+    replayed = await orca.send_prompt(
+        "term_1", "/goal Implementa", "eb517396-0618-4ae5-9cfa-0ad029904ba5"
+    )
+    args, time_limit, _ = runner.calls[0]
+
+    assert args[1:] == [
+        "terminal",
+        "send",
+        "--terminal",
+        "term_1",
+        "--text",
+        "/goal Implementa",
+        "--enter",
+        "--retry-request",
+        "eb517396-0618-4ae5-9cfa-0ad029904ba5",
+        "--wait-submit",
+        "15",
+        "--json",
+    ]
+    assert time_limit == 120 + 15
+    assert not sent.replayed and replayed.replayed
+    assert sent.stages == ("input_accepted", "turn_started")
+
+
+@pytest.mark.parametrize(
+    ("name", "code"),
+    [
+        ("terminal_send_mismatch.json", "request_mismatch"),
+        ("terminal_send_stale.json", "terminal_handle_stale"),
+    ],
+)
+async def test_refused_prompt_is_a_command_error(name: str, code: str) -> None:
+    # Both answers carry a request id to retry with, yet neither send happened.
+
+    runner = FakeRunner(fixture(name))
+
+    with pytest.raises(OrcaCommandError) as raised:
+        await client(runner).send_prompt("term_1", "text", "eb517396-0618-4ae5-9cfa-0ad029904ba5")
+
+    assert raised.value.code == code
+
+
+async def test_lost_prompt_answer_is_uncertain() -> None:
+    runner = FakeRunner(CommandTimeoutError(135))
+
+    with pytest.raises(OrcaUncertainError):
+        await client(runner).send_prompt("term_1", "text", "eb517396-0618-4ae5-9cfa-0ad029904ba5")

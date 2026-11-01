@@ -1,0 +1,89 @@
+{
+  "id": "8cdbad8a-72e7-4a5b-a464-6b8b00e3fab7",
+  "ok": true,
+  "result": {
+    "worktrees": [
+      {
+        "workspaceKind": "git",
+        "worktreeId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4::/home/user/git/project/wt/PROJ-123",
+        "repoId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4",
+        "hostId": "local",
+        "terminalPlatform": "linux",
+        "repo": "portal",
+        "path": "/home/user/git/project/wt/PROJ-123",
+        "branch": "refs/heads/jdoe/PROJ-123",
+        "isArchived": false,
+        "isMainWorktree": false,
+        "hasHostSidebarActivity": true,
+        "defaultBranch": false,
+        "cliCreated": true,
+        "worktreeInstanceId": "20bd81fe-1c3c-4f26-8ec5-a50241343cc1",
+        "parentWorktreeId": null,
+        "childWorktreeIds": [],
+        "displayName": "PROJ-123",
+        "workspaceStatus": "status-5",
+        "sortOrder": 1793571447925,
+        "lastActivityAt": 1793571447924,
+        "createdAt": 1793571447924,
+        "creatorProvenance": {
+          "kind": "host"
+        },
+        "linkedIssue": null,
+        "linkedPR": null,
+        "linkedLinearIssue": null,
+        "linkedGitLabMR": null,
+        "linkedGitLabIssue": null,
+        "linkedItems": [],
+        "comment": "PROJ-123: plan listo",
+        "isPinned": false,
+        "isActive": false,
+        "unread": true,
+        "liveTerminalCount": 2,
+        "hasAttachedPty": true,
+        "unverifiableTerminalCount": 0,
+        "lastOutputAt": 1793571470743,
+        "preview": "",
+        "status": "active",
+        "agents": [
+          {
+            "paneKey": "416ad80a-bb6d-4e69-9f1a-1ab302a554a3:253df9e2-6fd4-4815-9d7f-bc992f9b51c0",
+            "parentPaneKey": null,
+            "state": "done",
+            "agentType": "claude",
+            "prompt": "/goal Escribe en la raíz del worktree un fichero PLAN.md con el texto 'plan de prueba'. No hagas nada más salvo, al terminar, ejecutar: /home/user/.local/bin/orca-ide worktree set --worktree active ",
+            "taskTitle": null,
+            "displayName": null,
+            "lastAssistantMessage": "Creé `PLAN.md` en la raíz del worktree (`/home/user/git/project/wt/PROJ-123/PLAN.md`) con el texto `plan de prueba`. Después ejecuté el comando de orca-ide: el worktree quedó con el comentario \"PROJ-123: plan listo\", estado `status-5` y marcado como no leído.",
+            "toolName": "Bash",
+            "toolInput": "/home/user/.local/bin/orca-ide worktree set --worktree active --workspace-status status-5 --comment 'PROJ-123: plan listo' --unread --json",
+            "interrupted": false,
+            "mainAgent": {
+              "state": "done",
+              "stateStartedAt": 1793571465080
+            },
+            "stateStartedAt": 1793571465081,
+            "updatedAt": 1793571466051,
+            "hasLivePty": true,
+            "programStatus": {
+              "state": "done",
+              "observedAt": 1793571468027
+            }
+          }
+        ],
+        "sidebarStatus": "done",
+        "terminalVerdict": "live"
+      }
+    ],
+    "hostScope": {
+      "hostIds": [
+        "local"
+      ],
+      "omittedHostIds": []
+    },
+    "totalCount": 1,
+    "truncated": false
+  },
+  "_meta": {
+    "runtimeId": "0e19a2d7-35cd-4680-b222-ecb1a69e876f"
+  }
+}
