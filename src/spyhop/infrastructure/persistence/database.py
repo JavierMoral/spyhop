@@ -73,6 +73,36 @@ _MIGRATIONS = [
         last_error TEXT
     );
     """,
+    # A ticket reopened after its worktree was removed gets a new worktree, so
+    # issue_key is only unique among worktrees that still exist. Phase 1 never
+    # wrote this table, so it can be rebuilt without touching references.
+    """
+    CREATE TABLE worktrees_new (
+        id TEXT PRIMARY KEY,
+        issue_key TEXT NOT NULL,
+        orca_worktree_id TEXT NOT NULL,
+        repository_path TEXT NOT NULL,
+        path TEXT NOT NULL,
+        branch_name TEXT NOT NULL,
+        base_branch TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        cleanup_error TEXT,
+        removed_at TEXT
+    );
+
+    INSERT INTO worktrees_new SELECT * FROM worktrees;
+
+    DROP TABLE worktrees;
+
+    ALTER TABLE worktrees_new RENAME TO worktrees;
+
+    CREATE UNIQUE INDEX idx_one_worktree_per_issue
+    ON worktrees(issue_key)
+    WHERE status != 'REMOVED';
+
+    CREATE INDEX idx_agent_sessions_run ON agent_sessions(run_id);
+    """,
 ]
 
 

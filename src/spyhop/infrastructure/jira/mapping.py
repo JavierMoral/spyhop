@@ -3,9 +3,12 @@
 from datetime import datetime
 from typing import Any
 
-from spyhop.domain.models import JiraIssue, StatusChange
+from spyhop.domain.models import JiraComment, JiraIssue, StatusChange, TicketDetails
+from spyhop.infrastructure.jira.adf import adf_to_text
 
 SEARCH_FIELDS = ["assignee", "issuetype", "project", "status", "summary", "updated"]
+
+TICKET_FIELDS = ["description", "issuetype", "parent", "status", "summary"]
 
 
 def parse_jira_datetime(value: str) -> datetime:
@@ -56,3 +59,34 @@ def to_status_changes(histories: list[dict[str, Any]]) -> tuple[StatusChange, ..
     ]
 
     return tuple(sorted(changes, key=lambda change: change.created))
+
+
+def to_ticket_details(
+    issue: dict[str, Any],
+    comments: list[dict[str, Any]],
+    base_url: str,
+    acceptance_criteria_fields: list[str],
+) -> TicketDetails:
+    fields = issue["fields"]
+    parent = fields.get("parent") or {}
+    criteria = [adf_to_text(fields.get(field)) for field in acceptance_criteria_fields]
+
+    return TicketDetails(
+        key=issue["key"],
+        url=f"{base_url.rstrip('/')}/browse/{issue['key']}",
+        summary=fields.get("summary") or "",
+        issue_type=(fields.get("issuetype") or {}).get("name", ""),
+        status=(fields.get("status") or {}).get("name", ""),
+        description=adf_to_text(fields.get("description")),
+        acceptance_criteria="\n\n".join(text for text in criteria if text),
+        comments=tuple(
+            JiraComment(
+                author=(comment.get("author") or {}).get("displayName", "unknown"),
+                created=parse_jira_datetime(comment["created"]),
+                body=adf_to_text(comment.get("body")),
+            )
+            for comment in comments
+        ),
+        parent_key=parent.get("key"),
+        parent_summary=(parent.get("fields") or {}).get("summary"),
+    )

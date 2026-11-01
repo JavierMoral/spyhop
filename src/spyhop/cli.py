@@ -118,6 +118,12 @@ def status(
             f"{automation_run.trigger_status}"
         )
 
+        if automation_run.waiting_reason:
+            typer.echo(f"{'':<14}waiting: {automation_run.waiting_reason}")
+
+        if automation_run.error_message:
+            typer.echo(f"{'':<14}{automation_run.error_message}")
+
 
 @app.command()
 def doctor(config: ConfigOption = None) -> None:

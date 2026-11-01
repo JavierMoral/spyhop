@@ -43,11 +43,15 @@ class JiraSettings(BaseModel):
     token_env: str = "JIRA_API_TOKEN"
     request_timeout: float = Field(default=20, gt=0)
     transition_margin_minutes: int = Field(default=5, ge=1)
+    acceptance_criteria_fields: list[str] = Field(default_factory=list)
+    max_comments: int = Field(default=20, ge=0)
 
 
 class RepositorySettings(BaseModel):
     path: ExpandedPath
     default_base_branch: str = "master"
+    setup: Literal["inherit", "run", "skip"] = "inherit"
+    build_commands: list[str] = Field(default_factory=list)
 
 
 class WorkflowSettings(BaseModel):
@@ -68,6 +72,10 @@ class OrcaSettings(BaseModel):
     executable: ExpandedPath | None = None
     startup_timeout: float = Field(default=30, gt=0)
     operation_timeout: float = Field(default=120, gt=0)
+    # Board column id for cards whose plan awaits review. Orca assigns ids to
+    # custom columns itself (status-N), so the default is a built-in column.
+
+    plan_review_status: str = "in-review"
 
 
 class AgentSettings(BaseModel):

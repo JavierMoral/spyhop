@@ -3,24 +3,36 @@
 import asyncio
 import logging
 import signal
+import sqlite3
 from contextlib import AsyncExitStack, suppress
 from datetime import timedelta
 from pathlib import Path
 
+from spyhop.application.context_builder import ContextBuilder, template_environment
+from spyhop.application.launcher import AgentLauncher
 from spyhop.application.monitor import JiraMonitor
 from spyhop.application.orchestrator import Orchestrator
 from spyhop.application.transition_detector import TransitionDetector
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import credentials_from_environment
-from spyhop.config.paths import database_file
+from spyhop.config.paths import database_file, state_dir, user_templates_dir
 from spyhop.config.settings import Settings
-from spyhop.domain.exceptions import JiraAuthenticationError, JiraError, JiraRateLimitedError
+from spyhop.domain.exceptions import (
+    JiraAuthenticationError,
+    JiraError,
+    JiraRateLimitedError,
+    OrcaError,
+)
 from spyhop.infrastructure.jira.client import JiraClient
+from spyhop.infrastructure.orca.client import OrcaClient
+from spyhop.infrastructure.orca.discovery import find_orca_executable
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     ObservationRepository,
     PollerStateRepository,
     RunRepository,
+    SessionRepository,
+    WorktreeRepository,
 )
 
 _log = logging.getLogger(__name__)
@@ -54,6 +66,7 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
         stack.callback(connection.close)
 
         resolver = WorkflowResolver(settings)
+        launcher = None if dry_run else _launcher(settings, connection, resolver, jira)
         monitor = JiraMonitor(
             detector=TransitionDetector(jira, resolver, user.time_zone),
             orchestrator=Orchestrator(RunRepository(connection), dry_run),
@@ -80,6 +93,14 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 _log.warning("Poll failed, will retry: %s", error)
                 monitor.record_error(str(error))
 
+            if launcher is not None:
+                try:
+                    await launcher.launch_pending()
+                except JiraAuthenticationError:
+                    raise
+                except (JiraError, OrcaError) as error:
+                    _log.warning("Launching failed, will retry: %s", error)
+
             if once:
                 return
 
@@ -87,6 +108,50 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 await asyncio.wait_for(stop.wait(), delay)
 
         _log.info("Spyhop stopped")
+
+
+def _launcher(
+    settings: Settings,
+    connection: sqlite3.Connection,
+    resolver: WorkflowResolver,
+    jira: JiraClient,
+) -> AgentLauncher | None:
+    try:
+        executable = find_orca_executable(settings.orca.executable)
+    except OrcaError as error:
+        _log.error("Agents will not be launched until this is fixed: %s", error)
+
+        return None
+
+    # Orca replays a lost launch only when it is retried from the same
+    # directory, so every command runs from Spyhop's state directory.
+
+    cwd = state_dir()
+
+    cwd.mkdir(parents=True, exist_ok=True)
+
+    orca = OrcaClient(
+        executable, cwd, settings.orca.startup_timeout, settings.orca.operation_timeout
+    )
+
+    _log.info("Launching agents through %s", executable)
+
+    return AgentLauncher(
+        runs=RunRepository(connection),
+        worktrees=WorktreeRepository(connection),
+        sessions=SessionRepository(connection),
+        resolver=resolver,
+        jira=jira,
+        jira_settings=settings.jira,
+        orca=orca,
+        context=ContextBuilder(
+            template_environment(user_templates_dir()),
+            executable,
+            settings.orca.plan_review_status,
+        ),
+        agents=settings.agents,
+        max_concurrent_agents=settings.application.max_concurrent_agents,
+    )
 
 
 def _stop_event() -> asyncio.Event:

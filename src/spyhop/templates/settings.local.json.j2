@@ -1,0 +1,22 @@
+{#- Permission profile written to <worktree>/.claude/settings.local.json.
+    Orca starts Claude with --dangerously-skip-permissions, so "allow" only
+    matters if that changes; "deny" is enforced either way. -#}
+{%- set allow = [] -%}
+{%- for command in ["git status", "git diff", "git log", "git show", "git add", "git commit"] -%}
+{%- do allow.append("Bash(" ~ command ~ "*)") -%}
+{%- endfor -%}
+{%- for command in build_commands -%}
+{%- do allow.append("Bash(" ~ command ~ "*)") -%}
+{%- endfor -%}
+{%- set deny = [
+    "Bash(git push*)", "Bash(gh pr*)", "Bash(git reset --hard*)",
+    "Bash(git worktree remove*)", "Bash(curl*)", "Bash(wget*)"] -%}
+{%- for orca in orca_commands -%}
+{%- do allow.append("Bash(" ~ orca ~ " worktree set --worktree active*)") -%}
+{%- do allow.append("Bash(" ~ orca ~ " jira issue*)") -%}
+{%- do allow.append("Bash(" ~ orca ~ " jira comment list*)") -%}
+{%- do deny.append("Bash(" ~ orca ~ " jira status*)") -%}
+{%- do deny.append("Bash(" ~ orca ~ " jira comment add*)") -%}
+{%- do deny.append("Bash(" ~ orca ~ " worktree rm*)") -%}
+{%- endfor -%}
+{{ {"permissions": {"defaultMode": "acceptEdits", "allow": allow, "deny": deny}} | tojson(indent=2) }}

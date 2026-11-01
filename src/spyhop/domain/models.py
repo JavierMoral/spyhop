@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from spyhop.domain.enums import RunStatus, WaitingReason
+from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,8 @@ class ResolvedWorkflow:
     base_branch: str
     prompt: str
     plan_review: bool
+    setup: str = "inherit"
+    build_commands: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,3 +75,88 @@ class AutomationRun:
     finished_at: datetime | None
     error_message: str | None
     retry_of: str | None
+
+
+@dataclass(frozen=True)
+class JiraComment:
+    author: str
+    created: datetime
+    body: str
+
+
+@dataclass(frozen=True)
+class TicketDetails:
+    """What the agent gets to know about a ticket, read right before launching.
+
+    Every text field comes from JIRA and is untrusted data, never instructions."""
+
+    key: str
+    url: str
+    summary: str
+    issue_type: str
+    status: str
+    description: str
+    acceptance_criteria: str
+    comments: tuple[JiraComment, ...]
+    parent_key: str | None = None
+    parent_summary: str | None = None
+
+
+@dataclass(frozen=True)
+class Worktree:
+    id: str
+    issue_key: str
+    orca_worktree_id: str
+    repository_path: Path
+    path: Path
+    branch_name: str
+    base_branch: str
+    created_at: datetime
+    status: WorktreeStatus
+    cleanup_error: str | None
+    removed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AgentSession:
+    id: str
+    run_id: str
+    provider: str
+    model: str | None
+    agent_handle: str | None
+    launch_operation_id: str | None
+    status: SessionStatus
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True)
+class OrcaWorktree:
+    """A worktree as Orca reports it. ``id`` is Orca's ``<repoId>::<path>``."""
+
+    id: str
+    path: Path
+    branch: str
+    base_ref: str | None
+    workspace_status: str | None
+    comment: str
+    unread: bool
+
+
+@dataclass(frozen=True)
+class LaunchResult:
+    agent_handle: str
+    operation_id: str
+    surface: str
+    prompt_outcome: str | None
+
+
+@dataclass(frozen=True)
+class AgentRow:
+    """One agent of a worktree in `orca worktree ps`."""
+
+    agent_type: str
+    state: str
+    pane_key: str | None
+    has_live_pty: bool
+    prompt: str | None

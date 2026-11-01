@@ -9,8 +9,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from jinja2 import TemplateError
+
+from spyhop.application.context_builder import template_environment
 from spyhop.config.credentials import JiraCredentials, read_env_file
-from spyhop.config.paths import systemd_user_unit_file
+from spyhop.config.paths import systemd_user_unit_file, user_templates_dir
 from spyhop.config.settings import ProjectSettings, Settings, load_settings
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.infrastructure.jira.client import JiraClient
@@ -44,6 +47,7 @@ async def run_checks(config_file: Path) -> list[Check]:
     checks.extend(credential_checks)
     checks.extend(await _check_jira(settings, credentials))
     checks.extend(_check_repositories(settings))
+    checks.append(_check_templates(settings))
     checks.append(await _check_orca(settings))
     checks.extend(_check_service())
 
@@ -190,6 +194,34 @@ def _check_repositories(settings: Settings) -> list[Check]:
             checks.append(Check(Level.OK, f"repository {alias}", str(repository.path)))
 
     return checks
+
+
+def _check_templates(settings: Settings, user_templates: Path | None = None) -> Check:
+    user_templates = user_templates or user_templates_dir()
+    environment = template_environment(user_templates)
+    names = {"task.md", "goal.md", "settings.local.json.j2"} | {
+        workflow.prompt
+        for project in settings.enabled_projects().values()
+        for workflow in project.workflows.values()
+    }
+    problems = []
+
+    for name in sorted(names):
+        try:
+            environment.get_template(name)
+        except TemplateError as error:
+            problems.append(f"{name}: {error}")
+
+    if problems:
+        return Check(Level.ERROR, "templates", "; ".join(problems))
+
+    custom = sorted(path.name for path in user_templates.glob("*") if path.name in names)
+    detail = f"{len(names)} found"
+
+    if custom:
+        detail += f"; customized in {user_templates}: {', '.join(custom)}"
+
+    return Check(Level.OK, "templates", detail)
 
 
 async def _check_orca(settings: Settings) -> Check:

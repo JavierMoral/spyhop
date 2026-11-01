@@ -1,7 +1,6 @@
-"""Registers detected entries as automation runs.
+"""Registers detected entries as automation runs in DISCOVERED.
 
-Phase 1 stops at DISCOVERED: preparing worktrees and launching agents come in
-later phases.
+AgentLauncher takes them from there; in dry-run mode nothing else happens.
 """
 
 import logging

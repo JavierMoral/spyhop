@@ -1,4 +1,4 @@
-from spyhop.config.settings import Settings
+from spyhop.config.settings import Settings, WorkflowSettings
 from spyhop.domain.models import ResolvedWorkflow
 
 
@@ -13,20 +13,22 @@ class WorkflowResolver:
             return None
 
         for workflow_issue_type, workflow in project.workflows.items():
-            if workflow_issue_type.casefold() != issue_type.casefold():
-                continue
+            if workflow_issue_type.casefold() == issue_type.casefold():
+                return self._resolved(workflow)
 
-            repository = self._settings.repositories[workflow.repository]
+        return None
 
-            return ResolvedWorkflow(
-                name=workflow.name,
-                trigger_statuses=tuple(workflow.trigger_statuses),
-                repository_alias=workflow.repository,
-                repository_path=repository.path,
-                base_branch=workflow.base_branch or repository.default_base_branch,
-                prompt=workflow.prompt,
-                plan_review=workflow.plan_review,
-            )
+    def resolve_by_name(self, project_key: str, workflow_name: str) -> ResolvedWorkflow | None:
+        """The workflow a run was created with, looked up again when launching."""
+
+        project = self._settings.enabled_projects().get(project_key)
+
+        if project is None:
+            return None
+
+        for workflow in project.workflows.values():
+            if workflow.name == workflow_name:
+                return self._resolved(workflow)
 
         return None
 
@@ -43,4 +45,19 @@ class WorkflowResolver:
                 for workflow in project.workflows.values()
                 for status in workflow.trigger_statuses
             }
+        )
+
+    def _resolved(self, workflow: WorkflowSettings) -> ResolvedWorkflow:
+        repository = self._settings.repositories[workflow.repository]
+
+        return ResolvedWorkflow(
+            name=workflow.name,
+            trigger_statuses=tuple(workflow.trigger_statuses),
+            repository_alias=workflow.repository,
+            repository_path=repository.path,
+            base_branch=workflow.base_branch or repository.default_base_branch,
+            prompt=workflow.prompt,
+            plan_review=workflow.plan_review,
+            setup=repository.setup,
+            build_commands=tuple(repository.build_commands),
         )

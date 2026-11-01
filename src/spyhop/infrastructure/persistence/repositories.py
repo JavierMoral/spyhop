@@ -1,9 +1,18 @@
+import builtins
 import sqlite3
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
-from spyhop.domain.enums import RunStatus, WaitingReason
-from spyhop.domain.models import AutomationRun, IssueEntry, JiraIssue
+from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
+from spyhop.domain.models import (
+    AgentSession,
+    AutomationRun,
+    IssueEntry,
+    JiraIssue,
+    OrcaWorktree,
+    Worktree,
+)
 
 
 def utc_now() -> datetime:
@@ -90,6 +99,181 @@ class RunRepository:
 
         return [_to_run(row) for row in self._connection.execute(query, parameters)]
 
+    def list_by_status(self, *statuses: RunStatus) -> builtins.list[AutomationRun]:
+        """Oldest first, the order in which pending runs are launched."""
+
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = self._connection.execute(
+            f"SELECT * FROM automation_runs WHERE status IN ({placeholders}) "
+            "ORDER BY triggered_at, created_at",
+            statuses,
+        )
+
+        return [_to_run(row) for row in rows]
+
+    def count_by_status(self, *statuses: RunStatus) -> int:
+        placeholders = ", ".join("?" for _ in statuses)
+        row = self._connection.execute(
+            f"SELECT COUNT(*) FROM automation_runs WHERE status IN ({placeholders})", statuses
+        ).fetchone()
+
+        return int(row[0])
+
+    def mark_preparing(self, run_id: str) -> None:
+        self._update(run_id, RunStatus.PREPARING)
+
+    def mark_ready(self, run_id: str, worktree_id: str) -> None:
+        self._update(run_id, RunStatus.READY, worktree_id=worktree_id)
+
+    def mark_running(self, run_id: str) -> None:
+        self._update(run_id, RunStatus.RUNNING, started_at=_to_text(utc_now()))
+
+    def mark_waiting(self, run_id: str, reason: WaitingReason, message: str | None = None) -> None:
+        self._update(
+            run_id, RunStatus.WAITING_FOR_HUMAN, waiting_reason=reason, error_message=message
+        )
+
+    def mark_failed(self, run_id: str, error_message: str) -> None:
+        self._update(
+            run_id,
+            RunStatus.FAILED,
+            error_message=error_message[:2000],
+            finished_at=_to_text(utc_now()),
+        )
+
+    def _update(self, run_id: str, status: RunStatus, **columns: str | None) -> None:
+        assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
+
+        self._connection.execute(
+            f"UPDATE automation_runs SET {assignments} WHERE id = ?",
+            (status, *columns.values(), run_id),
+        )
+
+
+class WorktreeRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def get(self, worktree_id: str) -> Worktree | None:
+        row = self._connection.execute(
+            "SELECT * FROM worktrees WHERE id = ?", (worktree_id,)
+        ).fetchone()
+
+        return _to_worktree(row) if row else None
+
+    def find_current(self, issue_key: str) -> Worktree | None:
+        """The ticket's worktree unless it was removed."""
+
+        row = self._connection.execute(
+            "SELECT * FROM worktrees WHERE issue_key = ? AND status != ?",
+            (issue_key, WorktreeStatus.REMOVED),
+        ).fetchone()
+
+        return _to_worktree(row) if row else None
+
+    def create(
+        self,
+        issue_key: str,
+        orca_worktree: OrcaWorktree,
+        repository_path: Path,
+        base_branch: str,
+    ) -> Worktree:
+        worktree_id = str(uuid.uuid4())
+
+        self._connection.execute(
+            """
+            INSERT INTO worktrees (
+                id, issue_key, orca_worktree_id, repository_path, path, branch_name,
+                base_branch, created_at, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                worktree_id,
+                issue_key,
+                orca_worktree.id,
+                str(repository_path),
+                str(orca_worktree.path),
+                orca_worktree.branch,
+                base_branch,
+                _to_text(utc_now()),
+                WorktreeStatus.ACTIVE,
+            ),
+        )
+
+        worktree = self.get(worktree_id)
+
+        assert worktree is not None
+
+        return worktree
+
+    def mark_removed(self, worktree_id: str, reason: str | None = None) -> None:
+        self._connection.execute(
+            "UPDATE worktrees SET status = ?, cleanup_error = ?, removed_at = ? WHERE id = ?",
+            (WorktreeStatus.REMOVED, reason, _to_text(utc_now()), worktree_id),
+        )
+
+
+class SessionRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def find_launching(self, run_id: str) -> AgentSession | None:
+        row = self._connection.execute(
+            "SELECT * FROM agent_sessions WHERE run_id = ? AND status = ?",
+            (run_id, SessionStatus.LAUNCHING),
+        ).fetchone()
+
+        return _to_session(row) if row else None
+
+    def create_launching(
+        self, run_id: str, provider: str, model: str | None, operation_id: str
+    ) -> AgentSession:
+        """Stored before calling Orca, so a launch interrupted at any point is
+        retried with the same operation id."""
+
+        session_id = str(uuid.uuid4())
+
+        self._connection.execute(
+            """
+            INSERT INTO agent_sessions (
+                id, run_id, provider, model, launch_operation_id, status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, run_id, provider, model, operation_id, SessionStatus.LAUNCHING),
+        )
+
+        session = self.get(session_id)
+
+        assert session is not None
+
+        return session
+
+    def mark_launched(self, session_id: str, agent_handle: str) -> None:
+        self._connection.execute(
+            "UPDATE agent_sessions SET status = ?, agent_handle = ?, started_at = ? WHERE id = ?",
+            (SessionStatus.LAUNCHED, agent_handle, _to_text(utc_now()), session_id),
+        )
+
+    def mark_failed(self, session_id: str) -> None:
+        self._connection.execute(
+            "UPDATE agent_sessions SET status = ?, finished_at = ? WHERE id = ?",
+            (SessionStatus.FAILED, _to_text(utc_now()), session_id),
+        )
+
+    def get(self, session_id: str) -> AgentSession | None:
+        row = self._connection.execute(
+            "SELECT * FROM agent_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+
+        return _to_session(row) if row else None
+
+    def list_for_run(self, run_id: str) -> list[AgentSession]:
+        rows = self._connection.execute(
+            "SELECT * FROM agent_sessions WHERE run_id = ? ORDER BY rowid", (run_id,)
+        )
+
+        return [_to_session(row) for row in rows]
+
 
 class PollerStateRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
@@ -175,4 +359,34 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         finished_at=_to_datetime(row["finished_at"]),
         error_message=row["error_message"],
         retry_of=row["retry_of"],
+    )
+
+
+def _to_worktree(row: sqlite3.Row) -> Worktree:
+    return Worktree(
+        id=row["id"],
+        issue_key=row["issue_key"],
+        orca_worktree_id=row["orca_worktree_id"],
+        repository_path=Path(row["repository_path"]),
+        path=Path(row["path"]),
+        branch_name=row["branch_name"],
+        base_branch=row["base_branch"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        status=WorktreeStatus(row["status"]),
+        cleanup_error=row["cleanup_error"],
+        removed_at=_to_datetime(row["removed_at"]),
+    )
+
+
+def _to_session(row: sqlite3.Row) -> AgentSession:
+    return AgentSession(
+        id=row["id"],
+        run_id=row["run_id"],
+        provider=row["provider"],
+        model=row["model"],
+        agent_handle=row["agent_handle"],
+        launch_operation_id=row["launch_operation_id"],
+        status=SessionStatus(row["status"]),
+        started_at=_to_datetime(row["started_at"]),
+        finished_at=_to_datetime(row["finished_at"]),
     )

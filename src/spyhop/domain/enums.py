@@ -27,3 +27,9 @@ class WorktreeStatus(StrEnum):
     REMOVING = "REMOVING"
     CLEANUP_BLOCKED = "CLEANUP_BLOCKED"
     REMOVED = "REMOVED"
+
+
+class SessionStatus(StrEnum):
+    LAUNCHING = "LAUNCHING"  # operation id stored, Orca's answer not received yet
+    LAUNCHED = "LAUNCHED"
+    FAILED = "FAILED"

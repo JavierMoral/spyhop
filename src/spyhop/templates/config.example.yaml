@@ -17,11 +17,15 @@ jira:
   token_env: JIRA_API_TOKEN
   request_timeout: 20
   transition_margin_minutes: 5
+  acceptance_criteria_fields: []  # custom fields copied to TASK.md, e.g. [customfield_10048]
+  max_comments: 20                # latest comments copied to TASK.md
 
 repositories:                     # alias -> path on this machine
   main:
     path: ~/git/your-repository
     default_base_branch: master
+    setup: inherit                # Orca setup hooks for new worktrees: inherit | run | skip
+    build_commands: []            # allowed to the agent, e.g. ["./gradlew", "ant"]
 
 projects:
   PROJ:
@@ -31,7 +35,7 @@ projects:
         name: bug_fix
         trigger_statuses: ["In Progress"]
         repository: main
-        prompt: bug_fix.md
+        prompt: bug_fix.md        # workflow guidance added to TASK.md
         plan_review: true
       Story:
         name: feature
@@ -50,6 +54,12 @@ orca:
   # executable: ~/.local/bin/orca-ide   # autodetected when omitted
   startup_timeout: 30
   operation_timeout: 120
+  # Board column the agent moves its card to when the plan is ready. To keep
+  # plans apart from pull requests, add a "Plan review" column to the Orca
+  # board and put its id here: Orca names custom columns status-N, and the id
+  # is in workspaceStatuses of the "ui" document in
+  # ~/.config/orca/profiles/<profile>/profile-state.db.
+  plan_review_status: in-review
 
 agents:
   provider: claude

@@ -98,6 +98,27 @@ class JiraClient:
 
             body["nextPageToken"] = next_page_token
 
+    async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]:
+        data: dict[str, Any] = await self._request(
+            "GET", f"/rest/api/3/issue/{issue_key}", params={"fields": ",".join(fields)}
+        )
+
+        return data
+
+    async def comments(self, issue_key: str, limit: int) -> list[dict[str, Any]]:
+        """The last ``limit`` comments, oldest first."""
+
+        if limit <= 0:
+            return []
+
+        data = await self._request(
+            "GET",
+            f"/rest/api/3/issue/{issue_key}/comment",
+            params={"maxResults": limit, "orderBy": "-created"},
+        )
+
+        return list(reversed(data.get("comments", [])))
+
     async def changelog(self, issue_key: str) -> list[dict[str, Any]]:
         histories: list[dict[str, Any]] = []
         start_at = 0

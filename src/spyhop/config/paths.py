@@ -27,6 +27,10 @@ def default_config_file() -> Path:
     return config_dir() / "config.yaml"
 
 
+def user_templates_dir() -> Path:
+    return config_dir() / "templates"
+
+
 def default_env_file() -> Path:
     return config_dir() / "env"
 
