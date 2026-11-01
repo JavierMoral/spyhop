@@ -36,6 +36,7 @@ from spyhop.domain.models import (
     Worktree,
 )
 from spyhop.domain.protocols import OrcaGateway, TicketGateway
+from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.git import branch_exists
 from spyhop.infrastructure.jira.mapping import TICKET_FIELDS, to_ticket_details
 from spyhop.infrastructure.orca.client import new_operation_id
@@ -88,7 +89,9 @@ class AgentLauncher:
         context: ContextBuilder,
         agents: AgentSettings,
         max_concurrent_agents: int,
+        min_free_disk_gb: float = 0,
         branch_exists: Callable[[Path, str], bool] = branch_exists,
+        free_bytes: Callable[[Path], int] = free_bytes,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
@@ -100,7 +103,9 @@ class AgentLauncher:
         self._context = context
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
+        self._min_free_bytes = int(min_free_disk_gb * GIB)
         self._branch_exists = branch_exists
+        self._free_bytes = free_bytes
 
     async def launch_pending(self) -> list[AutomationRun]:
         """Advances pending runs, oldest first, while there are free slots.
@@ -140,6 +145,9 @@ class AgentLauncher:
 
     async def _advance(self, run: AutomationRun) -> bool:
         try:
+            if await self._waiting_for_disk(run):
+                return False
+
             prepared = await self._prepare(run)
 
             return await self._launch(run, prepared)
@@ -153,6 +161,41 @@ class AgentLauncher:
             _log.warning("%s: will retry next cycle: %s", run.issue_key, error)
 
         return False
+
+    async def _waiting_for_disk(self, run: AutomationRun) -> bool:
+        """Whether the run needs a new worktree and the disk that would hold
+        it is below min_free_disk_gb. Checked before reading the ticket, so a
+        waiting run costs no JIRA request. The run keeps its pending status:
+        it holds no agent slot and resumes by itself once space is freed,
+        for example when a closed ticket's worktree is removed."""
+
+        if self._min_free_bytes <= 0 or self._worktrees.find_current(run.issue_key):
+            return False
+
+        workflow = self._workflow(run)
+
+        try:
+            location = await self._orca.worktree_base_path(workflow.repository_path)
+        except OrcaCommandError:
+            location = None
+
+        location = location or workflow.repository_path
+        free = self._free_bytes(location)
+
+        if free >= self._min_free_bytes:
+            return False
+
+        message = (
+            f"waiting for disk space: {free / GIB:.1f} GB free in {location}, "
+            f"{self._min_free_bytes / GIB:g} GB required to create a worktree"
+        )
+
+        if run.waiting_reason is not WaitingReason.DISK_SPACE:
+            _log.warning("%s: %s", run.issue_key, message)
+
+        self._runs.note_disk_wait(run.id, message)
+
+        return True
 
     async def _prepare(self, run: AutomationRun) -> _Prepared:
         workflow = self._workflow(run)

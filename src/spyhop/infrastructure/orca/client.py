@@ -122,6 +122,18 @@ class OrcaClient:
 
         return await self.show_worktree(ids[0])
 
+    async def worktree_base_path(self, repository_path: Path) -> Path | None:
+        """Where Orca creates the repository's worktrees, when configured."""
+
+        result = await self._call(
+            ["repo", "show", "--repo", f"path:{repository_path}"],
+            self._operation_timeout,
+            uncertain=False,
+        )
+        base = (result.get("repo") or {}).get("worktreeBasePath")
+
+        return Path(base) if base else None
+
     async def show_worktree(self, orca_worktree_id: str) -> OrcaWorktree:
         result = await self._call(
             ["worktree", "show", "--worktree", f"id:{orca_worktree_id}"],

@@ -38,6 +38,9 @@ ExpandedPath = Annotated[Path, BeforeValidator(_expand)]
 class ApplicationSettings(BaseModel):
     polling_interval: int = Field(default=45, ge=10)
     max_concurrent_agents: int = Field(default=1, ge=1)
+    # No new worktree is created while the disk that would hold it has less
+    # free space than this. 0 disables the check.
+    min_free_disk_gb: float = Field(default=20, ge=0)
     dry_run: bool = True
     timezone: str | None = None
 

@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from enum import StrEnum
 from pathlib import Path
 
+from spyhop.application.launcher import PENDING
 from spyhop.config.settings import CleanupSettings
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import (
@@ -48,6 +49,7 @@ class WorktreeJanitor:
     def __init__(
         self,
         remover: "WorktreeRemover",
+        runs: RunRepository,
         worktrees: WorktreeRepository,
         jira: JiraGateway,
         orca: OrcaGateway,
@@ -55,6 +57,7 @@ class WorktreeJanitor:
         has_changes: Callable[[Path], bool] = has_changes,
     ) -> None:
         self._remover = remover
+        self._runs = runs
         self._worktrees = worktrees
         self._jira = jira
         self._orca = orca
@@ -71,15 +74,36 @@ class WorktreeJanitor:
         candidates = self._worktrees.list_by_status(
             WorktreeStatus.ACTIVE, WorktreeStatus.CLEANUP_BLOCKED
         )
+        # Pending runs without a worktree, such as one waiting for disk space,
+        # are cancelled when their ticket closes; nothing else would end them.
 
-        if candidates:
-            closed = await self._closed_keys(sorted({w.issue_key for w in candidates}))
+        unstarted = [
+            run
+            for run in self._runs.list_by_status(*PENDING)
+            if self._worktrees.find_current(run.issue_key) is None
+        ]
+        keys = {worktree.issue_key for worktree in candidates}
+        keys.update(run.issue_key for run in unstarted)
+
+        if keys:
+            closed = await self._closed_keys(sorted(keys))
 
             due += [
                 worktree
                 for worktree in candidates
                 if worktree.issue_key in closed and self._may_remove(worktree)
             ]
+
+            for run in unstarted:
+                if run.issue_key in closed:
+                    self._runs.mark_cancelled(run.id, TICKET_CLOSED)
+
+                    _log.info(
+                        "%s: run %s cancelled before it started (%s)",
+                        run.issue_key,
+                        run.id,
+                        TICKET_CLOSED,
+                    )
 
         if not due:
             return []

@@ -8,6 +8,7 @@
 application:
   polling_interval: 45            # seconds
   max_concurrent_agents: 1
+  min_free_disk_gb: 20            # no new worktrees below this free space; 0 disables
   dry_run: true                   # only log what would be done
   # timezone: Europe/Madrid       # defaults to the system time zone
 

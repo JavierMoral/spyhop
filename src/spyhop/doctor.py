@@ -17,6 +17,7 @@ from spyhop.config.credentials import JiraCredentials, read_env_file
 from spyhop.config.paths import systemd_user_unit_file, user_templates_dir
 from spyhop.config.settings import ProjectSettings, Settings, load_settings
 from spyhop.domain.exceptions import JiraError, SpyhopError
+from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.discovery import check_runtime, find_orca_executable
 from spyhop.infrastructure.service.systemd import linger_enabled, unit_active
@@ -214,8 +215,32 @@ def _check_repositories(settings: Settings) -> list[Check]:
             )
         else:
             checks.append(Check(Level.OK, f"repository {alias}", str(repository.path)))
+            checks.append(
+                _check_disk(alias, repository.path, settings.application.min_free_disk_gb)
+            )
 
     return checks
+
+
+def _check_disk(alias: str, path: Path, min_free_gb: float) -> Check:
+    """Measured on the repository's disk; Orca's worktree directory, which the
+    daemon measures, is usually on the same one."""
+
+    free = free_bytes(path) / GIB
+    name = f"disk {alias}"
+
+    if min_free_gb <= 0:
+        return Check(Level.OK, name, f"{free:.0f} GB free (no minimum)")
+
+    if free < min_free_gb:
+        return Check(
+            Level.WARNING,
+            name,
+            f"{free:.1f} GB free, below min_free_disk_gb ({min_free_gb:g} GB): "
+            "no new worktrees until space is freed",
+        )
+
+    return Check(Level.OK, name, f"{free:.0f} GB free (minimum {min_free_gb:g} GB)")
 
 
 def _check_templates(settings: Settings, user_templates: Path | None = None) -> Check:

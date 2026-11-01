@@ -175,10 +175,12 @@ def _agents(
         context=context,
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,
+        min_free_disk_gb=settings.application.min_free_disk_gb,
     )
 
     janitor = WorktreeJanitor(
         remover=WorktreeRemover(runs, worktrees, orca),
+        runs=runs,
         worktrees=worktrees,
         jira=jira,
         orca=orca,

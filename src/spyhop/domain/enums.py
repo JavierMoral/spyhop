@@ -20,6 +20,9 @@ class WaitingReason(StrEnum):
     PLAN_REVIEW = "plan_review"
     AGENT_QUESTION = "agent_question"
     UNKNOWN_STATE = "unknown_state"
+    # Not a WAITING_FOR_HUMAN reason: a pending run waiting for free disk
+    # space to create its worktree. It resumes by itself.
+    DISK_SPACE = "disk_space"
 
 
 class WorktreeStatus(StrEnum):
