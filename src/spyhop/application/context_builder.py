@@ -19,6 +19,7 @@ from jinja2 import (
     TemplateError,
 )
 
+from spyhop.config.settings import REVIEW_STATUS
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.domain.models import ResolvedWorkflow, TicketDetails
 
@@ -58,11 +59,16 @@ def template_environment(user_templates: Path) -> Environment:
 
 class ContextBuilder:
     def __init__(
-        self, templates: Environment, orca_executable: Path, plan_review_status: str
+        self,
+        templates: Environment,
+        orca_executable: Path,
+        plan_review_status: str,
+        plan_approved_status: str = "in-progress",
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
         self._plan_review_status = plan_review_status
+        self._plan_approved_status = plan_approved_status
 
     def prepare(
         self, worktree_path: Path, ticket: TicketDetails, workflow: ResolvedWorkflow
@@ -91,6 +97,8 @@ class ContextBuilder:
             workflow=workflow,
             guidance=guidance,
             implement_goal=self.goal(ticket.key, "implement"),
+            plan_review_status=self._plan_review_status,
+            plan_approved_status=self._plan_approved_status,
         )
 
     def render_settings(self, workflow: ResolvedWorkflow) -> str:
@@ -119,6 +127,7 @@ class ContextBuilder:
             issue_key=issue_key,
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,
+            review_status=REVIEW_STATUS,
         )
 
         return oneline(text)

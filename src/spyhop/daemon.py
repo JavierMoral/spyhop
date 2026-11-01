@@ -12,6 +12,7 @@ from spyhop.application.context_builder import ContextBuilder, template_environm
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.monitor import JiraMonitor
 from spyhop.application.orchestrator import Orchestrator
+from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.transition_detector import TransitionDetector
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import credentials_from_environment
@@ -66,7 +67,7 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
         stack.callback(connection.close)
 
         resolver = WorkflowResolver(settings)
-        launcher = None if dry_run else _launcher(settings, connection, resolver, jira)
+        agents = None if dry_run else _agents(settings, connection, resolver, jira)
         monitor = JiraMonitor(
             detector=TransitionDetector(jira, resolver, user.time_zone),
             orchestrator=Orchestrator(RunRepository(connection), dry_run),
@@ -93,7 +94,17 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 _log.warning("Poll failed, will retry: %s", error)
                 monitor.record_error(str(error))
 
-            if launcher is not None:
+            if agents is not None:
+                supervisor, launcher = agents
+
+                # Supervising first frees the slots of finished runs for the
+                # launches of this same cycle.
+
+                try:
+                    await supervisor.supervise()
+                except OrcaError as error:
+                    _log.warning("Supervision failed, will retry: %s", error)
+
                 try:
                     await launcher.launch_pending()
                 except JiraAuthenticationError:
@@ -110,12 +121,12 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
         _log.info("Spyhop stopped")
 
 
-def _launcher(
+def _agents(
     settings: Settings,
     connection: sqlite3.Connection,
     resolver: WorkflowResolver,
     jira: JiraClient,
-) -> AgentLauncher | None:
+) -> tuple[AgentSupervisor, AgentLauncher] | None:
     try:
         executable = find_orca_executable(settings.orca.executable)
     except OrcaError as error:
@@ -134,24 +145,40 @@ def _launcher(
         executable, cwd, settings.orca.startup_timeout, settings.orca.operation_timeout
     )
 
-    _log.info("Launching agents through %s", executable)
+    _log.info("Launching and supervising agents through %s", executable)
 
-    return AgentLauncher(
-        runs=RunRepository(connection),
-        worktrees=WorktreeRepository(connection),
-        sessions=SessionRepository(connection),
+    runs = RunRepository(connection)
+    worktrees = WorktreeRepository(connection)
+    sessions = SessionRepository(connection)
+    context = ContextBuilder(
+        template_environment(user_templates_dir()),
+        executable,
+        settings.orca.plan_review_status,
+        settings.orca.plan_approved_status,
+    )
+    supervisor = AgentSupervisor(
+        runs=runs,
+        worktrees=worktrees,
+        sessions=sessions,
+        orca=orca,
+        context=context,
+        plan_review_status=settings.orca.plan_review_status,
+        plan_approved_status=settings.orca.plan_approved_status,
+    )
+    launcher = AgentLauncher(
+        runs=runs,
+        worktrees=worktrees,
+        sessions=sessions,
         resolver=resolver,
         jira=jira,
         jira_settings=settings.jira,
         orca=orca,
-        context=ContextBuilder(
-            template_environment(user_templates_dir()),
-            executable,
-            settings.orca.plan_review_status,
-        ),
+        context=context,
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,
     )
+
+    return supervisor, launcher
 
 
 def _stop_event() -> asyncio.Event:

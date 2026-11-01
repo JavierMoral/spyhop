@@ -19,6 +19,11 @@ from pydantic_settings import (
 from spyhop.config.paths import default_env_file, expand_path
 from spyhop.domain.exceptions import ConfigurationError
 
+# Board column the agent moves its card to when the work is ready for review.
+# Built into Orca; together with RESULT.md it is the only completion signal.
+
+REVIEW_STATUS = "in-review"
+
 
 def _expand(value: Any) -> Any:
     if isinstance(value, str | Path):
@@ -76,6 +81,21 @@ class OrcaSettings(BaseModel):
     # custom columns itself (status-N), so the default is a built-in column.
 
     plan_review_status: str = "in-review"
+
+    # Board column that approves a plan: moving the card there makes Spyhop
+    # send the implementation /goal to the agent.
+
+    plan_approved_status: str = "in-progress"
+
+    @model_validator(mode="after")
+    def _distinct_statuses(self) -> "OrcaSettings":
+        if self.plan_approved_status in (self.plan_review_status, REVIEW_STATUS):
+            raise ValueError(
+                "orca.plan_approved_status must differ from orca.plan_review_status "
+                f"and from {REVIEW_STATUS!r}, where finished work goes"
+            )
+
+        return self
 
 
 class AgentSettings(BaseModel):

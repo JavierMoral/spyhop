@@ -43,8 +43,8 @@ class RunRepository:
                 """
                 INSERT INTO automation_runs (
                     id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                    triggered_at, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    triggered_at, status, created_at, status_changed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -54,6 +54,7 @@ class RunRepository:
                     entry.history_id,
                     _to_text(entry.entered_at),
                     RunStatus.DISCOVERED,
+                    _to_text(now),
                     _to_text(now),
                 ),
             )
@@ -128,20 +129,53 @@ class RunRepository:
     def mark_running(self, run_id: str) -> None:
         self._update(run_id, RunStatus.RUNNING, started_at=_to_text(utc_now()))
 
+    def mark_resumed(self, run_id: str) -> None:
+        """Back to RUNNING after waiting for a person."""
+
+        self._update(
+            run_id,
+            RunStatus.RUNNING,
+            waiting_reason=None,
+            error_message=None,
+            implement_request_id=None,
+        )
+
     def mark_waiting(self, run_id: str, reason: WaitingReason, message: str | None = None) -> None:
         self._update(
             run_id, RunStatus.WAITING_FOR_HUMAN, waiting_reason=reason, error_message=message
+        )
+
+    def mark_completed(self, run_id: str) -> None:
+        self._update(
+            run_id,
+            RunStatus.COMPLETED,
+            waiting_reason=None,
+            error_message=None,
+            implement_request_id=None,
+            finished_at=_to_text(utc_now()),
+        )
+
+    def set_implement_request(self, run_id: str, request_id: str | None) -> None:
+        """Stored before sending the implementation /goal, so a send whose
+        answer was lost is replayed instead of repeated."""
+
+        self._connection.execute(
+            "UPDATE automation_runs SET implement_request_id = ? WHERE id = ?",
+            (request_id, run_id),
         )
 
     def mark_failed(self, run_id: str, error_message: str) -> None:
         self._update(
             run_id,
             RunStatus.FAILED,
+            waiting_reason=None,
+            implement_request_id=None,
             error_message=error_message[:2000],
             finished_at=_to_text(utc_now()),
         )
 
     def _update(self, run_id: str, status: RunStatus, **columns: str | None) -> None:
+        columns["status_changed_at"] = _to_text(utc_now())
         assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
 
         self._connection.execute(
@@ -248,11 +282,31 @@ class SessionRepository:
 
         return session
 
-    def mark_launched(self, session_id: str, agent_handle: str) -> None:
+    def mark_launched(self, session_id: str, agent_handle: str, pane_key: str | None) -> None:
         self._connection.execute(
-            "UPDATE agent_sessions SET status = ?, agent_handle = ?, started_at = ? WHERE id = ?",
-            (SessionStatus.LAUNCHED, agent_handle, _to_text(utc_now()), session_id),
+            """
+            UPDATE agent_sessions SET status = ?, agent_handle = ?, pane_key = ?, started_at = ?
+            WHERE id = ?
+            """,
+            (SessionStatus.LAUNCHED, agent_handle, pane_key, _to_text(utc_now()), session_id),
         )
+
+    def mark_finished(self, session_id: str) -> None:
+        self._connection.execute(
+            "UPDATE agent_sessions SET status = ?, finished_at = ? WHERE id = ?",
+            (SessionStatus.FINISHED, _to_text(utc_now()), session_id),
+        )
+
+    def find_launched(self, run_id: str) -> AgentSession | None:
+        """The run's agent: its latest launched session."""
+
+        row = self._connection.execute(
+            "SELECT * FROM agent_sessions WHERE run_id = ? AND status = ? "
+            "ORDER BY rowid DESC LIMIT 1",
+            (run_id, SessionStatus.LAUNCHED),
+        ).fetchone()
+
+        return _to_session(row) if row else None
 
     def mark_failed(self, session_id: str) -> None:
         self._connection.execute(
@@ -359,6 +413,8 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         finished_at=_to_datetime(row["finished_at"]),
         error_message=row["error_message"],
         retry_of=row["retry_of"],
+        status_changed_at=_to_datetime(row["status_changed_at"]),
+        implement_request_id=row["implement_request_id"],
     )
 
 
@@ -389,4 +445,5 @@ def _to_session(row: sqlite3.Row) -> AgentSession:
         status=SessionStatus(row["status"]),
         started_at=_to_datetime(row["started_at"]),
         finished_at=_to_datetime(row["finished_at"]),
+        pane_key=row["pane_key"],
     )

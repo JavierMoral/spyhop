@@ -60,9 +60,13 @@ tickets padre, usa la skill de implementación del proyecto si existe.
 {% if workflow.plan_review %}
 ## Phases
 
-Fase A (la actual): escribir PLAN.md y esperar la revisión de una persona.
+Fase A (la actual): escribir PLAN.md y esperar la revisión de una persona. Si te
+responde con cambios, actualiza PLAN.md y vuelve a marcar la tarjeta como en la
+fase A.
 
-Fase B, cuando la persona apruebe el plan en Orca:
+Fase B: cuando la persona apruebe el plan (moviendo la tarjeta de
+`{{ plan_review_status }}` a `{{ plan_approved_status }}`), Spyhop te enviará este
+objetivo. No lo empieces por tu cuenta:
 
 ```
 {{ implement_goal }}

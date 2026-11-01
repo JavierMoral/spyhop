@@ -103,6 +103,16 @@ _MIGRATIONS = [
 
     CREATE INDEX idx_agent_sessions_run ON agent_sessions(run_id);
     """,
+    # Supervision: when the run last changed status (agent states older than
+    # that are stale), the request id of the implementation /goal sent on plan
+    # approval, and the Orca pane of each agent.
+    """
+    ALTER TABLE automation_runs ADD COLUMN status_changed_at TEXT;
+
+    ALTER TABLE automation_runs ADD COLUMN implement_request_id TEXT;
+
+    ALTER TABLE agent_sessions ADD COLUMN pane_key TEXT;
+    """,
 ]
 
 

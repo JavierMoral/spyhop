@@ -9,12 +9,12 @@ afectados y los tests previstos. No modifiques código. Al terminar ejecuta:
 {%- elif phase == "implement" -%}
 /goal Implementa PLAN.md hasta tener commits locales limpios y los tests del módulo
 en verde. Escribe RESULT.md según TASK.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status in-review
+{{ orca }} worktree set --worktree active --workspace-status {{ review_status }}
 --comment "{{ issue_key }}: listo para revisión" --unread --json
 {%- else -%}
 /goal Lee TASK.md, analiza el código, escribe PLAN.md con el enfoque y los tests
 previstos, e impleméntalo hasta tener commits locales limpios y los tests del módulo
 en verde. Escribe RESULT.md según TASK.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status in-review
+{{ orca }} worktree set --worktree active --workspace-status {{ review_status }}
 --comment "{{ issue_key }}: listo para revisión" --unread --json
 {%- endif -%}

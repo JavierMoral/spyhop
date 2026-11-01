@@ -206,7 +206,7 @@ class AgentLauncher:
 
             raise _RunFailed(f"Orca refused the launch: {error}") from error
 
-        self._sessions.mark_launched(session.id, result.agent_handle)
+        self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_running(run.id)
 
         _log.info(

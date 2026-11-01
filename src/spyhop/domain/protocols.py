@@ -1,7 +1,14 @@
 from pathlib import Path
 from typing import Any, Protocol
 
-from spyhop.domain.models import AgentRow, JiraUser, LaunchResult, OrcaWorktree
+from spyhop.domain.models import (
+    AgentRow,
+    JiraUser,
+    LaunchResult,
+    OrcaWorktree,
+    PromptDelivery,
+    TerminalRow,
+)
 
 
 class JiraGateway(Protocol):
@@ -47,3 +54,9 @@ class OrcaGateway(Protocol):
     ) -> LaunchResult: ...
 
     async def worktree_agents(self) -> dict[str, list[AgentRow]]: ...
+
+    async def terminals(self, orca_worktree_id: str) -> list[TerminalRow]: ...
+
+    async def send_prompt(
+        self, terminal_handle: str, text: str, request_id: str, wait_submit: float = 15
+    ) -> PromptDelivery: ...

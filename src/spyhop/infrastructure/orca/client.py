@@ -12,6 +12,10 @@ it has never seen and replays the accepted one for an id it has, so repeating
 the same command after a lost answer, a timeout or a Spyhop restart never
 starts a second agent.
 
+Prompts sent to a running agent follow the same pattern with ``terminal send
+--retry-request <uuid>``: a new id sends, a known id replays the accepted send,
+and a known id with other text is refused with ``request_mismatch``.
+
 Verified against Orca 1.4.245; the captured answers are in tests/fixtures/orca.
 """
 
@@ -20,6 +24,7 @@ import logging
 import secrets
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +33,13 @@ from spyhop.domain.exceptions import (
     OrcaUnavailableError,
     OrcaUncertainError,
 )
-from spyhop.domain.models import AgentRow, LaunchResult, OrcaWorktree
+from spyhop.domain.models import (
+    AgentRow,
+    LaunchResult,
+    OrcaWorktree,
+    PromptDelivery,
+    TerminalRow,
+)
 from spyhop.infrastructure.process.command_runner import (
     CommandRunner,
     CommandTimeoutError,
@@ -45,6 +56,14 @@ AGENT = "claude"
 SURFACE = "terminal"
 
 _UNAVAILABLE_CODES = {"runtime_unavailable", "runtime_not_running", "app_not_running"}
+
+_DEFINITE_CODES = {
+    "terminal_handle_stale",
+    "request_mismatch",
+    "agent_session_operation_conflict",
+    "selector_not_found",
+    "invalid_argument",
+}
 
 
 def new_operation_id() -> str:
@@ -182,6 +201,46 @@ class OrcaClient:
             for row in result.get("worktrees", [])
         }
 
+    async def terminals(self, orca_worktree_id: str) -> list[TerminalRow]:
+        result = await self._call(
+            ["terminal", "list", "--worktree", f"id:{orca_worktree_id}"],
+            self._operation_timeout,
+            uncertain=False,
+        )
+
+        return [to_terminal_row(terminal) for terminal in result.get("terminals", [])]
+
+    async def send_prompt(
+        self, terminal_handle: str, text: str, request_id: str, wait_submit: float = 15
+    ) -> PromptDelivery:
+        """Types ``text`` into the agent's terminal and submits it. Repeating
+        the call with the same request id never submits twice."""
+
+        result = await self._call(
+            [
+                "terminal",
+                "send",
+                "--terminal",
+                terminal_handle,
+                "--text",
+                text,
+                "--enter",
+                "--retry-request",
+                request_id,
+                "--wait-submit",
+                f"{wait_submit:g}",
+            ],
+            self._operation_timeout + wait_submit,
+            uncertain=True,
+        )
+        prompt = (result.get("send") or {}).get("prompt") or {}
+
+        return PromptDelivery(
+            request_id=prompt.get("requestId") or request_id,
+            replayed=bool((result.get("mutation") or {}).get("replayed")),
+            stages=tuple(prompt.get("stages") or ()),
+        )
+
     async def _call(
         self, args: Sequence[str], time_limit: float, uncertain: bool
     ) -> dict[str, Any]:
@@ -230,10 +289,17 @@ class OrcaClient:
         if code in _UNAVAILABLE_CODES:
             raise OrcaUnavailableError(f"`orca {name}`: {message}")
 
-        # A lost launch reply comes back as an error carrying the operation id
-        # to replay with.
+        # A lost reply comes back as an error carrying the id to replay with.
+        # A stale handle or a reused id are definite refusals, not lost replies.
 
-        if uncertain and isinstance(failed.get("data"), dict) and failed["data"].get("operationId"):
+        data = failed.get("data")
+
+        if (
+            uncertain
+            and code not in _DEFINITE_CODES
+            and isinstance(data, dict)
+            and (data.get("operationId") or data.get("orchestrationRequestId"))
+        ):
             raise OrcaUncertainError(f"`orca {name}`: {message}")
 
         raise OrcaCommandError(code, message, failed.get("data"))
@@ -267,6 +333,7 @@ def to_launch_result(result: dict[str, Any], operation_id: str) -> LaunchResult:
         operation_id=launch.get("operationId") or operation_id,
         surface=outcome.get("kind") or SURFACE,
         prompt_outcome=(launch.get("prompt") or {}).get("outcome"),
+        pane_key=outcome.get("paneKey"),
     )
 
 
@@ -277,7 +344,27 @@ def to_agent_row(data: dict[str, Any]) -> AgentRow:
         pane_key=data.get("paneKey"),
         has_live_pty=bool(data.get("hasLivePty")),
         prompt=data.get("prompt"),
+        state_started_at=_from_epoch_ms(data.get("stateStartedAt")),
     )
+
+
+def to_terminal_row(data: dict[str, Any]) -> TerminalRow:
+    # An agent's paneKey is "<tabId>:<leafId>" of the terminal it runs in.
+
+    tab, leaf = data.get("tabId"), data.get("leafId")
+
+    return TerminalRow(
+        handle=data["handle"],
+        pane_key=f"{tab}:{leaf}" if tab and leaf else None,
+        title=data.get("title") or "",
+    )
+
+
+def _from_epoch_ms(value: Any) -> datetime | None:
+    if not isinstance(value, int | float) or value <= 0:
+        return None
+
+    return datetime.fromtimestamp(value / 1000, UTC)
 
 
 def _short_branch(ref: str) -> str:

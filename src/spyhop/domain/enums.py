@@ -32,4 +32,5 @@ class WorktreeStatus(StrEnum):
 class SessionStatus(StrEnum):
     LAUNCHING = "LAUNCHING"  # operation id stored, Orca's answer not received yet
     LAUNCHED = "LAUNCHED"
+    FINISHED = "FINISHED"  # the agent declared the end of its work
     FAILED = "FAILED"

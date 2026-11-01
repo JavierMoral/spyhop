@@ -126,6 +126,45 @@ def status(
 
 
 @app.command()
+def fail(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose active run is given up")],
+    reason: Annotated[str, typer.Option(help="Recorded as the run's error")] = (
+        "marked as failed by a person"
+    ),
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Mark a ticket's active run as FAILED, freeing its agent slot.
+
+    For runs Spyhop cannot conclude by itself, such as one waiting with
+    unknown_state. The agent and the worktree in Orca are left untouched."""
+
+    settings = _load(config)
+    use_dry_run = settings.application.dry_run if dry_run is None else dry_run
+    database = database_file(use_dry_run)
+
+    if not database.exists():
+        typer.echo(f"No database yet at {database}.", err=True)
+
+        raise typer.Exit(1)
+
+    runs = RunRepository(connect(database))
+    active = runs.list(issue_key=issue_key.upper())
+
+    if not active:
+        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
+
+        raise typer.Exit(1)
+
+    for automation_run in active:
+        runs.mark_failed(automation_run.id, reason)
+
+        typer.echo(f"{automation_run.issue_key}: {automation_run.status} -> FAILED ({reason})")
+
+
+@app.command()
 def doctor(config: ConfigOption = None) -> None:
     """Check configuration, credentials, JIRA, repositories, Orca and the service."""
 

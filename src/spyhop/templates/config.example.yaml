@@ -60,6 +60,9 @@ orca:
   # is in workspaceStatuses of the "ui" document in
   # ~/.config/orca/profiles/<profile>/profile-state.db.
   plan_review_status: in-review
+  # Column that approves a plan: dragging the card there makes Spyhop send the
+  # agent the implementation /goal.
+  plan_approved_status: in-progress
 
 agents:
   provider: claude
