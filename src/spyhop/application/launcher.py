@@ -13,7 +13,9 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from spyhop.application.context_builder import ContextBuilder, ContextError
 from spyhop.application.workflow_resolver import WorkflowResolver
@@ -34,6 +36,7 @@ from spyhop.domain.models import (
     Worktree,
 )
 from spyhop.domain.protocols import OrcaGateway, TicketGateway
+from spyhop.infrastructure.git import branch_exists
 from spyhop.infrastructure.jira.mapping import TICKET_FIELDS, to_ticket_details
 from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
@@ -62,6 +65,10 @@ class _RunFailed(Exception):
     pass
 
 
+class _NotYet(Exception):
+    """The run cannot advance now but may next cycle."""
+
+
 @dataclass(frozen=True)
 class _Prepared:
     workflow: ResolvedWorkflow
@@ -81,6 +88,7 @@ class AgentLauncher:
         context: ContextBuilder,
         agents: AgentSettings,
         max_concurrent_agents: int,
+        branch_exists: Callable[[Path, str], bool] = branch_exists,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
@@ -92,6 +100,7 @@ class AgentLauncher:
         self._context = context
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
+        self._branch_exists = branch_exists
 
     async def launch_pending(self) -> list[AutomationRun]:
         """Advances pending runs, oldest first, while there are free slots.
@@ -140,7 +149,7 @@ class AgentLauncher:
             self._runs.mark_failed(run.id, str(error))
         except JiraAuthenticationError:
             raise
-        except (JiraError, OrcaUnavailableError, OrcaUncertainError) as error:
+        except (JiraError, OrcaUnavailableError, OrcaUncertainError, _NotYet) as error:
             _log.warning("%s: will retry next cycle: %s", run.issue_key, error)
 
         return False
@@ -256,8 +265,18 @@ class AgentLauncher:
         current = self._worktrees.find_current(issue_key)
 
         if current is not None:
-            if current.status is not WorktreeStatus.ACTIVE:
-                raise _RunFailed(f"the worktree of {issue_key} is {current.status}")
+            if current.status is WorktreeStatus.REMOVING:
+                raise _NotYet(f"its worktree {current.path} is being removed")
+
+            if current.status is WorktreeStatus.CLEANUP_BLOCKED:
+                # Reopened before its changes were dealt with: the worktree
+                # still holds them, so the work goes on there.
+
+                _log.info(
+                    "%s: reopened; reusing %s, which could not be removed", issue_key, current.path
+                )
+
+                self._worktrees.mark_active(current.id)
 
             try:
                 await self._orca.show_worktree(current.orca_worktree_id)
@@ -276,12 +295,14 @@ class AgentLauncher:
                 self._worktrees.mark_removed(current.id, "not found in Orca")
 
         orca_worktree = await self._orca.find_worktree_by_reference(issue_key)
+        base_branch = workflow.base_branch
 
         if orca_worktree is None:
+            base_branch = self._reopened_base(issue_key, workflow)
             orca_worktree = await self._orca.create_worktree(
                 workflow.repository_path,
                 issue_key,
-                workflow.base_branch,
+                base_branch,
                 issue_key,
                 workflow.setup,
             )
@@ -291,14 +312,35 @@ class AgentLauncher:
                 issue_key,
                 orca_worktree.path,
                 orca_worktree.branch,
-                workflow.base_branch,
+                base_branch,
             )
         else:
             _log.info("%s: reusing worktree %s linked in Orca", issue_key, orca_worktree.path)
 
         return self._worktrees.create(
-            issue_key, orca_worktree, workflow.repository_path, workflow.base_branch
+            issue_key, orca_worktree, workflow.repository_path, base_branch
         )
+
+    def _reopened_base(self, issue_key: str, workflow: ResolvedWorkflow) -> str:
+        """A reopened ticket continues from the branch of its removed
+        worktree when Git still has it (Orca keeps unmerged branches). Orca
+        then checks that branch out again instead of creating a suffixed
+        one."""
+
+        previous = self._worktrees.find_last_removed(issue_key)
+
+        if (
+            previous is None
+            or previous.repository_path != workflow.repository_path
+            or not self._branch_exists(previous.repository_path, previous.branch_name)
+        ):
+            return workflow.base_branch
+
+        _log.info(
+            "%s: reopened; continuing from its previous branch %s", issue_key, previous.branch_name
+        )
+
+        return previous.branch_name
 
 
 def _replay_expired(session: AgentSession, now: float | None = None) -> bool:

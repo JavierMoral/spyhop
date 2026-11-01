@@ -10,14 +10,19 @@ from typing import Annotated
 import typer
 
 from spyhop import __version__
+from spyhop.application.janitor import Cleanup, WorktreeRemover
 from spyhop.config.credentials import write_env_file
 from spyhop.config.paths import database_file, default_config_file, systemd_user_unit_file
 from spyhop.config.settings import Settings, load_settings
-from spyhop.daemon import run_daemon
+from spyhop.daemon import orca_client, run_daemon
 from spyhop.doctor import Level, run_checks
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.infrastructure.persistence.database import connect
-from spyhop.infrastructure.persistence.repositories import PollerStateRepository, RunRepository
+from spyhop.infrastructure.persistence.repositories import (
+    PollerStateRepository,
+    RunRepository,
+    WorktreeRepository,
+)
 from spyhop.infrastructure.service.systemd import (
     install_unit,
     linger_enabled,
@@ -109,20 +114,23 @@ def status(
 
         return
 
-    typer.echo(f"{'TICKET':<14}{'STATUS':<20}{'WORKFLOW':<18}{'ENTERED':<22}TRIGGER")
+    typer.echo(f"{'RUN':<10}{'TICKET':<14}{'STATUS':<20}{'WORKFLOW':<18}{'ENTERED':<22}TRIGGER")
 
     for automation_run in runs:
         typer.echo(
-            f"{automation_run.issue_key:<14}{automation_run.status:<20}"
-            f"{automation_run.workflow_name:<18}{_format(automation_run.triggered_at):<22}"
-            f"{automation_run.trigger_status}"
+            f"{automation_run.id[:8]:<10}{automation_run.issue_key:<14}"
+            f"{automation_run.status:<20}{automation_run.workflow_name:<18}"
+            f"{_format(automation_run.triggered_at):<22}{automation_run.trigger_status}"
         )
 
+        if automation_run.retry_of:
+            typer.echo(f"{'':<24}retry of {automation_run.retry_of[:8]}")
+
         if automation_run.waiting_reason:
-            typer.echo(f"{'':<14}waiting: {automation_run.waiting_reason}")
+            typer.echo(f"{'':<24}waiting: {automation_run.waiting_reason}")
 
         if automation_run.error_message:
-            typer.echo(f"{'':<14}{automation_run.error_message}")
+            typer.echo(f"{'':<24}{automation_run.error_message}")
 
 
 @app.command()
@@ -141,16 +149,7 @@ def fail(
     For runs Spyhop cannot conclude by itself, such as one waiting with
     unknown_state. The agent and the worktree in Orca are left untouched."""
 
-    settings = _load(config)
-    use_dry_run = settings.application.dry_run if dry_run is None else dry_run
-    database = database_file(use_dry_run)
-
-    if not database.exists():
-        typer.echo(f"No database yet at {database}.", err=True)
-
-        raise typer.Exit(1)
-
-    runs = RunRepository(connect(database))
+    runs = RunRepository(connect(_existing_database(config, dry_run)))
     active = runs.list(issue_key=issue_key.upper())
 
     if not active:
@@ -162,6 +161,97 @@ def fail(
         runs.mark_failed(automation_run.id, reason)
 
         typer.echo(f"{automation_run.issue_key}: {automation_run.status} -> FAILED ({reason})")
+
+
+@app.command()
+def retry(
+    target: Annotated[str, typer.Argument(help="Run id (or its first characters) or ticket key")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Start a finished run again as a new run on the same worktree.
+
+    With a ticket key, retries the ticket's latest run. The running daemon
+    picks the new run up on its next cycle."""
+
+    runs = RunRepository(connect(_existing_database(config, dry_run)))
+    matches = runs.find(target)
+
+    if len(matches) != 1:
+        typer.echo(
+            f"No run matches {target!r}." if not matches else f"{target!r} matches several runs.",
+            err=True,
+        )
+
+        raise typer.Exit(1)
+
+    [original] = matches
+
+    if not original.status.terminal:
+        typer.echo(f"{original.issue_key}: run {original.id[:8]} is still {original.status}.")
+
+        raise typer.Exit(1)
+
+    retried = runs.create_retry(original)
+
+    if retried is None:
+        typer.echo(f"{original.issue_key} already has an active run.", err=True)
+
+        raise typer.Exit(1)
+
+    typer.echo(
+        f"{retried.issue_key}: run {retried.id[:8]} created as a retry of {original.id[:8]} "
+        f"({original.status})"
+    )
+
+
+@app.command()
+def cleanup(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose worktree is removed")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Remove a ticket's worktree now, whatever its JIRA status.
+
+    Cancels the ticket's active run and stops its agents. Removal is never
+    forced: with uncommitted changes the worktree stays, marked
+    CLEANUP_BLOCKED, until they are committed or discarded. Orca keeps the
+    branch unless it is merged."""
+
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+    worktrees = WorktreeRepository(connection)
+    worktree = worktrees.find_current(issue_key.upper())
+
+    if worktree is None:
+        typer.echo(f"{issue_key.upper()} has no worktree to remove.", err=True)
+
+        raise typer.Exit(1)
+
+    try:
+        remover = WorktreeRemover(RunRepository(connection), worktrees, orca_client(settings))
+        outcome = asyncio.run(remover.clean_up(worktree, "cleaned up by a person"))
+    except SpyhopError as error:
+        typer.echo(f"{worktree.issue_key}: removal not finished: {error}", err=True)
+
+        raise typer.Exit(1) from None
+
+    if outcome is Cleanup.BLOCKED:
+        blocked = worktrees.get(worktree.id)
+
+        typer.echo(
+            f"{worktree.issue_key}: {worktree.path} not removed: "
+            f"{blocked.cleanup_error if blocked else 'refused by Orca'}",
+            err=True,
+        )
+
+        raise typer.Exit(1)
+
+    typer.echo(f"{worktree.issue_key}: {worktree.path} removed")
 
 
 @app.command()
@@ -256,6 +346,20 @@ def service_uninstall() -> None:
     uninstall_unit(unit_file)
 
     typer.echo(f"Removed {unit_file}.")
+
+
+def _existing_database(
+    config: Path | None, dry_run: bool | None, settings: Settings | None = None
+) -> Path:
+    settings = settings or _load(config)
+    database = database_file(settings.application.dry_run if dry_run is None else dry_run)
+
+    if not database.exists():
+        typer.echo(f"No database yet at {database}.", err=True)
+
+        raise typer.Exit(1)
+
+    return database
 
 
 def _load(config: Path | None) -> Settings:

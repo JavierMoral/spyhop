@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from spyhop.application.context_builder import ContextBuilder, template_environment
+from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.monitor import JiraMonitor
 from spyhop.application.orchestrator import Orchestrator
@@ -95,10 +96,17 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 monitor.record_error(str(error))
 
             if agents is not None:
-                supervisor, launcher = agents
+                janitor, supervisor, launcher = agents
 
-                # Supervising first frees the slots of finished runs for the
-                # launches of this same cycle.
+                # Cleaning up and supervising first free the slots of closed and
+                # finished runs for the launches of this same cycle.
+
+                try:
+                    await janitor.sweep()
+                except JiraAuthenticationError:
+                    raise
+                except (JiraError, OrcaError) as error:
+                    _log.warning("Cleanup failed, will retry: %s", error)
 
                 try:
                     await supervisor.supervise()
@@ -126,24 +134,15 @@ def _agents(
     connection: sqlite3.Connection,
     resolver: WorkflowResolver,
     jira: JiraClient,
-) -> tuple[AgentSupervisor, AgentLauncher] | None:
+) -> tuple[WorktreeJanitor, AgentSupervisor, AgentLauncher] | None:
     try:
-        executable = find_orca_executable(settings.orca.executable)
+        orca = orca_client(settings)
     except OrcaError as error:
         _log.error("Agents will not be launched until this is fixed: %s", error)
 
         return None
 
-    # Orca replays a lost launch only when it is retried from the same
-    # directory, so every command runs from Spyhop's state directory.
-
-    cwd = state_dir()
-
-    cwd.mkdir(parents=True, exist_ok=True)
-
-    orca = OrcaClient(
-        executable, cwd, settings.orca.startup_timeout, settings.orca.operation_timeout
-    )
+    executable = orca.executable
 
     _log.info("Launching and supervising agents through %s", executable)
 
@@ -178,7 +177,30 @@ def _agents(
         max_concurrent_agents=settings.application.max_concurrent_agents,
     )
 
-    return supervisor, launcher
+    janitor = WorktreeJanitor(
+        remover=WorktreeRemover(runs, worktrees, orca),
+        worktrees=worktrees,
+        jira=jira,
+        orca=orca,
+        settings=settings.cleanup,
+    )
+
+    return janitor, supervisor, launcher
+
+
+def orca_client(settings: Settings) -> OrcaClient:
+    executable = find_orca_executable(settings.orca.executable)
+
+    # Orca replays a lost launch only when it is retried from the same
+    # directory, so every command runs from Spyhop's state directory.
+
+    cwd = state_dir()
+
+    cwd.mkdir(parents=True, exist_ok=True)
+
+    return OrcaClient(
+        executable, cwd, settings.orca.startup_timeout, settings.orca.operation_timeout
+    )
 
 
 def _stop_event() -> asyncio.Event:

@@ -70,10 +70,10 @@ agents:
   effort: high
   max_retries: 0
 
-cleanup:
+cleanup:                          # remove worktrees of closed tickets (never forced)
   enabled: true
-  close_status_categories: ["done"]
-  close_statuses: []
+  close_status_categories: ["done"] # JIRA status category keys
+  close_statuses: []                # extra closed statuses outside those categories
 
 service:
   env_source: env_file            # env_file | login_shell

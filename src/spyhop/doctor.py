@@ -12,10 +12,11 @@ from pathlib import Path
 from jinja2 import TemplateError
 
 from spyhop.application.context_builder import template_environment
+from spyhop.application.janitor import closed_tickets_jql
 from spyhop.config.credentials import JiraCredentials, read_env_file
 from spyhop.config.paths import systemd_user_unit_file, user_templates_dir
 from spyhop.config.settings import ProjectSettings, Settings, load_settings
-from spyhop.domain.exceptions import SpyhopError
+from spyhop.domain.exceptions import JiraError, SpyhopError
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.discovery import check_runtime, find_orca_executable
 from spyhop.infrastructure.service.systemd import linger_enabled, unit_active
@@ -142,10 +143,31 @@ async def _check_jira(settings: Settings, credentials: JiraCredentials | None) -
                 statuses = await jira.project_statuses(project_key)
 
                 checks.append(_check_project(project_key, project, statuses))
+
+            checks.append(await _check_cleanup(settings, jira))
     except SpyhopError as error:
         return [Check(Level.ERROR, "jira", str(error))]
 
     return checks
+
+
+async def _check_cleanup(settings: Settings, jira: JiraClient) -> Check:
+    """Runs the janitor's query once: JIRA rejects the whole query when one of
+    close_statuses does not exist."""
+
+    if not settings.cleanup.enabled:
+        return Check(Level.OK, "cleanup", "disabled")
+
+    sample = [f"{key}-1" for key in settings.enabled_projects()] or ["SPYHOP-1"]
+
+    try:
+        await jira.search(closed_tickets_jql(sample, settings.cleanup), ["status"], changelog=False)
+    except JiraError as error:
+        return Check(Level.ERROR, "cleanup", f"the closed-ticket query fails: {error}")
+
+    closed = settings.cleanup.close_status_categories + settings.cleanup.close_statuses
+
+    return Check(Level.OK, "cleanup", f"worktrees removed when tickets reach {', '.join(closed)}")
 
 
 def _check_project(

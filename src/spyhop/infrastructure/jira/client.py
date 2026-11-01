@@ -77,14 +77,18 @@ class JiraClient:
             for issue_type in data
         }
 
-    async def search(self, jql: str, fields: list[str]) -> list[dict[str, Any]]:
+    async def search(
+        self, jql: str, fields: list[str], changelog: bool = True
+    ) -> list[dict[str, Any]]:
         issues: list[dict[str, Any]] = []
         body: dict[str, Any] = {
-            "expand": "changelog",
             "fields": fields,
             "jql": jql,
             "maxResults": _PAGE_SIZE,
         }
+
+        if changelog:
+            body["expand"] = "changelog"
 
         while True:
             data = await self._request("POST", "/rest/api/3/search/jql", json=body)

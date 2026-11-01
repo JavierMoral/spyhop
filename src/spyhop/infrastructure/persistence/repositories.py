@@ -164,6 +164,67 @@ class RunRepository:
             (request_id, run_id),
         )
 
+    def mark_cancelled(self, run_id: str, reason: str) -> None:
+        self._update(
+            run_id,
+            RunStatus.CANCELLED,
+            waiting_reason=None,
+            implement_request_id=None,
+            error_message=reason,
+            finished_at=_to_text(utc_now()),
+        )
+
+    def create_retry(self, original: AutomationRun) -> AutomationRun | None:
+        """A new run of the same ticket and transition, pending launch. None
+        when the ticket already has an active run."""
+
+        now = utc_now()
+        run_id = str(uuid.uuid4())
+
+        try:
+            self._connection.execute(
+                """
+                INSERT INTO automation_runs (
+                    id, issue_key, workflow_name, trigger_status, trigger_history_id,
+                    triggered_at, status, created_at, status_changed_at, retry_of
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    original.issue_key,
+                    original.workflow_name,
+                    original.trigger_status,
+                    original.trigger_history_id,
+                    _to_text(original.triggered_at),
+                    RunStatus.DISCOVERED,
+                    _to_text(now),
+                    _to_text(now),
+                    original.id,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            return None
+
+        return self.get(run_id)
+
+    def find(self, target: str) -> builtins.list[AutomationRun]:
+        """Runs matching a run id or id prefix, or the latest run of a ticket
+        key."""
+
+        rows = self._connection.execute(
+            "SELECT * FROM automation_runs WHERE id LIKE ? ORDER BY created_at DESC",
+            (f"{target.lower()}%",),
+        ).fetchall()
+
+        if not rows:
+            rows = self._connection.execute(
+                "SELECT * FROM automation_runs WHERE issue_key = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (target.upper(),),
+            ).fetchall()
+
+        return [_to_run(row) for row in rows]
+
     def mark_failed(self, run_id: str, error_message: str) -> None:
         self._update(
             run_id,
@@ -240,10 +301,43 @@ class WorktreeRepository:
 
         return worktree
 
+    def find_last_removed(self, issue_key: str) -> Worktree | None:
+        row = self._connection.execute(
+            "SELECT * FROM worktrees WHERE issue_key = ? AND status = ? "
+            "ORDER BY removed_at DESC, rowid DESC LIMIT 1",
+            (issue_key, WorktreeStatus.REMOVED),
+        ).fetchone()
+
+        return _to_worktree(row) if row else None
+
+    def list_by_status(self, *statuses: WorktreeStatus) -> list[Worktree]:
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = self._connection.execute(
+            f"SELECT * FROM worktrees WHERE status IN ({placeholders}) ORDER BY created_at",
+            statuses,
+        )
+
+        return [_to_worktree(row) for row in rows]
+
+    def mark_removing(self, worktree_id: str) -> None:
+        self._set_status(worktree_id, WorktreeStatus.REMOVING, None)
+
+    def mark_cleanup_blocked(self, worktree_id: str, reason: str) -> None:
+        self._set_status(worktree_id, WorktreeStatus.CLEANUP_BLOCKED, reason[:2000])
+
+    def mark_active(self, worktree_id: str) -> None:
+        self._set_status(worktree_id, WorktreeStatus.ACTIVE, None)
+
     def mark_removed(self, worktree_id: str, reason: str | None = None) -> None:
         self._connection.execute(
             "UPDATE worktrees SET status = ?, cleanup_error = ?, removed_at = ? WHERE id = ?",
             (WorktreeStatus.REMOVED, reason, _to_text(utc_now()), worktree_id),
+        )
+
+    def _set_status(self, worktree_id: str, status: WorktreeStatus, error: str | None) -> None:
+        self._connection.execute(
+            "UPDATE worktrees SET status = ?, cleanup_error = ? WHERE id = ?",
+            (status, error, worktree_id),
         )
 
 

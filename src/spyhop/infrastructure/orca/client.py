@@ -38,6 +38,7 @@ from spyhop.domain.models import (
     LaunchResult,
     OrcaWorktree,
     PromptDelivery,
+    RemoveResult,
     TerminalRow,
 )
 from spyhop.infrastructure.process.command_runner import (
@@ -239,6 +240,49 @@ class OrcaClient:
             request_id=prompt.get("requestId") or request_id,
             replayed=bool((result.get("mutation") or {}).get("replayed")),
             stages=tuple(prompt.get("stages") or ()),
+        )
+
+    async def close_terminals(self, orca_worktree_id: str) -> int:
+        """Stops the worktree's agents and closes its terminals."""
+
+        result = await self._call(
+            ["terminal", "close", "--worktree", f"id:{orca_worktree_id}", "--all"],
+            self._operation_timeout,
+            uncertain=True,
+        )
+
+        return int(result.get("closed") or 0)
+
+    async def remove_worktree(self, orca_worktree_id: str) -> RemoveResult:
+        """Never forced: a worktree with uncommitted changes is refused with
+        ``runtime_error`` and the offending files in the message. Orca deletes
+        the branch only when it is merged."""
+
+        result = await self._call(
+            ["worktree", "rm", "--worktree", f"id:{orca_worktree_id}"],
+            self._operation_timeout,
+            uncertain=True,
+        )
+
+        return RemoveResult(
+            preserved_branch=(result.get("preservedBranch") or {}).get("branchName")
+        )
+
+    async def mark_card(self, orca_worktree_id: str, comment: str) -> None:
+        """Comments on the worktree's card and marks it unread."""
+
+        await self._call(
+            [
+                "worktree",
+                "set",
+                "--worktree",
+                f"id:{orca_worktree_id}",
+                "--comment",
+                comment,
+                "--unread",
+            ],
+            self._operation_timeout,
+            uncertain=False,
         )
 
     async def _call(

@@ -44,4 +44,5 @@ class OrcaCommandError(OrcaError):
         super().__init__(f"{code}: {message}" if message != code else code)
 
         self.code = code
+        self.message = message
         self.data = data

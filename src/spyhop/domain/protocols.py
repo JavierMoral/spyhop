@@ -7,6 +7,7 @@ from spyhop.domain.models import (
     LaunchResult,
     OrcaWorktree,
     PromptDelivery,
+    RemoveResult,
     TerminalRow,
 )
 
@@ -14,7 +15,9 @@ from spyhop.domain.models import (
 class JiraGateway(Protocol):
     async def myself(self) -> JiraUser: ...
 
-    async def search(self, jql: str, fields: list[str]) -> list[dict[str, Any]]: ...
+    async def search(
+        self, jql: str, fields: list[str], changelog: bool = True
+    ) -> list[dict[str, Any]]: ...
 
     async def changelog(self, issue_key: str) -> list[dict[str, Any]]: ...
 
@@ -60,3 +63,9 @@ class OrcaGateway(Protocol):
     async def send_prompt(
         self, terminal_handle: str, text: str, request_id: str, wait_submit: float = 15
     ) -> PromptDelivery: ...
+
+    async def close_terminals(self, orca_worktree_id: str) -> int: ...
+
+    async def remove_worktree(self, orca_worktree_id: str) -> RemoveResult: ...
+
+    async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...

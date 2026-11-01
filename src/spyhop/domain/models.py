@@ -181,3 +181,12 @@ class PromptDelivery:
     request_id: str
     replayed: bool
     stages: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RemoveResult:
+    # Orca reports the branch it kept because it is not merged, but not
+    # always (not when the branch was the worktree's base), so a missing
+    # value does not prove the branch is gone.
+
+    preserved_branch: str | None
