@@ -1,0 +1,47 @@
+{
+  "id": "1f423775-4f23-4ae9-a58b-db0ac23e4897",
+  "ok": true,
+  "result": {
+    "kind": "reference_matches",
+    "query": "PROJ-123",
+    "scope": {
+      "source": "stored-metadata",
+      "includeArchived": false
+    },
+    "truncated": false,
+    "matches": [
+      {
+        "reference": {
+          "provider": "jira",
+          "type": "issue",
+          "number": 0,
+          "identifier": "PROJ-123",
+          "title": "Example issue title",
+          "url": "https://example.atlassian.net/browse/PROJ-123",
+          "jiraIdentifier": "PROJ-123",
+          "key": "[\"jira\",\"issue\",\"example.atlassian.net\",\"/browse/PROJ-123\"]"
+        },
+        "workspace": {
+          "id": "bc8cbd3b-6629-4670-8f86-e580f76aaae4::/home/user/git/project/wt/PROJ-123",
+          "name": "PROJ-123",
+          "repo": "portal",
+          "kind": "worktree",
+          "archived": false,
+          "hostId": "local"
+        },
+        "agents": [
+          {
+            "agent": "claude",
+            "paneKey": "dae00005-165d-41ad-8dfe-a7efb090c12d:498a28db-59fe-4e14-adfd-e2ec3b2dd4e9",
+            "liveness": "live",
+            "terminal": "term_7630b42d-cd7b-43fa-bf26-0095e1dc414e",
+            "linked": false
+          }
+        ]
+      }
+    ]
+  },
+  "_meta": {
+    "runtimeId": "0e19a2d7-35cd-4680-b222-ecb1a69e876f"
+  }
+}

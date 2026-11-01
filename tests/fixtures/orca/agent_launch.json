@@ -1,0 +1,29 @@
+{
+  "id": "eae6bce4-0f3c-4d78-b11d-8c6a2ee3ff22",
+  "ok": true,
+  "result": {
+    "outcome": {
+      "kind": "terminal",
+      "handle": "term_bbd3213b-b48b-40d9-92c4-f3140c82d6ae",
+      "paneKey": "8dca6307-c832-4cc0-a3e0-e001ddfde7aa:6ee7dd92-687c-4f1b-83e4-bac75f430154"
+    },
+    "worktreeId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4::/home/user/git/project/wt/PROJ-123",
+    "receipt": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "requested",
+      "detail": "Started a terminal agent, as requested."
+    },
+    "prompt": {
+      "delivery": "submit",
+      "outcome": "handed-to-terminal"
+    },
+    "placement": {
+      "groupId": "0b002ae8-57da-43bf-a916-5d727bbb382f"
+    },
+    "operationId": "1793555543449-a813c226561c4e8691e50c39dbf32c98"
+  },
+  "_meta": {
+    "runtimeId": "0e19a2d7-35cd-4680-b222-ecb1a69e876f"
+  }
+}

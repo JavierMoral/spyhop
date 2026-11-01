@@ -146,3 +146,35 @@ async def test_unknown_project_has_no_statuses() -> None:
 
     async with client() as jira:
         assert await jira.project_statuses("NOPE") is None
+
+
+@respx.mock
+async def test_issue_requests_only_the_given_fields() -> None:
+    route = respx.get(f"{BASE_URL}/rest/api/3/issue/A-1").mock(
+        return_value=httpx.Response(200, json={"key": "A-1", "fields": {}})
+    )
+
+    async with client() as jira:
+        issue = await jira.issue("A-1", ["summary", "description"])
+
+    assert issue["key"] == "A-1"
+    assert route.calls[0].request.url.params["fields"] == "summary,description"
+
+
+@respx.mock
+async def test_comments_returns_the_latest_ones_oldest_first() -> None:
+    route = respx.get(f"{BASE_URL}/rest/api/3/issue/A-1/comment").mock(
+        return_value=httpx.Response(200, json={"comments": [{"id": "3"}, {"id": "2"}]})
+    )
+
+    async with client() as jira:
+        comments = await jira.comments("A-1", limit=2)
+
+    assert [comment["id"] for comment in comments] == ["2", "3"]
+    assert route.calls[0].request.url.params["orderBy"] == "-created"
+    assert route.calls[0].request.url.params["maxResults"] == "2"
+
+
+async def test_comments_with_zero_limit_does_not_call_jira() -> None:
+    async with client() as jira:
+        assert await jira.comments("A-1", limit=0) == []

@@ -1,0 +1,87 @@
+{
+  "id": "252b54f7-efd2-4d46-915a-81682660568f",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "bc8cbd3b-6629-4670-8f86-e580f76aaae4::/home/user/git/project/wt/PROJ-123",
+      "identity": {
+        "key": "wt2:local:886ee296-d77e-447b-9b95-15988ca9cff6",
+        "executionHostId": "local",
+        "instanceId": "886ee296-d77e-447b-9b95-15988ca9cff6"
+      },
+      "instanceId": "886ee296-d77e-447b-9b95-15988ca9cff6",
+      "repoId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4",
+      "projectId": "github:example/project",
+      "hostId": "local",
+      "projectHostSetupId": "bc8cbd3b-6629-4670-8f86-e580f76aaae4",
+      "creatorProvenance": {
+        "kind": "host"
+      },
+      "path": "/home/user/git/project/wt/PROJ-123",
+      "head": "fb7fca3013a076be06d9f829216393b3db2845ee",
+      "branch": "refs/heads/jdoe/PROJ-123",
+      "isBare": false,
+      "isMainWorktree": false,
+      "displayName": "PROJ-123",
+      "displayNameMode": "fixed",
+      "comment": "",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedLinearIssueWorkspaceId": null,
+      "linkedLinearIssueOrganizationUrlKey": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "linkedBitbucketPR": null,
+      "linkedAzureDevOpsPR": null,
+      "linkedGiteaPR": null,
+      "linkedWorkItem": {
+        "provider": "jira",
+        "type": "issue",
+        "number": 0,
+        "title": "Example issue title",
+        "url": "https://example.atlassian.net/browse/PROJ-123",
+        "jiraIdentifier": "PROJ-123"
+      },
+      "linkedItems": [
+        {
+          "provider": "jira",
+          "type": "issue",
+          "number": 0,
+          "identifier": "PROJ-123",
+          "title": "Example issue title",
+          "url": "https://example.atlassian.net/browse/PROJ-123",
+          "jiraIdentifier": "PROJ-123"
+        }
+      ],
+      "linkedTaskSourceContext": null,
+      "isArchived": false,
+      "isUnread": true,
+      "isPinned": false,
+      "sortOrder": 1793555515375,
+      "lastActivityAt": 1793555525967,
+      "createdAt": 1793555515373,
+      "createdWithAgent": "claude",
+      "cliProvenance": {
+        "kind": "created-by-cli",
+        "createdAt": 1793555495643,
+        "startupAgent": "claude"
+      },
+      "baseRef": "master",
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": null,
+      "childWorktreeIds": [],
+      "lineage": null,
+      "git": {
+        "path": "/home/user/git/project/wt/PROJ-123",
+        "head": "fb7fca3013a076be06d9f829216393b3db2845ee",
+        "branch": "refs/heads/jdoe/PROJ-123",
+        "isBare": false,
+        "isMainWorktree": false
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "0e19a2d7-35cd-4680-b222-ecb1a69e876f"
+  }
+}
