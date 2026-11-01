@@ -1,0 +1,67 @@
+# Spyhop configuration. Copy to ~/.config/spyhop/config.yaml (`spyhop config init`)
+# and adapt the machine-specific values: repository paths, projects and the names
+# of the environment variables holding the JIRA credentials.
+#
+# Any value can be overridden with SPYHOP_<SECTION>__<KEY>, for example
+# SPYHOP_APPLICATION__DRY_RUN=false. Paths accept ~ and ${VAR}.
+
+application:
+  polling_interval: 45            # seconds
+  max_concurrent_agents: 1
+  dry_run: true                   # only log what would be done
+  # timezone: Europe/Madrid       # defaults to the system time zone
+
+jira:
+  base_url: https://your-site.atlassian.net
+  user_env: JIRA_API_USER         # names of the variables, never their values
+  token_env: JIRA_API_TOKEN
+  request_timeout: 20
+  transition_margin_minutes: 5
+
+repositories:                     # alias -> path on this machine
+  main:
+    path: ~/git/your-repository
+    default_base_branch: master
+
+projects:
+  PROJ:
+    enabled: true
+    workflows:                    # keyed by JIRA issue type
+      Bug:
+        name: bug_fix
+        trigger_statuses: ["In Progress"]
+        repository: main
+        prompt: bug_fix.md
+        plan_review: true
+      Story:
+        name: feature
+        trigger_statuses: ["In Development"]
+        repository: main
+        prompt: feature.md
+        plan_review: true
+      Task:
+        name: technical_task
+        trigger_statuses: ["In Progress"]
+        repository: main
+        prompt: technical_task.md
+        plan_review: false
+
+orca:
+  # executable: ~/.local/bin/orca-ide   # autodetected when omitted
+  startup_timeout: 30
+  operation_timeout: 120
+
+agents:
+  provider: claude
+  model: sonnet
+  effort: high
+  max_retries: 0
+
+cleanup:
+  enabled: true
+  close_status_categories: ["done"]
+  close_statuses: []
+
+service:
+  env_source: env_file            # env_file | login_shell
+  env_file: ~/.config/spyhop/env
