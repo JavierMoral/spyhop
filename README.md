@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white" alt="Python 3.12+"/>
   <img src="https://img.shields.io/badge/managed%20with-uv-DE5FE9" alt="Managed with uv"/>
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20systemd-informational" alt="Linux and systemd"/>
-  <img src="https://img.shields.io/badge/status-phase%203%20of%204-orange" alt="Phase 3 of 4"/>
+  <img src="https://img.shields.io/badge/status-MVP%20complete-brightgreen" alt="MVP complete"/>
 </p>
 
 ---
@@ -63,6 +63,9 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
 - **Plan review from the Orca board.** The agent stops after writing `PLAN.md`;
   dragging its card to *In progress* approves the plan and starts the
   implementation.
+- **Worktrees removed when tickets close**, never forced: a worktree with
+  uncommitted changes is left for you, flagged on its Orca card. A reopened
+  ticket continues from its unmerged branch.
 - **Completion is declared, never guessed.** A run is `COMPLETED` only when the
   agent moves its card to *In review* with a `RESULT.md`. Anything Spyhop cannot
   determine is handed to you, not assumed.
@@ -99,23 +102,24 @@ flowchart LR
 4. Every cycle it follows each agent through Orca: working, asking you
    something, waiting for its plan to be approved, or done. When you approve the
    plan, it sends the agent the implementation `/goal`.
-5. *(Coming next)* When the ticket is closed, the worktree is removed. Orca
-   deletes the branch only if it is already merged.
+5. When the ticket is closed, it cancels the ticket's run, stops its agents and
+   removes the worktree. Orca deletes the branch only if it is already merged;
+   if the ticket is reopened, the new worktree continues from that branch.
 
 Spyhop never pushes, opens pull requests or changes tickets: that stays with you.
 
 ## Project status
 
-Spyhop is being built in phases. **Phases 1 to 3 are implemented**: it detects
-tickets, launches their agents and follows them until they are done. Worktrees
-of closed tickets are not removed yet.
+Spyhop was built in four phases, all implemented: it detects tickets, launches
+their agents, follows them until they are done and removes their worktrees when
+the tickets close.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Configuration, JIRA detection, SQLite, `doctor`, systemd service | ✅ Done |
 | 2 | Worktree creation and agent launch in Orca | ✅ Done |
 | 3 | Agent supervision and plan review | ✅ Done |
-| 4 | Worktree cleanup on close, `retry` and `cleanup` commands | ⏳ Planned |
+| 4 | Worktree cleanup on close, `retry` and `cleanup` commands | ✅ Done |
 
 ## Requirements
 
@@ -334,6 +338,27 @@ until the agent works again or you give up on it with `spyhop fail <KEY>`. Only
 files written after the run's launch count, so a `PLAN.md` or `RESULT.md` left
 by an earlier run of the ticket is never taken as a signal.
 
+### When the ticket closes
+
+Every cycle, Spyhop asks JIRA which tickets with a worktree are closed (status
+category in `cleanup.close_status_categories`, or status in
+`cleanup.close_statuses`), whoever they are assigned to now. For each one it
+cancels the active run, stops the worktree's agents and terminals, and removes
+the worktree with `orca worktree rm`, never forced:
+
+- **Merged branch**: Orca deletes it with the worktree.
+- **Unmerged branch**: Orca keeps it. If the ticket is reopened, its new
+  worktree is created from that branch, so the work continues where it was.
+- **Uncommitted changes**: nothing is removed. The worktree is marked
+  `CLEANUP_BLOCKED` and its Orca card gets a comment and the unread dot. Commit
+  or discard the changes and the next cycle removes it; reopening the ticket
+  instead reuses it.
+
+`TASK.md`, `PLAN.md` and `RESULT.md` are excluded from Git, so they do not
+block the removal and are lost with the worktree: what matters stays in the
+commits and in JIRA. A removal interrupted by Orca or a restart is resumed on
+the next cycle.
+
 Every template can be replaced by a file with the same name in
 `~/.config/spyhop/templates/`: `task.md`, `goal.md`, `settings.local.json.j2`
 and the workflow templates (`bug_fix.md`, `feature.md`, `technical_task.md`, or
@@ -377,6 +402,8 @@ spyhop service uninstall
 | --- | --- |
 | `spyhop run` | Run the daemon in the foreground. `--once` polls once; `--dry-run/--no-dry-run` overrides the configuration; `-v` for debug logs. |
 | `spyhop status [KEY]` | Last poll, watermark, last error and active runs. `--all` includes finished runs. |
+| `spyhop retry RUN\|KEY` | Start a finished run again as a new run (same ticket and worktree). Takes the run id from `status` (its first characters are enough) or a ticket key for its latest run. |
+| `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
 | `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
@@ -428,6 +455,15 @@ after it are processed. Move the ticket out of the start status and back in.
 `orca.executable` points to the screen reader. Install the Orca CLI from Orca's
 settings and either remove `orca.executable` (so `orca-ide` is autodetected) or
 point it to the real CLI.
+</details>
+
+<details>
+<summary><strong>A closed ticket's worktree is still there (<code>CLEANUP_BLOCKED</code>)</strong></summary>
+
+It has uncommitted or untracked files, and Spyhop never forces a removal. The
+reason is in the Orca card's comment and in the logs. Commit, stash or delete
+the files and the next cycle removes the worktree, or run
+`spyhop cleanup <KEY>` to retry at once.
 </details>
 
 <details>
@@ -502,11 +538,12 @@ src/spyhop/
 ├── domain/                     # models, enums, exceptions, ports
 ├── application/                # monitor, transition detector, workflow resolver,
 │                               # orchestrator, launcher, context builder,
-│                               # supervisor
+│                               # supervisor, janitor
 ├── infrastructure/
 │   ├── jira/                   # REST v3 client, payload mapping, ADF to text
 │   ├── orca/                   # Orca CLI client, discovery and validation
 │   ├── persistence/            # SQLite schema, migrations and repositories
+│   ├── git.py                  # branch and working-tree checks
 │   ├── process/                # subprocess runner
 │   └── service/                # systemd user unit
 └── templates/                  # TASK.md, goal, workflow guidance, permission
