@@ -107,7 +107,7 @@ What you do is in **bold**; the rest happens on its own.
 1. **Move a ticket assigned to you to a start status in JIRA** (its workflow's
    `trigger_statuses`). Spyhop creates a worktree for it in Orca and starts an
    agent there.
-2. The agent writes `PLAN.md` and moves its card to plan review
+2. The agent writes `PLAN.md` and moves its card to *In review*
    (`orca.plan_review_status`). **Read `PLAN.md`**, then either:
    - **drag the card to *In progress*** (`orca.plan_approved_status`) to
      approve it, or
@@ -293,7 +293,7 @@ projects:
 | `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
-| `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready. For a separate "Plan review" column, create it in Orca and use the id Orca gives it (`status-N`); see [Orca board columns](#orca-board-columns). |
+| `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
 | `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there sends the implementation `/goal`. |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
@@ -348,10 +348,10 @@ card to `in-review`.
 board, not JIRA statuses. The defaults, *In review* and *In progress*, come with
 Orca, so nothing has to be created.
 
-Plans and finished work then share *In review*. To keep them apart, add a
-*Plan review* column to the board, run `spyhop doctor` to see its id (Orca names
-custom columns `status-N`) and set `orca.plan_review_status` to it. `doctor`
-also reports a configured column that is not on the board.
+Plans and finished work share *In review*; Spyhop tells them apart by `PLAN.md`
+and `RESULT.md`. Avoid custom columns: Orca gives each one a `status-N` id that
+differs from machine to machine, so a configuration using it only works on
+yours.
 
 ### Following a run
 

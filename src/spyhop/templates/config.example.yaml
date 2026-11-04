@@ -58,14 +58,13 @@ orca:
   # executable: ~/.local/bin/orca-ide   # autodetected when omitted
   startup_timeout: 30
   operation_timeout: 120
-  # Both values are ids of Orca board columns, not JIRA statuses. The defaults
-  # are columns Orca ships with (todo, in-progress, in-review, completed), so
-  # nothing has to be created. Finished work always goes to in-review.
+  # Both values are ids of Orca board columns, not JIRA statuses. Keep Orca's
+  # built-in columns (todo, in-progress, in-review, completed): they have the
+  # same id everywhere, while Orca gives a custom column a different status-N on
+  # each machine.
   #
-  # Board column the agent moves its card to when the plan is ready. To keep
-  # plans apart from finished work, add a "Plan review" column to the Orca
-  # board and put its id here: Orca names custom columns status-N, and
-  # `spyhop doctor` lists every column with its id.
+  # Board column the agent moves its card to when the plan is ready. Finished
+  # work goes to in-review too; Spyhop tells them apart by PLAN.md and RESULT.md.
   plan_review_status: in-review
   # Column that approves a plan: dragging the card there makes Spyhop send the
   # agent the implementation /goal.
