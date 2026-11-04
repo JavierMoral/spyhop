@@ -78,18 +78,8 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    J[JIRA] -->|"JQL + changelog<br/>every ~45 s"| M[Monitor]
-    M --> O[Orchestrator]
-    O --> W[Workflow resolver]
-    O --> DB[(SQLite)]
-    O -->|"orca-ide CLI"| ORCA[Orca]
-    ORCA --> WT[Worktree]
-    ORCA --> CC[Claude Code]
-    S[Supervisor] -.->|worktree ps / show| ORCA
-    S -.-> DB
-```
+Spyhop runs in the background between JIRA and Orca: it polls JIRA's REST API,
+drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
 
 1. Every polling interval, Spyhop asks JIRA for **your** tickets that changed
    into a configured start status since the last successful poll.
