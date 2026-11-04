@@ -38,6 +38,12 @@ def test_packaged_templates_cover_the_configured_workflows(tmp_path: Path) -> No
     assert check.level is Level.OK
 
 
+def test_templates_directory_is_reported_without_customizations(tmp_path: Path) -> None:
+    check = _check_templates(settings(tmp_path), tmp_path / "templates")
+
+    assert f"customized in {tmp_path / 'templates'}: none" in check.detail
+
+
 def test_missing_workflow_template_is_an_error(tmp_path: Path) -> None:
     config = settings(tmp_path)
     config.projects["LPD"].workflows["Bug"].prompt = "missing.md"
