@@ -46,6 +46,40 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert session.agent_handle == "term_1"
 
 
+async def test_task_lists_the_ticket_ancestors_up_to_the_root(harness: Harness) -> None:
+    harness.tickets.parents.update({"LPD-1": "LPD-2", "LPD-2": "LPD-3"})
+    harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    worktree = harness.worktrees.find_current("LPD-1")
+
+    assert worktree is not None
+    assert (
+        "- LPD-2 (Bug) · Summary of LPD-2\n- LPD-3 (Bug) · Summary of LPD-3\n"
+        in (worktree.path / "TASK.md").read_text()
+    )
+
+
+async def test_hidden_or_looping_parents_end_the_ancestor_chain(harness: Harness) -> None:
+    harness.tickets.parents.update({"LPD-1": "LPD-2", "LPD-2": "LPD-1"})
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    assert harness.tickets.calls == ["LPD-1", "LPD-2"]
+
+    harness.finish(run.id)
+    harness.tickets.calls.clear()
+    harness.tickets.parents["LPD-1"] = "LPD-9"
+    harness.tickets.hidden.add("LPD-9")
+    second = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    assert harness.run(second.id).status is RunStatus.RUNNING
+
+
 async def test_next_run_of_the_ticket_reuses_its_worktree(harness: Harness) -> None:
     first = harness.discover()
 

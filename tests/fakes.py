@@ -13,7 +13,7 @@ from spyhop.application.launcher import AgentLauncher
 from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import Settings
-from spyhop.domain.exceptions import OrcaCommandError, OrcaUnavailableError
+from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
 from spyhop.domain.models import (
     AgentRow,
     AutomationRun,
@@ -46,9 +46,16 @@ class FakeTickets:
         self.closed: set[str] = set()
         self.queries: list[str] = []
         self.search_error: Exception | None = None
+        self.parents: dict[str, str] = {}
+        self.hidden: set[str] = set()
 
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]:
         self.calls.append(issue_key)
+
+        if issue_key in self.hidden:
+            raise JiraError(f"{issue_key} not found", status_code=404)
+
+        parent = self.parents.get(issue_key)
 
         return {
             "key": issue_key,
@@ -56,17 +63,9 @@ class FakeTickets:
                 "summary": f"Summary of {issue_key}",
                 "issuetype": {"name": "Bug"},
                 "status": {"name": "In Progress"},
-                "description": {
-                    "type": "doc",
-                    "content": [
-                        {"type": "paragraph", "content": [{"type": "text", "text": "Broken"}]}
-                    ],
-                },
+                "parent": {"key": parent} if parent else None,
             },
         }
-
-    async def comments(self, issue_key: str, limit: int) -> list[dict[str, Any]]:
-        return []
 
     async def myself(self) -> JiraUser:
         return JiraUser("me", "Me", "UTC")

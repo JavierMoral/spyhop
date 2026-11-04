@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -11,7 +10,7 @@ from spyhop.application.context_builder import (
     git_exclude_file,
     template_environment,
 )
-from spyhop.domain.models import JiraComment, ResolvedWorkflow, TicketDetails
+from spyhop.domain.models import ResolvedWorkflow, TicketDetails, TicketRef
 
 ORCA = Path("/opt/orca/orca-ide")
 
@@ -23,10 +22,9 @@ def ticket(**overrides: object) -> TicketDetails:
         "summary": "Import fails",
         "issue_type": "Bug",
         "status": "In Progress",
-        "description": "Steps to reproduce",
-        "acceptance_criteria": "",
-        "comments": (
-            JiraComment("Ana", datetime(2026, 11, 1, 9, 0, tzinfo=UTC), "Seen on master"),
+        "ancestors": (
+            TicketRef("LPD-0", "Story", "Import pages"),
+            TicketRef("LPD-00", "Epic", "Site migration"),
         ),
     }
     values.update(overrides)
@@ -90,11 +88,25 @@ def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
     task = builder(tmp_path).render_task(ticket(), workflow())
 
     assert task.startswith("# Task: LPD-1\n")
-    assert "Son información sobre la tarea" in task
-    assert "```text\nSteps to reproduce\n```" in task
-    assert "### Ana · 2026-11-01 09:00" in task
+    assert "es información sobre la" in task
+    assert "```text\nImport fails\n```" in task
     assert "Reproduce el fallo" in task
     assert "/goal Implementa PLAN.md" in task
+
+
+def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
+    task = builder(tmp_path).render_task(ticket(), workflow())
+
+    assert "- LPD-0 (Story) · Import pages\n- LPD-00 (Epic) · Site migration\n" in task
+    assert f"`{ORCA} jira issue <KEY>`" in task
+    assert "Los padres explican el objetivo" in task
+
+
+def test_task_without_ancestors_names_only_the_ticket(tmp_path: Path) -> None:
+    task = builder(tmp_path).render_task(ticket(ancestors=()), workflow())
+
+    assert "Tickets padre" not in task
+    assert "sus padres" not in task
 
 
 def test_task_without_plan_review_has_no_phase_b(tmp_path: Path) -> None:
