@@ -73,7 +73,7 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
   automated before anything is.
 - **Runs in the background** as a systemd user service that starts at boot.
 - **`spyhop doctor`** checks credentials, JIRA projects, issue types and
-  statuses, repositories, Orca and the service, so a typo never fails silently.
+  statuses, repositories, Orca and its board columns, and the service, so a typo never fails silently.
 
 ## How it works
 
@@ -268,7 +268,7 @@ projects:
 | `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
-| `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready. For a separate "Plan review" column, create it in Orca and use the id Orca gives it (`status-N`). |
+| `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready. For a separate "Plan review" column, create it in Orca and use the id Orca gives it (`status-N`); see [Orca board columns](#orca-board-columns). |
 | `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there sends the implementation `/goal`. |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
@@ -316,6 +316,25 @@ The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
 with an unread dot. With `plan_review: false`, one `/goal` covers plan and
 implementation. Either way the agent ends by writing `RESULT.md` and moving its
 card to `in-review`.
+
+### Orca board columns
+
+Spyhop follows a run by the column its card is in on Orca's board, so three
+column ids matter. They are Orca's board columns, not JIRA statuses:
+
+| Column | Default | Who moves the card there | What it means |
+| --- | --- | --- | --- |
+| `orca.plan_review_status` | `in-review` | The agent, once `PLAN.md` is written | The plan awaits your review. |
+| `orca.plan_approved_status` | `in-progress` | You, by dragging the card | The plan is approved: Spyhop sends the implementation `/goal`. |
+| Finished work (fixed) | `in-review` | The agent, once `RESULT.md` is written | The run is completed. |
+
+The defaults are columns Orca ships with (`todo`, `in-progress`, `in-review`,
+`completed`), so nothing has to be created. To keep plans apart from finished
+work, add a column such as *Plan review* to the board and set
+`orca.plan_review_status` to its id. Orca names custom columns `status-N`;
+`spyhop doctor` lists every column with its id and label, and reports a
+configured id that is not on the board, which would otherwise leave runs
+waiting forever.
 
 ### Following a run
 
@@ -428,7 +447,7 @@ spyhop service uninstall
 | `spyhop retry RUN\|KEY` | Start a finished run again as a new run (same ticket and worktree). Takes the run id from `status` (its first characters are enough) or a ticket key for its latest run. |
 | `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
-| `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca and the service. Exits with 1 if anything is wrong. |
+| `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca, its board columns and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
 | `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
 | `spyhop service uninstall` | Stop, disable and remove the service. |
