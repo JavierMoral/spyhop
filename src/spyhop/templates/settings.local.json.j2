@@ -8,8 +8,12 @@
 {%- for command in build_commands -%}
 {%- do allow.append("Bash(" ~ command ~ "*)") -%}
 {%- endfor -%}
+{#- Pushing and opening a pull request are allowed for /pr, which TASK.md
+    reserves to the person; rewriting history on the remote, merging and
+    closing are not. -#}
 {%- set deny = [
-    "Bash(git push*)", "Bash(gh pr*)", "Bash(git reset --hard*)",
+    "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git push --delete*)",
+    "Bash(gh pr merge*)", "Bash(gh pr close*)", "Bash(git reset --hard*)",
     "Bash(git worktree remove*)", "Bash(curl*)", "Bash(wget*)"] -%}
 {%- for orca in orca_commands -%}
 {%- do allow.append("Bash(" ~ orca ~ " worktree set --worktree active*)") -%}
