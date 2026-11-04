@@ -26,7 +26,7 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
 
 - [Features](#features)
 - [How it works](#how-it-works)
-- [Lifecycle](#lifecycle)
+- [A ticket, step by step](#a-ticket-step-by-step)
 - [Project status](#project-status)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -109,79 +109,39 @@ flowchart LR
 
 Spyhop never pushes, opens pull requests or changes tickets: that stays with you.
 
-## Lifecycle
+## A ticket, step by step
 
-Every ticket that enters a start status gets an **automation run**, and every
-run works in the ticket's **worktree**. Both are recorded in SQLite and shown by
-`spyhop status`. A run moves on in two ways: Spyhop's own steps, and what it
-observes in Orca each cycle.
+What you do is in **bold**; the rest happens on its own.
 
-### Automation run
+1. **Move a ticket assigned to you to a start status in JIRA** (its workflow's
+   `trigger_statuses`). Spyhop creates a worktree for it in Orca and starts an
+   agent there.
+2. The agent writes `PLAN.md` and moves its card to plan review
+   (`orca.plan_review_status`). **Read `PLAN.md`**, then either:
+   - **drag the card to *In progress*** (`orca.plan_approved_status`) to
+     approve it, or
+   - **answer the agent in its terminal** to change it.
 
-```mermaid
-stateDiagram-v2
-    [*] --> DISCOVERED: the ticket enters a trigger status in JIRA
-    DISCOVERED --> PREPARING: a free agent slot and enough disk
-    PREPARING --> READY: worktree found or created, TASK.md written
-    READY --> RUNNING: agent launched with its /goal
-    RUNNING --> WAITING_FOR_HUMAN: plan to review, question, or unknown state
-    WAITING_FOR_HUMAN --> RUNNING: plan approved, or the agent works again
-    RUNNING --> COMPLETED: card in in-review and RESULT.md
-    WAITING_FOR_HUMAN --> COMPLETED: card in in-review and RESULT.md
-    COMPLETED --> [*]
-    FAILED --> [*]
-    CANCELLED --> [*]
-```
+   Workflows with `plan_review: false` skip this step.
+3. The agent implements the plan, commits locally, writes `RESULT.md` and moves
+   its card to *In review*. **Review the commits, push and open the pull
+   request**: Spyhop never does.
+4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
+   if it is not merged. See [When the ticket closes](#when-the-ticket-closes).
 
-| From | To | When |
-| --- | --- | --- |
-| — | `DISCOVERED` | The ticket, assigned to you, moves into one of its workflow's `trigger_statuses`. A ticket with an active run is ignored. In dry-run mode the run stays here. |
-| `DISCOVERED` | (stays) | Not enough free disk for a new worktree (`disk_space`), or every agent slot is busy. It moves on by itself. |
-| `DISCOVERED` | `PREPARING` → `READY` | Spyhop reads the ticket, reuses its worktree or creates one, and writes `TASK.md` and the permission profile. |
-| `READY` | `RUNNING` | Orca launches the agent with the `plan` `/goal` (`plan_review: true`) or the `full` one. |
-| `READY` | `WAITING_FOR_HUMAN` (`unknown_state`) | Orca's answer to the launch was lost too long ago to replay it safely: check the worktree in Orca. |
-| `RUNNING` / `WAITING_FOR_HUMAN` | following the table below | What Spyhop observes in Orca each cycle. |
-| any pending | `FAILED` | Something that a retry would not fix: the workflow is no longer configured, the ticket no longer exists, or Orca refuses to create the worktree or launch the agent. Other JIRA or Orca errors are retried next cycle. |
-| any active | `FAILED` | `spyhop fail KEY`. |
-| any active | `CANCELLED` | The ticket closes, or `spyhop cleanup KEY`. |
-| `COMPLETED` / `FAILED` / `CANCELLED` | new run | `spyhop retry`, or the ticket enters a trigger status again. |
+`spyhop status` shows where each ticket is. When it says `WAITING_FOR_HUMAN`,
+the reason tells you what to do:
 
-Once a run is `RUNNING`, each cycle reads the agent's state, its card's column
-on the [Orca board](#orca-board-columns) and the files in the worktree. The
-first matching row wins:
+- `plan_review`: review the plan (step 2).
+- `agent_question`: the agent asked something or needs a permission; answer it
+  in its terminal.
+- `unknown_state`: the agent stopped without finishing. Tell it to go on in its
+  terminal, or give up with `spyhop fail KEY`.
 
-| # | What Spyhop sees | Run becomes |
-| --- | --- | --- |
-| 1 | Card in `in-review` **and** a `RESULT.md` written by this run | `COMPLETED` |
-| 2 | No agent listed by Orca for three cycles | `WAITING_FOR_HUMAN` (`unknown_state`) |
-| 3 | The agent is working | `RUNNING` |
-| 4 | The agent asks something or waits for a permission | `WAITING_FOR_HUMAN` (`agent_question`) |
-| 5 | Card in `orca.plan_review_status` **and** a `PLAN.md` written by this run | `WAITING_FOR_HUMAN` (`plan_review`) |
-| 6 | Waiting for plan review **and** you moved the card to `orca.plan_approved_status` | Spyhop sends the implementation `/goal`: `RUNNING` |
-| 7 | The agent stopped without declaring either | `WAITING_FOR_HUMAN` (`unknown_state`) |
-
-So a card's column counts only together with its file. Moving a card while its
-agent is working changes nothing until the agent stops.
-
-### Worktree
-
-```mermaid
-stateDiagram-v2
-    [*] --> ACTIVE: created, or reused when Orca links one to the ticket
-    ACTIVE --> REMOVING: the ticket closes, or spyhop cleanup
-    REMOVING --> REMOVED: orca worktree rm succeeds
-    REMOVING --> CLEANUP_BLOCKED: uncommitted changes
-    CLEANUP_BLOCKED --> REMOVED: changes committed or discarded
-    CLEANUP_BLOCKED --> ACTIVE: the ticket is reopened
-    REMOVED --> [*]
-```
-
-A ticket counts as closed when its status category is in
-`cleanup.close_status_categories` or its status is in `cleanup.close_statuses`.
-Removing a worktree cancels its run first. A new run waits while the ticket's
-worktree is `REMOVING`, and one for a reopened ticket whose worktree was
-`REMOVED` starts from the unmerged branch Orca kept. See
-[When the ticket closes](#when-the-ticket-closes).
+Moving a card yourself does not finish a run: *In review* counts only once the
+agent has written `RESULT.md`. To start a finished run again, use
+`spyhop retry KEY`; to remove a worktree before the ticket closes,
+`spyhop cleanup KEY`.
 
 ## Project status
 
@@ -394,41 +354,18 @@ card to `in-review`.
 
 ### Orca board columns
 
-Spyhop follows a run by the column its card is in on Orca's board, so three
-column ids matter. They are Orca's board columns, not JIRA statuses:
+`orca.plan_review_status` and `orca.plan_approved_status` are columns of Orca's
+board, not JIRA statuses. The defaults, *In review* and *In progress*, come with
+Orca, so nothing has to be created.
 
-| Column | Default | Who moves the card there | What it means |
-| --- | --- | --- | --- |
-| `orca.plan_review_status` | `in-review` | The agent, once `PLAN.md` is written | The plan awaits your review. |
-| `orca.plan_approved_status` | `in-progress` | You, by dragging the card | The plan is approved: Spyhop sends the implementation `/goal`. |
-| Finished work (fixed) | `in-review` | The agent, once `RESULT.md` is written | The run is completed. |
-
-The defaults are columns Orca ships with (`todo`, `in-progress`, `in-review`,
-`completed`), so nothing has to be created. To keep plans apart from finished
-work, add a column such as *Plan review* to the board and set
-`orca.plan_review_status` to its id. Orca names custom columns `status-N`;
-`spyhop doctor` lists every column with its id and label, and reports a
-configured id that is not on the board, which would otherwise leave runs
-waiting forever.
+Plans and finished work then share *In review*. To keep them apart, add a
+*Plan review* column to the board, run `spyhop doctor` to see its id (Orca names
+custom columns `status-N`) and set `orca.plan_review_status` to it. `doctor`
+also reports a configured column that is not on the board.
 
 ### Following a run
 
-The full set of transitions is in [Lifecycle](#lifecycle).
-
-| What you see in Orca | Run in `spyhop status` |
-| --- | --- |
-| The agent is working | `RUNNING` |
-| The agent asks you something or waits for a permission | `WAITING_FOR_HUMAN` (`agent_question`) |
-| Card in `orca.plan_review_status` with a `PLAN.md` of this run | `WAITING_FOR_HUMAN` (`plan_review`) |
-| Card in `in-review` with a `RESULT.md` of this run | `COMPLETED` |
-| The agent stopped without either, or is gone for three cycles | `WAITING_FOR_HUMAN` (`unknown_state`) |
-
-To review a plan, read `PLAN.md` in the worktree, then either:
-
-- **approve it**: drag the card to `orca.plan_approved_status` (*In progress*).
-  Spyhop types the implementation `/goal` into the agent's terminal;
-- **ask for changes**: answer the agent in its terminal. It updates `PLAN.md`
-  and moves the card back to plan review.
+The everyday flow is in [A ticket, step by step](#a-ticket-step-by-step).
 
 A run that needs a new worktree while the disk is below
 `application.min_free_disk_gb` waits before it starts: it stays `DISCOVERED`
