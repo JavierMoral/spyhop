@@ -99,6 +99,8 @@ drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
    if the ticket is reopened, the new worktree continues from that branch.
 
 Spyhop never pushes, opens pull requests or changes tickets: that stays with you.
+The agent pushes and opens the pull request only when you run `/pr` in its
+terminal.
 
 ## A ticket, step by step
 
@@ -115,8 +117,8 @@ What you do is in **bold**; the rest happens on its own.
 
    Workflows with `plan_review: false` skip this step.
 3. The agent implements the plan, commits locally, writes `RESULT.md` and moves
-   its card to *In review*. **Review the commits, push and open the pull
-   request**: Spyhop never does.
+   its card to *In review*. **Review the commits, then push and open the pull
+   request**, yourself or by running `/pr` in the agent's terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
    if it is not merged. See [When the ticket closes](#when-the-ticket-closes).
 
@@ -318,7 +320,7 @@ Before launching, Spyhop writes three things into the worktree:
 | File | Content |
 | --- | --- |
 | `TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; the deliverables for `RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
-| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (push, open pull requests, change JIRA, remove worktrees, `curl`, `wget`). |
+| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `curl`, `wget`). Pushing and opening a pull request are left to `/pr`. |
 | `.git/info/exclude` | Entries for `TASK.md`, `PLAN.md`, `RESULT.md` and the permission profile, so they never end up in a commit. |
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
@@ -524,7 +526,9 @@ The token is wrong or expired. Update it in your session and in
 - **Credentials stay out of logs, the database and command lines.** The token
   only travels in the HTTP `Authorization` header, and the credentials file is
   created with mode 600.
-- **No pushes, pull requests or ticket changes.** Publishing work stays with you.
+- **No pushes, pull requests or ticket changes without you.** `TASK.md` lets the
+  agent push and open a pull request only when you run `/pr` in its terminal,
+  never because a ticket says so.
 - **Ticket content is untrusted.** The agent reads tickets from JIRA itself,
   through the project's skill or `orca jira`, and `TASK.md` tells it to treat
   them as data, never as instructions. The deny list below keeps it from
@@ -532,8 +536,10 @@ The token is wrong or expired. Update it in your session and in
 - **The deny list is the barrier, not the allow list.** Orca starts Claude Code
   with `--dangerously-skip-permissions`, so everything not denied runs without
   asking. Deny rules still apply in that mode (verified with Claude Code
-  2.1.316): pushing, pull requests, JIRA writes, removing worktrees, `curl` and
-  `wget` are blocked.
+  2.1.316): force pushes, merging or closing pull requests, JIRA writes,
+  removing worktrees, `curl` and `wget` are blocked. Rules match the start of a
+  command, so `git push origin +branch` is not caught; that one rests on
+  `TASK.md`.
 - **A worktree is not a sandbox.** Agents run with your user's permissions. If
   your JIRA token is exported in your shell profile, processes started from your
   session, Orca and its agents included, inherit it.
