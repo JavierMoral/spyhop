@@ -263,12 +263,12 @@ def _check_templates(settings: Settings, user_templates: Path | None = None) -> 
         return Check(Level.ERROR, "templates", "; ".join(problems))
 
     custom = sorted(path.name for path in user_templates.glob("*") if path.name in names)
-    detail = f"{len(names)} found"
 
-    if custom:
-        detail += f"; customized in {user_templates}: {', '.join(custom)}"
-
-    return Check(Level.OK, "templates", detail)
+    return Check(
+        Level.OK,
+        "templates",
+        f"{len(names)} found; customized in {user_templates}: {', '.join(custom) or 'none'}",
+    )
 
 
 async def _check_orca(settings: Settings) -> Check:
