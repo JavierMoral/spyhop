@@ -201,6 +201,7 @@ async def test_reopened_ticket_continues_from_its_kept_branch(harness: Harness) 
     await harness.janitor.sweep()
     harness.tickets.closed.clear()
     harness.branches.add(worktree.branch_name)
+    harness.tickets.summaries["LPD-1"] = "A title changed while closed"
 
     second = harness.discover()
 
@@ -212,6 +213,8 @@ async def test_reopened_ticket_continues_from_its_kept_branch(harness: Harness) 
     assert reopened is not None and reopened.id != worktree.id
     assert harness.orca.bases == ["master", worktree.branch_name]
     assert reopened.base_branch == worktree.branch_name
+    # The previous name, so that Orca checks the kept branch out again.
+    assert harness.orca.created == [worktree.path.name, worktree.path.name]
 
 
 async def test_reopened_ticket_starts_over_when_its_branch_was_merged(
@@ -246,7 +249,7 @@ async def test_reopened_ticket_reuses_a_worktree_that_could_not_be_removed(
     assert harness.run(second.id).status is RunStatus.RUNNING
     assert harness.run(second.id).worktree_id == worktree.id
     assert worktree_status(harness, worktree) is WorktreeStatus.ACTIVE
-    assert harness.orca.created == ["LPD-1"]
+    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
 
 
 async def test_run_waits_while_its_worktree_is_being_removed(harness: Harness) -> None:

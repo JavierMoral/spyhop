@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from spyhop.application.launcher import worktree_name
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
@@ -35,8 +36,8 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert run.status is RunStatus.RUNNING
     assert run.started_at is not None
     assert worktree is not None and run.worktree_id == worktree.id
-    assert worktree.branch_name == "me/LPD-1"
-    assert harness.orca.created == ["LPD-1"]
+    assert worktree.branch_name == "me/LPD-1-summary-of-lpd-1"
+    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
     assert (worktree.path / "TASK.md").read_text().startswith("# Task: LPD-1")
     assert (worktree.path / ".claude" / "settings.local.json").exists()
     assert launch["worktree"] == worktree.orca_worktree_id
@@ -92,7 +93,7 @@ async def test_next_run_of_the_ticket_reuses_its_worktree(harness: Harness) -> N
 
     assert harness.run(second.id).status is RunStatus.RUNNING
     assert harness.run(second.id).worktree_id == harness.run(first.id).worktree_id
-    assert harness.orca.created == ["LPD-1"]
+    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
     assert len(harness.orca.launches) == 2
 
 
@@ -162,7 +163,7 @@ async def test_lost_launch_answer_is_replayed_with_the_same_operation_id(
     assert first["operation_id"] == second["operation_id"] == launching.launch_operation_id
     assert first["prompt"] == second["prompt"]
     assert harness.run(run.id).status is RunStatus.RUNNING
-    assert harness.orca.created == ["LPD-1"]
+    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
     assert len(harness.sessions.list_for_run(run.id)) == 1
 
 
@@ -197,7 +198,7 @@ async def test_uncertain_worktree_creation_is_found_by_reference_next_time(
 
     await harness.launcher.launch_pending()
 
-    assert harness.orca.created == ["LPD-1"]
+    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
     assert harness.run(run.id).status is RunStatus.RUNNING
 
 
@@ -245,3 +246,22 @@ async def test_run_whose_workflow_was_removed_fails(tmp_path: Path) -> None:
 
 def test_harness_uses_a_real_database(harness: Harness) -> None:
     assert isinstance(harness.connection, sqlite3.Connection)
+
+
+def test_worktree_name_is_the_key_and_the_title_as_a_slug() -> None:
+    assert worktree_name("LPD-1234", "Completar task") == "LPD-1234-completar-task"
+    assert worktree_name("LPD-1", "Corrección: ¿por qué falla el/la import?") == (
+        "LPD-1-correccion-por-que-falla-el-la-import"
+    )
+
+
+def test_long_titles_are_cut_at_a_word() -> None:
+    name = worktree_name(
+        "LPD-1", "The preview selector offers no CMS entries for a display page template"
+    )
+
+    assert name == "LPD-1-the-preview-selector-offers-no-cms-entries-for-a"
+
+
+def test_title_without_letters_or_digits_leaves_the_key() -> None:
+    assert worktree_name("LPD-1", " ¿? ") == "LPD-1"

@@ -48,6 +48,7 @@ class FakeTickets:
         self.search_error: Exception | None = None
         self.parents: dict[str, str] = {}
         self.hidden: set[str] = set()
+        self.summaries: dict[str, str] = {}
 
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]:
         self.calls.append(issue_key)
@@ -60,7 +61,7 @@ class FakeTickets:
         return {
             "key": issue_key,
             "fields": {
-                "summary": f"Summary of {issue_key}",
+                "summary": self.summaries.get(issue_key, f"Summary of {issue_key}"),
                 "issuetype": {"name": "Bug"},
                 "status": {"name": "In Progress"},
                 "parent": {"key": parent} if parent else None,
