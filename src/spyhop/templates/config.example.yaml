@@ -36,7 +36,10 @@ projects:
         name: bug_fix
         trigger_statuses: ["In Progress"]
         repository: main
-        prompt: bug_fix.md        # workflow guidance added to TASK.md
+        prompt: bug_fix.md        # template with the guidance added to TASK.md, looked
+                                  # up first in ~/.config/spyhop/templates/, then among
+                                  # the bundled ones; copy one there to customize it
+                                  # (`spyhop doctor` lists the directory)
         plan_review: true
       Story:
         name: feature

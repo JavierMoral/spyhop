@@ -264,7 +264,7 @@ projects:
 | `….trigger_statuses` | — | Statuses that start an automation for this issue type. |
 | `….repository` | — | Repository alias. |
 | `….base_branch` | repository default | Overrides the repository's base branch. |
-| `….prompt` | — | Template with this workflow's guidance, added to `TASK.md`. |
+| `….prompt` | — | Template with this workflow's guidance, added to `TASK.md`. Looked up first in `~/.config/spyhop/templates/`, then among the bundled ones; see [Customizing templates](#customizing-templates). |
 | `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
@@ -368,10 +368,24 @@ block the removal and are lost with the worktree: what matters stays in the
 commits and in JIRA. A removal interrupted by Orca or a restart is resumed on
 the next cycle.
 
-Every template can be replaced by a file with the same name in
-`~/.config/spyhop/templates/`: `task.md`, `goal.md`, `settings.local.json.j2`
-and the workflow templates (`bug_fix.md`, `feature.md`, `technical_task.md`, or
-any name a workflow's `prompt` uses). `spyhop doctor` checks that they all exist.
+### Customizing templates
+
+Everything Spyhop writes for the agent comes from Jinja2 templates, looked up
+first in `~/.config/spyhop/templates/` and then among the bundled ones in
+[`src/spyhop/templates/`](src/spyhop/templates/):
+
+| Template | Used for |
+| --- | --- |
+| `task.md` | `TASK.md`, the ticket's context. |
+| `goal.md` | The `/goal` the agent is launched with. |
+| `settings.local.json.j2` | The agent's permissions in the worktree. |
+| `bug_fix.md`, `feature.md`, `technical_task.md` | Workflow guidance, chosen by a workflow's `prompt`. |
+
+To change one, copy it to `~/.config/spyhop/templates/` with the same name and
+edit the copy; the bundled one is then ignored. A workflow's `prompt` can also
+name a new template, such as `my_workflow.md`, as long as it exists in either
+directory. `spyhop doctor` checks that every template exists and lists the ones
+you customized.
 
 ## Running as a service
 
