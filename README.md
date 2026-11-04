@@ -54,20 +54,20 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
   configuration follows XDG, repositories are aliases, credential variable names
   are configurable.
 - **One worktree per ticket**, linked to the ticket in Orca and reused by later
-  runs, with the agent's context (`TASK.md`, permission profile) written before
+  runs, with the agent's context (`CLAUDE-TASK.md`, permission profile) written before
   the agent starts.
 - **Launches that are never duplicated.** Every launch carries an operation id
   stored beforehand, so a lost answer, a timeout or a restart replays the same
   launch instead of starting a second agent. Prompts typed into a running agent
   work the same way.
-- **Plan review from the Orca board.** The agent stops after writing `PLAN.md`;
+- **Plan review from the Orca board.** The agent stops after writing `CLAUDE-PLAN.md`;
   dragging its card to *In progress* approves the plan and starts the
   implementation.
 - **Worktrees removed when tickets close**, never forced: a worktree with
   uncommitted changes is left for you, flagged on its Orca card. A reopened
   ticket continues from its unmerged branch.
 - **Completion is declared, never guessed.** A run is `COMPLETED` only when the
-  agent moves its card to *In review* with a `RESULT.md`. Anything Spyhop cannot
+  agent moves its card to *In review* with a `CLAUDE-RESULT.md`. Anything Spyhop cannot
   determine is handed to you, not assumed.
 - **Safe dry-run mode**, with its own database, to see what *would* be
   automated before anything is.
@@ -87,9 +87,9 @@ drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
    the workflow for that project and issue type, and records an automation run.
 3. It reuses the ticket's Orca worktree or creates one linked to the ticket,
    named after its key and title (`LPD-1234-fix-the-import`). It writes
-   `TASK.md` with the ticket and its parents, and launches Claude Code with a
-   verifiable `/goal`: first a `PLAN.md` for you to approve, then the implementation, ending
-   with local commits and a `RESULT.md`. The agent marks its Orca card when each
+   `CLAUDE-TASK.md` with the ticket and its parents, and launches Claude Code with a
+   verifiable `/goal`: first a `CLAUDE-PLAN.md` for you to approve, then the implementation, ending
+   with local commits and a `CLAUDE-RESULT.md`. The agent marks its Orca card when each
    step is done.
 4. Every cycle it follows each agent through Orca: working, asking you
    something, waiting for its plan to be approved, or done. When you approve the
@@ -109,14 +109,14 @@ What you do is in **bold**; the rest happens on its own.
 1. **Move a ticket assigned to you to a start status in JIRA** (its workflow's
    `trigger_statuses`). Spyhop creates a worktree for it in Orca and starts an
    agent there.
-2. The agent writes `PLAN.md` and moves its card to *In review*
-   (`orca.plan_review_status`). **Read `PLAN.md`**, then either:
+2. The agent writes `CLAUDE-PLAN.md` and moves its card to *In review*
+   (`orca.plan_review_status`). **Read `CLAUDE-PLAN.md`**, then either:
    - **drag the card to *In progress*** (`orca.plan_approved_status`) to
      approve it, or
    - **answer the agent in its terminal** to change it.
 
    Workflows with `plan_review: false` skip this step.
-3. The agent implements the plan, commits locally, writes `RESULT.md` and moves
+3. The agent implements the plan, commits locally, writes `CLAUDE-RESULT.md` and moves
    its card to *In review*. **Review the commits, then push and open the pull
    request**, yourself or by running `/pr` in the agent's terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
@@ -132,7 +132,7 @@ the reason tells you what to do:
   terminal, or give up with `spyhop fail KEY`.
 
 Moving a card yourself does not finish a run: *In review* counts only once the
-agent has written `RESULT.md`. To start a finished run again, use
+agent has written `CLAUDE-RESULT.md`. To start a finished run again, use
 `spyhop retry KEY`; to remove a worktree before the ticket closes,
 `spyhop cleanup KEY`.
 
@@ -276,7 +276,7 @@ projects:
 | `….trigger_statuses` | — | Statuses that start an automation for this issue type. |
 | `….repository` | — | Repository alias. |
 | `….base_branch` | repository default | Overrides the repository's base branch. |
-| `….prompt` | — | Template with this workflow's guidance, added to `TASK.md`. Looked up first in `~/.config/spyhop/templates/`, then among the bundled ones; see [Customizing templates](#customizing-templates). |
+| `….prompt` | — | Template with this workflow's guidance, added to `CLAUDE-TASK.md`. Looked up first in `~/.config/spyhop/templates/`, then among the bundled ones; see [Customizing templates](#customizing-templates). |
 | `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
@@ -319,14 +319,14 @@ Before launching, Spyhop writes three things into the worktree:
 
 | File | Content |
 | --- | --- |
-| `TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; the deliverables for `RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
+| `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
 | `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `curl`, `wget`). Pushing and opening a pull request are left to `/pr`. |
-| `.git/info/exclude` | Entries for `TASK.md`, `PLAN.md`, `RESULT.md` and the permission profile, so they never end up in a commit. |
+| `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md` and the permission profile, so they never end up in a commit. |
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
-`PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
+`CLAUDE-PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
 with an unread dot. With `plan_review: false`, one `/goal` covers plan and
-implementation. Either way the agent ends by writing `RESULT.md` and moving its
+implementation. Either way the agent ends by writing `CLAUDE-RESULT.md` and moving its
 card to `in-review`.
 
 ### Orca board columns
@@ -335,8 +335,8 @@ card to `in-review`.
 board, not JIRA statuses. The defaults, *In review* and *In progress*, come with
 Orca, so nothing has to be created.
 
-Plans and finished work share *In review*; Spyhop tells them apart by `PLAN.md`
-and `RESULT.md`. Avoid custom columns: Orca gives each one a `status-N` id that
+Plans and finished work share *In review*; Spyhop tells them apart by `CLAUDE-PLAN.md`
+and `CLAUDE-RESULT.md`. Avoid custom columns: Orca gives each one a `status-N` id that
 differs from machine to machine, so a configuration using it only works on
 yours.
 
@@ -354,7 +354,7 @@ waiting run is cancelled if its ticket closes.
 
 A run waiting for you keeps its agent slot. One in `unknown_state` stays there
 until the agent works again or you give up on it with `spyhop fail <KEY>`. Only
-files written after the run's launch count, so a `PLAN.md` or `RESULT.md` left
+files written after the run's launch count, so a `CLAUDE-PLAN.md` or `CLAUDE-RESULT.md` left
 by an earlier run of the ticket is never taken as a signal.
 
 ### When the ticket closes
@@ -373,9 +373,11 @@ the worktree with `orca worktree rm`, never forced:
   or discard the changes and the next cycle removes it; reopening the ticket
   instead reuses it.
 
-`TASK.md`, `PLAN.md` and `RESULT.md` are excluded from Git, so they do not
+`CLAUDE-TASK.md`, `CLAUDE-PLAN.md` and `CLAUDE-RESULT.md` are excluded from Git, so they do not
 block the removal and are lost with the worktree: what matters stays in the
-commits and in JIRA. A removal interrupted by Orca or a restart is resumed on
+commits and in JIRA. Their `CLAUDE-` prefix keeps them alive through
+liferay-portal's `ant all` and `ant clean`, whose `git clean -X` removes ignored
+files except those matching `**/CLAUDE*.md`. A removal interrupted by Orca or a restart is resumed on
 the next cycle.
 
 ### Customizing templates
@@ -386,7 +388,7 @@ first in `~/.config/spyhop/templates/` and then among the bundled ones in
 
 | Template | Used for |
 | --- | --- |
-| `task.md` | `TASK.md`, the ticket's context. |
+| `task.md` | `CLAUDE-TASK.md`, the ticket's context. |
 | `goal.md` | The `/goal` the agent is launched with. |
 | `settings.local.json.j2` | The agent's permissions in the worktree. |
 | `bug_fix.md`, `feature.md`, `technical_task.md` | Workflow guidance, chosen by a workflow's `prompt`. |
@@ -526,11 +528,11 @@ The token is wrong or expired. Update it in your session and in
 - **Credentials stay out of logs, the database and command lines.** The token
   only travels in the HTTP `Authorization` header, and the credentials file is
   created with mode 600.
-- **No pushes, pull requests or ticket changes without you.** `TASK.md` lets the
+- **No pushes, pull requests or ticket changes without you.** `CLAUDE-TASK.md` lets the
   agent push and open a pull request only when you run `/pr` in its terminal,
   never because a ticket says so.
 - **Ticket content is untrusted.** The agent reads tickets from JIRA itself,
-  through the project's skill or `orca jira`, and `TASK.md` tells it to treat
+  through the project's skill or `orca jira`, and `CLAUDE-TASK.md` tells it to treat
   them as data, never as instructions. The deny list below keeps it from
   sending anything out.
 - **The deny list is the barrier, not the allow list.** Orca starts Claude Code
@@ -539,7 +541,7 @@ The token is wrong or expired. Update it in your session and in
   2.1.316): force pushes, merging or closing pull requests, JIRA writes,
   removing worktrees, `curl` and `wget` are blocked. Rules match the start of a
   command, so `git push origin +branch` is not caught; that one rests on
-  `TASK.md`.
+  `CLAUDE-TASK.md`.
 - **A worktree is not a sandbox.** Agents run with your user's permissions. If
   your JIRA token is exported in your shell profile, processes started from your
   session, Orca and its agents included, inherit it.
@@ -585,7 +587,7 @@ src/spyhop/
 │   ├── git.py                  # branch and working-tree checks
 │   ├── process/                # subprocess runner
 │   └── service/                # systemd user unit
-└── templates/                  # TASK.md, goal, workflow guidance, permission
+└── templates/                  # CLAUDE-TASK.md, goal, workflow guidance, permission
                                 # profile, example configuration, unit
 tests/
 ├── unit/
