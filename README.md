@@ -72,7 +72,8 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
   determine is handed to you, not assumed.
 - **Safe dry-run mode**, with its own database, to see what *would* be
   automated before anything is.
-- **Runs in the background** as a systemd user service that starts at boot.
+- **Runs in the background** as a systemd user service that starts when you
+  log in.
 - **`spyhop doctor`** checks credentials, JIRA projects, issue types and
   statuses, repositories, Orca and its board columns, and the service, so a typo never fails silently.
 
@@ -230,7 +231,6 @@ spyhop run               # keep watching; Ctrl+C to stop
 
 ```sh
 spyhop service install
-loginctl enable-linger "$USER"
 ```
 
 ## Configuration
@@ -413,21 +413,21 @@ you customized.
 ## Running as a service
 
 ```sh
-spyhop service install          # writes the unit with this machine's paths and starts it
-loginctl enable-linger "$USER"  # once per machine: start at boot instead of at login
-spyhop doctor                   # should now report the service as active
+spyhop service install   # writes the unit with this machine's paths and starts it
+spyhop doctor            # should now report the service as active
 ```
 
-Without lingering, a systemd user service only starts when you log in. The unit
-restarts Spyhop 30 seconds after a failure and gives up after 5 failures in 10
-minutes, for example with an invalid token; the reason is in the logs.
+The service starts when you log in and stops when you log out. It restarts
+Spyhop 30 seconds after a failure and gives up after 5 failures in 10 minutes,
+for example with an invalid token; the reason is in the logs.
 
-After a reboot:
+Orca is a desktop app, so add it to your session's startup applications. Until
+it answers, detected tickets wait.
 
-- Spyhop starts before you log in and keeps watching JIRA. If the network is not
-  ready yet, it retries without losing transitions.
-- Orca is a desktop app, so it is only available once you log in. Add it to your
-  session's startup applications. Until it answers, detected tickets wait.
+To keep watching JIRA while you are logged out, start the service at boot
+instead with `loginctl enable-linger "$USER"` (undo it with
+`loginctl disable-linger "$USER"`). Tickets are still launched only once Orca
+is running.
 
 **Credentials.** By default the service loads `~/.config/spyhop/env`, which
 `spyhop config init` creates from your session. Spyhop does not read
@@ -520,10 +520,10 @@ subdirectory of the folder you think of as the project.
 </details>
 
 <details>
-<summary><strong>The service does not start after a reboot</strong></summary>
+<summary><strong>The service does not start when you log in</strong></summary>
 
-Check `loginctl show-user "$USER" --property=Linger`. If it says `no`, run
-`loginctl enable-linger "$USER"`. Then check `journalctl --user -u spyhop -b`.
+Check `systemctl --user is-enabled spyhop`; if it is not `enabled`, run
+`spyhop service install` again. Then check `journalctl --user -u spyhop -b`.
 </details>
 
 <details>
