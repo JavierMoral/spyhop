@@ -91,7 +91,7 @@ def test_status_changes_are_timestamped(tmp_path: Path) -> None:
     runs = RunRepository(connection)
 
     runs.set_implement_request("r1", "req-1")
-    runs.mark_waiting("r1", WaitingReason.PLAN_REVIEW, "review PLAN.md")
+    runs.mark_waiting("r1", WaitingReason.PLAN_REVIEW, "review CLAUDE-PLAN.md")
 
     waiting = runs.get("r1")
 

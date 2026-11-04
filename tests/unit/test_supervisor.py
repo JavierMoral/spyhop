@@ -48,7 +48,7 @@ LATER = NOW + timedelta(minutes=1)
     [
         # The agent's declaration of the end wins, even mid-turn.
         (RUNNING, Observation(REVIEW_STATUS, agent("working"), True, True), Signal.COMPLETED),
-        # in-review without RESULT.md is not the end (and may be a plan column).
+        # in-review without CLAUDE-RESULT.md is not the end (and may be a plan column).
         (RUNNING, Observation(REVIEW_STATUS, agent("done", LATER), True, False), Signal.STOPPED),
         (RUNNING, Observation("in-progress", None, False, False), Signal.MISSING),
         (RUNNING, Observation("in-progress", agent("working"), False, False), Signal.WORKING),
@@ -57,7 +57,7 @@ LATER = NOW + timedelta(minutes=1)
         # Revising the plan after feedback: working wins over the card.
         (PLAN_WAIT, Observation(PLAN_REVIEW, agent("working"), True, False), Signal.WORKING),
         (RUNNING, Observation(PLAN_REVIEW, agent("done", LATER), True, False), Signal.PLAN_READY),
-        # The card alone, without a PLAN.md of this run, is not a plan.
+        # The card alone, without a CLAUDE-PLAN.md of this run, is not a plan.
         (RUNNING, Observation(PLAN_REVIEW, agent("done", LATER), False, False), Signal.STOPPED),
         (PLAN_WAIT, Observation(PLAN_APPROVED, agent("done"), True, False), Signal.PLAN_APPROVED),
         # Only a run waiting for its plan review is approved by the card.
@@ -99,7 +99,7 @@ async def launched(harness: Harness, key: str = "LPD-1") -> tuple[AutomationRun,
 async def plan_ready(harness: Harness) -> tuple[AutomationRun, Worktree, str]:
     run, worktree, pane = await launched(harness)
 
-    (worktree.path / "PLAN.md").write_text("plan")
+    (worktree.path / "CLAUDE-PLAN.md").write_text("plan")
     harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
 
@@ -121,7 +121,7 @@ async def test_plan_ready_waits_for_review(harness: Harness) -> None:
 
     assert run.status is RunStatus.WAITING_FOR_HUMAN
     assert run.waiting_reason is WaitingReason.PLAN_REVIEW
-    assert run.error_message == f"review {worktree.path / 'PLAN.md'}"
+    assert run.error_message == f"review {worktree.path / 'CLAUDE-PLAN.md'}"
 
 
 async def test_feedback_on_the_plan_resumes_the_run(harness: Harness) -> None:
@@ -151,7 +151,7 @@ async def test_approving_the_plan_sends_the_implementation_goal(harness: Harness
     approved = harness.run(run.id)
 
     assert prompt["terminal"] == "term_1"
-    assert prompt["text"].startswith("/goal Implementa PLAN.md")
+    assert prompt["text"].startswith("/goal Implementa CLAUDE-PLAN.md")
     assert f"--workspace-status {REVIEW_STATUS}" in prompt["text"]
     assert approved.status is RunStatus.RUNNING
     assert approved.implement_request_id is None
@@ -224,7 +224,7 @@ async def test_declared_end_completes_the_run_and_frees_its_slot(harness: Harnes
     run, worktree, pane = await launched(harness)
     queued = harness.discover("LPD-2")
 
-    (worktree.path / "RESULT.md").write_text("done")
+    (worktree.path / "CLAUDE-RESULT.md").write_text("done")
     harness.orca.set_card(worktree.orca_worktree_id, REVIEW_STATUS)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
 
@@ -242,7 +242,7 @@ async def test_declared_end_completes_the_run_and_frees_its_slot(harness: Harnes
 
 async def test_files_from_an_earlier_run_are_no_signal(harness: Harness) -> None:
     run, worktree, pane = await launched(harness)
-    result = worktree.path / "RESULT.md"
+    result = worktree.path / "CLAUDE-RESULT.md"
     old = (datetime.now(UTC) - timedelta(days=1)).timestamp()
 
     result.write_text("from the previous run")

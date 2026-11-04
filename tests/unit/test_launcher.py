@@ -38,10 +38,10 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert worktree is not None and run.worktree_id == worktree.id
     assert worktree.branch_name == "me/LPD-1-summary-of-lpd-1"
     assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
-    assert (worktree.path / "TASK.md").read_text().startswith("# Task: LPD-1")
+    assert (worktree.path / "CLAUDE-TASK.md").read_text().startswith("# Task: LPD-1")
     assert (worktree.path / ".claude" / "settings.local.json").exists()
     assert launch["worktree"] == worktree.orca_worktree_id
-    assert launch["prompt"].startswith("/goal Lee TASK.md")
+    assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md")
     assert launch["operation_id"] == session.launch_operation_id
     assert session.status is SessionStatus.LAUNCHED
     assert session.agent_handle == "term_1"
@@ -58,7 +58,7 @@ async def test_task_lists_the_ticket_ancestors_up_to_the_root(harness: Harness) 
     assert worktree is not None
     assert (
         "- LPD-2 (Bug) · Summary of LPD-2\n- LPD-3 (Bug) · Summary of LPD-3\n"
-        in (worktree.path / "TASK.md").read_text()
+        in (worktree.path / "CLAUDE-TASK.md").read_text()
     )
 
 

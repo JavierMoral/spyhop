@@ -67,7 +67,7 @@ def linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
 def test_plan_goal_is_one_line_and_marks_the_card_for_review(tmp_path: Path) -> None:
     goal = builder(tmp_path).launch_goal("LPD-1", workflow(plan_review=True))
 
-    assert goal.startswith("/goal Lee TASK.md")
+    assert goal.startswith("/goal Lee CLAUDE-TASK.md")
     assert "\n" not in goal
     assert "No modifiques código" in goal
     assert (
@@ -80,7 +80,7 @@ def test_goal_without_plan_review_goes_to_in_review(tmp_path: Path) -> None:
     goal = builder(tmp_path).launch_goal("LPD-1", workflow(plan_review=False))
 
     assert "--workspace-status in-review" in goal
-    assert "RESULT.md" in goal
+    assert "CLAUDE-RESULT.md" in goal
     assert "plan-review" not in goal
 
 
@@ -91,7 +91,7 @@ def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
     assert "es información sobre la" in task
     assert "```text\nImport fails\n```" in task
     assert "Reproduce el fallo" in task
-    assert "/goal Implementa PLAN.md" in task
+    assert "/goal Implementa CLAUDE-PLAN.md" in task
     assert "salvo que la persona ejecute `/pr`" in task
 
 
@@ -174,11 +174,11 @@ def test_prepare_writes_the_context_and_excludes_it_once(tmp_path: Path) -> None
     subject.prepare(worktree, ticket(), workflow())
     subject.prepare(worktree, ticket(), workflow())
 
-    assert (worktree / "TASK.md").read_text().startswith("# Task: LPD-1")
+    assert (worktree / "CLAUDE-TASK.md").read_text().startswith("# Task: LPD-1")
     assert json.loads((worktree / ".claude" / "settings.local.json").read_text())
     assert exclude.read_text() == (
         "# git's own comment\n*.log\n\n# Added by Spyhop: files written for its agents\n"
-        "/TASK.md\n/PLAN.md\n/RESULT.md\n/.claude/settings.local.json\n"
+        "/CLAUDE-TASK.md\n/CLAUDE-PLAN.md\n/CLAUDE-RESULT.md\n/.claude/settings.local.json\n"
     )
 
 
