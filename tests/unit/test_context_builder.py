@@ -92,6 +92,7 @@ def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
     assert "```text\nImport fails\n```" in task
     assert "Reproduce el fallo" in task
     assert "/goal Implementa PLAN.md" in task
+    assert "salvo que la persona ejecute `/pr`" in task
 
 
 def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
@@ -138,10 +139,12 @@ def test_missing_workflow_template_is_a_context_error(tmp_path: Path) -> None:
         builder(tmp_path).render_task(ticket(), workflow(prompt="missing.md"))
 
 
-def test_settings_profile_denies_publishing_and_lists_orca_both_ways(tmp_path: Path) -> None:
+def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_ways(tmp_path: Path) -> None:
     permissions = json.loads(builder(tmp_path).render_settings(workflow()))["permissions"]
 
-    assert "Bash(git push*)" in permissions["deny"]
+    assert "Bash(git push --force*)" in permissions["deny"]
+    assert "Bash(gh pr merge*)" in permissions["deny"]
+    assert "Bash(git push*)" not in permissions["deny"]
     assert "Bash(orca-ide worktree rm*)" in permissions["deny"]
     assert f"Bash({ORCA} worktree rm*)" in permissions["deny"]
     assert "Bash(./gradlew*)" in permissions["allow"]
