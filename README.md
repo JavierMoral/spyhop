@@ -27,7 +27,6 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
 - [Features](#features)
 - [How it works](#how-it-works)
 - [A ticket, step by step](#a-ticket-step-by-step)
-- [Project status](#project-status)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -133,19 +132,6 @@ Moving a card yourself does not finish a run: *In review* counts only once the
 agent has written `RESULT.md`. To start a finished run again, use
 `spyhop retry KEY`; to remove a worktree before the ticket closes,
 `spyhop cleanup KEY`.
-
-## Project status
-
-Spyhop was built in four phases, all implemented: it detects tickets, launches
-their agents, follows them until they are done and removes their worktrees when
-the tickets close.
-
-| Phase | Scope | State |
-| --- | --- | --- |
-| 1 | Configuration, JIRA detection, SQLite, `doctor`, systemd service | ✅ Done |
-| 2 | Worktree creation and agent launch in Orca | ✅ Done |
-| 3 | Agent supervision and plan review | ✅ Done |
-| 4 | Worktree cleanup on close, `retry` and `cleanup` commands | ✅ Done |
 
 ## Requirements
 
