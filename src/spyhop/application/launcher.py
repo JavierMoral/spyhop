@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from spyhop.application.context_builder import ContextBuilder, ContextError
 from spyhop.application.workflow_resolver import WorkflowResolver
@@ -33,12 +34,19 @@ from spyhop.domain.models import (
     AutomationRun,
     ResolvedWorkflow,
     TicketDetails,
+    TicketRef,
     Worktree,
 )
 from spyhop.domain.protocols import OrcaGateway, TicketGateway
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.git import branch_exists
-from spyhop.infrastructure.jira.mapping import TICKET_FIELDS, to_ticket_details
+from spyhop.infrastructure.jira.mapping import (
+    ANCESTOR_FIELDS,
+    TICKET_FIELDS,
+    parent_key,
+    to_ticket_details,
+    to_ticket_ref,
+)
 from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
@@ -60,6 +68,10 @@ BUSY = (RunStatus.RUNNING, RunStatus.WAITING_FOR_HUMAN)
 # run is handed to a person instead.
 
 REPLAY_WINDOW_SECONDS = 15 * 60
+
+# Safety bound on the parent chain; JIRA hierarchies are a few levels deep.
+
+MAX_ANCESTORS = 10
 
 
 class _RunFailed(Exception):
@@ -282,24 +294,39 @@ class AgentLauncher:
         return workflow
 
     async def _read_ticket(self, issue_key: str) -> TicketDetails:
-        fields = TICKET_FIELDS + self._jira_settings.acceptance_criteria_fields
-
         try:
-            issue = await self._jira.issue(issue_key, fields)
+            issue = await self._jira.issue(issue_key, TICKET_FIELDS)
         except JiraError as error:
             if error.status_code == 404:
                 raise _RunFailed(f"{issue_key} no longer exists or is not visible") from error
 
             raise
 
-        comments = await self._jira.comments(issue_key, self._jira_settings.max_comments)
+        return to_ticket_details(issue, self._jira_settings.base_url, await self._ancestors(issue))
 
-        return to_ticket_details(
-            issue,
-            comments,
-            self._jira_settings.base_url,
-            self._jira_settings.acceptance_criteria_fields,
-        )
+    async def _ancestors(self, issue: dict[str, Any]) -> tuple[TicketRef, ...]:
+        """The ticket's parent, grandparent and so on, so the agent knows which
+        tickets to read. A parent that is not visible ends the chain."""
+
+        ancestors: list[TicketRef] = []
+        key = parent_key(issue)
+
+        while key is not None and len(ancestors) < MAX_ANCESTORS:
+            if key == issue["key"] or any(ancestor.key == key for ancestor in ancestors):
+                break
+
+            try:
+                parent = await self._jira.issue(key, ANCESTOR_FIELDS)
+            except JiraError as error:
+                if error.status_code == 404:
+                    break
+
+                raise
+
+            ancestors.append(to_ticket_ref(parent))
+            key = parent_key(parent)
+
+        return tuple(ancestors)
 
     async def _worktree(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree:
         """The ticket's worktree: SQLite first, then Orca's reference to the

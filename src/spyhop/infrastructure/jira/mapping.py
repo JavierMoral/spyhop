@@ -3,12 +3,13 @@
 from datetime import datetime
 from typing import Any
 
-from spyhop.domain.models import JiraComment, JiraIssue, StatusChange, TicketDetails
-from spyhop.infrastructure.jira.adf import adf_to_text
+from spyhop.domain.models import JiraIssue, StatusChange, TicketDetails, TicketRef
 
 SEARCH_FIELDS = ["assignee", "issuetype", "project", "status", "summary", "updated"]
 
-TICKET_FIELDS = ["description", "issuetype", "parent", "status", "summary"]
+TICKET_FIELDS = ["issuetype", "parent", "status", "summary"]
+
+ANCESTOR_FIELDS = ["issuetype", "parent", "summary"]
 
 
 def parse_jira_datetime(value: str) -> datetime:
@@ -62,14 +63,9 @@ def to_status_changes(histories: list[dict[str, Any]]) -> tuple[StatusChange, ..
 
 
 def to_ticket_details(
-    issue: dict[str, Any],
-    comments: list[dict[str, Any]],
-    base_url: str,
-    acceptance_criteria_fields: list[str],
+    issue: dict[str, Any], base_url: str, ancestors: tuple[TicketRef, ...] = ()
 ) -> TicketDetails:
     fields = issue["fields"]
-    parent = fields.get("parent") or {}
-    criteria = [adf_to_text(fields.get(field)) for field in acceptance_criteria_fields]
 
     return TicketDetails(
         key=issue["key"],
@@ -77,16 +73,22 @@ def to_ticket_details(
         summary=fields.get("summary") or "",
         issue_type=(fields.get("issuetype") or {}).get("name", ""),
         status=(fields.get("status") or {}).get("name", ""),
-        description=adf_to_text(fields.get("description")),
-        acceptance_criteria="\n\n".join(text for text in criteria if text),
-        comments=tuple(
-            JiraComment(
-                author=(comment.get("author") or {}).get("displayName", "unknown"),
-                created=parse_jira_datetime(comment["created"]),
-                body=adf_to_text(comment.get("body")),
-            )
-            for comment in comments
-        ),
-        parent_key=parent.get("key"),
-        parent_summary=(parent.get("fields") or {}).get("summary"),
+        ancestors=ancestors,
     )
+
+
+def to_ticket_ref(issue: dict[str, Any]) -> TicketRef:
+    fields = issue["fields"]
+
+    return TicketRef(
+        key=issue["key"],
+        issue_type=(fields.get("issuetype") or {}).get("name", ""),
+        summary=fields.get("summary") or "",
+    )
+
+
+def parent_key(issue: dict[str, Any]) -> str | None:
+    parent = issue["fields"].get("parent") or {}
+    key = parent.get("key")
+
+    return key if isinstance(key, str) and key else None

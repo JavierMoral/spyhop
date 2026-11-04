@@ -80,15 +80,16 @@ class AutomationRun:
 
 
 @dataclass(frozen=True)
-class JiraComment:
-    author: str
-    created: datetime
-    body: str
+class TicketRef:
+    key: str
+    issue_type: str
+    summary: str
 
 
 @dataclass(frozen=True)
 class TicketDetails:
-    """What the agent gets to know about a ticket, read right before launching.
+    """What Spyhop tells the agent about a ticket, read right before launching.
+    The agent reads the tickets' content from JIRA itself, so it is current.
 
     Every text field comes from JIRA and is untrusted data, never instructions."""
 
@@ -97,11 +98,8 @@ class TicketDetails:
     summary: str
     issue_type: str
     status: str
-    description: str
-    acceptance_criteria: str
-    comments: tuple[JiraComment, ...]
-    parent_key: str | None = None
-    parent_summary: str | None = None
+    # Parent, grandparent and so on up to the root.
+    ancestors: tuple[TicketRef, ...] = ()
 
 
 @dataclass(frozen=True)

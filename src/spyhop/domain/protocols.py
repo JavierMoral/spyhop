@@ -25,8 +25,6 @@ class JiraGateway(Protocol):
 class TicketGateway(Protocol):
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]: ...
 
-    async def comments(self, issue_key: str, limit: int) -> list[dict[str, Any]]: ...
-
 
 class OrcaGateway(Protocol):
     @property

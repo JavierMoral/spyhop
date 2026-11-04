@@ -51,8 +51,6 @@ class JiraSettings(BaseModel):
     token_env: str = "JIRA_API_TOKEN"
     request_timeout: float = Field(default=20, gt=0)
     transition_margin_minutes: int = Field(default=5, ge=1)
-    acceptance_criteria_fields: list[str] = Field(default_factory=list)
-    max_comments: int = Field(default=20, ge=0)
 
 
 class RepositorySettings(BaseModel):

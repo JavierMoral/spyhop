@@ -96,6 +96,7 @@ class ContextBuilder:
             ticket=ticket,
             workflow=workflow,
             guidance=guidance,
+            orca=str(self._orca_executable),
             implement_goal=self.goal(ticket.key, "implement"),
             plan_review_status=self._plan_review_status,
             plan_approved_status=self._plan_approved_status,

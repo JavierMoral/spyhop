@@ -18,8 +18,6 @@ jira:
   token_env: JIRA_API_TOKEN
   request_timeout: 20
   transition_margin_minutes: 5
-  acceptance_criteria_fields: []  # custom fields copied to TASK.md, e.g. [customfield_10048]
-  max_comments: 20                # latest comments copied to TASK.md
 
 repositories:                     # alias -> path on this machine
   main:
