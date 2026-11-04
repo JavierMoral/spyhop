@@ -68,7 +68,8 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
         stack.callback(connection.close)
 
         resolver = WorkflowResolver(settings)
-        agents = None if dry_run else _agents(settings, connection, resolver, jira)
+        agents = None
+        agents_error: str | None = None
         monitor = JiraMonitor(
             detector=TransitionDetector(jira, resolver, user.time_zone),
             orchestrator=Orchestrator(RunRepository(connection), dry_run),
@@ -94,6 +95,18 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
             except JiraError as error:
                 _log.warning("Poll failed, will retry: %s", error)
                 monitor.record_error(str(error))
+
+            if agents is None and not dry_run:
+                # Orca may be missing at start, for example while the session
+                # is still coming up, so it is looked for again every cycle.
+
+                try:
+                    agents = _agents(settings, connection, resolver, jira)
+                except OrcaError as error:
+                    if str(error) != agents_error:
+                        _log.error("Agents will not be launched until this is fixed: %s", error)
+
+                    agents_error = str(error)
 
             if agents is not None:
                 janitor, supervisor, launcher = agents
@@ -134,14 +147,8 @@ def _agents(
     connection: sqlite3.Connection,
     resolver: WorkflowResolver,
     jira: JiraClient,
-) -> tuple[WorktreeJanitor, AgentSupervisor, AgentLauncher] | None:
-    try:
-        orca = orca_client(settings)
-    except OrcaError as error:
-        _log.error("Agents will not be launched until this is fixed: %s", error)
-
-        return None
-
+) -> tuple[WorktreeJanitor, AgentSupervisor, AgentLauncher]:
+    orca = orca_client(settings)
     executable = orca.executable
 
     _log.info("Launching and supervising agents through %s", executable)
