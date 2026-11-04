@@ -3,6 +3,9 @@
 On Linux `orca` is usually the GNOME screen reader, a Python script that would
 start reading the screen aloud if executed. Spyhop therefore only autodetects
 `orca-ide`, and refuses any candidate with a Python shebang before running it.
+
+Orca registers its CLI in ~/.local/bin, which a service started before the
+desktop session may not have in PATH, so that directory is looked at too.
 """
 
 import asyncio
@@ -15,6 +18,10 @@ from pathlib import Path
 from spyhop.domain.exceptions import OrcaError
 
 AUTODETECTED_NAMES = ("orca-ide",)
+
+# Where Orca registers its CLI, looked at when it is not in PATH.
+
+REGISTERED_CLI_DIR = Path("~/.local/bin")
 
 
 @dataclass(frozen=True)
@@ -36,8 +43,10 @@ def find_orca_executable(configured: Path | None) -> Path:
 
         return candidate
 
+    registered_dir = REGISTERED_CLI_DIR.expanduser()
+
     for name in AUTODETECTED_NAMES:
-        candidate = _which(name)
+        candidate = _which(name) or _registered(registered_dir / name)
 
         if candidate is not None:
             _reject_screen_reader(candidate)
@@ -45,8 +54,8 @@ def find_orca_executable(configured: Path | None) -> Path:
             return candidate
 
     raise OrcaError(
-        "Orca CLI not found: install it from Orca's settings or set orca.executable "
-        f"(looked for {', '.join(AUTODETECTED_NAMES)} in PATH)"
+        "Orca CLI not found: register it from Orca's settings or set orca.executable "
+        f"(looked for {', '.join(AUTODETECTED_NAMES)} in PATH and in {registered_dir})"
     )
 
 
@@ -93,6 +102,10 @@ def _which(name: str) -> Path | None:
     found = shutil.which(name)
 
     return Path(found) if found else None
+
+
+def _registered(candidate: Path) -> Path | None:
+    return candidate if candidate.is_file() and os.access(candidate, os.X_OK) else None
 
 
 def _reject_screen_reader(candidate: Path) -> None:
