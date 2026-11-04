@@ -14,11 +14,12 @@ from jinja2 import TemplateError
 from spyhop.application.context_builder import template_environment
 from spyhop.application.janitor import closed_tickets_jql
 from spyhop.config.credentials import JiraCredentials, read_env_file
-from spyhop.config.paths import systemd_user_unit_file, user_templates_dir
-from spyhop.config.settings import ProjectSettings, Settings, load_settings
+from spyhop.config.paths import orca_config_dir, systemd_user_unit_file, user_templates_dir
+from spyhop.config.settings import REVIEW_STATUS, ProjectSettings, Settings, load_settings
 from spyhop.domain.exceptions import JiraError, SpyhopError
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.jira.client import JiraClient
+from spyhop.infrastructure.orca.board import read_board_columns
 from spyhop.infrastructure.orca.discovery import check_runtime, find_orca_executable
 from spyhop.infrastructure.service.systemd import linger_enabled, unit_active
 
@@ -51,6 +52,7 @@ async def run_checks(config_file: Path) -> list[Check]:
     checks.extend(_check_repositories(settings))
     checks.append(_check_templates(settings))
     checks.append(await _check_orca(settings))
+    checks.append(_check_board(settings))
     checks.extend(_check_service())
 
     return checks
@@ -284,6 +286,40 @@ async def _check_orca(settings: Settings) -> Check:
         return Check(Level.WARNING, "orca", detail + "; the app is not running")
 
     return Check(Level.OK, "orca", f"{detail}, runtime {info.runtime_state}")
+
+
+def _check_board(settings: Settings, orca_dir: Path | None = None) -> Check:
+    used = {
+        "orca.plan_review_status": settings.orca.plan_review_status,
+        "orca.plan_approved_status": settings.orca.plan_approved_status,
+        "finished work": REVIEW_STATUS,
+    }
+
+    try:
+        columns = {
+            column.id: column.label for column in read_board_columns(orca_dir or orca_config_dir())
+        }
+    except SpyhopError as error:
+        return Check(
+            Level.WARNING,
+            "board columns",
+            f"could not read Orca's board ({error}); check by hand that "
+            f"{', '.join(dict.fromkeys(used.values()))} are column ids",
+        )
+
+    missing = [f"{name}: {status!r}" for name, status in used.items() if status not in columns]
+    available = "columns: " + ", ".join(f"{id} ({label})" for id, label in columns.items())
+
+    if missing:
+        return Check(
+            Level.ERROR,
+            "board columns",
+            f"not on the Orca board: {'; '.join(missing)}; {available}",
+        )
+
+    using = ", ".join(f"{name}={status}" for name, status in used.items())
+
+    return Check(Level.OK, "board columns", f"{using}; {available}")
 
 
 def _check_service() -> list[Check]:

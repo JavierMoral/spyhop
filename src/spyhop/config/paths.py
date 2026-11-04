@@ -42,6 +42,13 @@ def database_file(dry_run: bool) -> Path:
     return state_dir() / ("spyhop-dry-run.db" if dry_run else "spyhop.db")
 
 
+def orca_config_dir() -> Path:
+    # Orca is an Electron app: its user data lives in the platform's config
+    # directory under the app's name.
+
+    return user_config_path("orca")
+
+
 def systemd_user_unit_file() -> Path:
     config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
 
