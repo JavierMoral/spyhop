@@ -12,7 +12,9 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
 """
 
 import logging
+import re
 import time
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,6 +74,10 @@ REPLAY_WINDOW_SECONDS = 15 * 60
 # Safety bound on the parent chain; JIRA hierarchies are a few levels deep.
 
 MAX_ANCESTORS = 10
+
+# Characters of the ticket title kept in a worktree's name, cut at a word.
+
+MAX_SLUG_LENGTH = 50
 
 
 class _RunFailed(Exception):
@@ -223,7 +229,7 @@ class AgentLauncher:
         ticket = await self._read_ticket(run.issue_key)
 
         try:
-            worktree = await self._worktree(run.issue_key, workflow)
+            worktree = await self._worktree(ticket, workflow)
 
             self._context.prepare(worktree.path, ticket, workflow)
         except (OrcaCommandError, ContextError) as error:
@@ -328,10 +334,11 @@ class AgentLauncher:
 
         return tuple(ancestors)
 
-    async def _worktree(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree:
+    async def _worktree(self, ticket: TicketDetails, workflow: ResolvedWorkflow) -> Worktree:
         """The ticket's worktree: SQLite first, then Orca's reference to the
         ticket, and only then a new one."""
 
+        issue_key = ticket.key
         current = self._worktrees.find_current(issue_key)
 
         if current is not None:
@@ -368,10 +375,19 @@ class AgentLauncher:
         base_branch = workflow.base_branch
 
         if orca_worktree is None:
-            base_branch = self._reopened_base(issue_key, workflow)
+            name = worktree_name(issue_key, ticket.summary)
+            previous = self._reopened(issue_key, workflow)
+
+            if previous is not None:
+                # The same name makes Orca check the kept branch out again
+                # instead of creating a new one, even if the title changed.
+
+                name = previous.path.name
+                base_branch = previous.branch_name
+
             orca_worktree = await self._orca.create_worktree(
                 workflow.repository_path,
-                issue_key,
+                name,
                 base_branch,
                 issue_key,
                 workflow.setup,
@@ -391,11 +407,9 @@ class AgentLauncher:
             issue_key, orca_worktree, workflow.repository_path, base_branch
         )
 
-    def _reopened_base(self, issue_key: str, workflow: ResolvedWorkflow) -> str:
-        """A reopened ticket continues from the branch of its removed
-        worktree when Git still has it (Orca keeps unmerged branches). Orca
-        then checks that branch out again instead of creating a suffixed
-        one."""
+    def _reopened(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree | None:
+        """The removed worktree a reopened ticket continues from, when Git
+        still has its branch (Orca keeps unmerged branches)."""
 
         previous = self._worktrees.find_last_removed(issue_key)
 
@@ -404,13 +418,34 @@ class AgentLauncher:
             or previous.repository_path != workflow.repository_path
             or not self._branch_exists(previous.repository_path, previous.branch_name)
         ):
-            return workflow.base_branch
+            return None
 
         _log.info(
             "%s: reopened; continuing from its previous branch %s", issue_key, previous.branch_name
         )
 
-        return previous.branch_name
+        return previous
+
+
+def worktree_name(issue_key: str, summary: str) -> str:
+    """The ticket key followed by its title as a slug: LPD-1234-fix-the-import."""
+
+    ascii_summary = unicodedata.normalize("NFKD", summary).encode("ascii", "ignore").decode()
+    words = re.findall(r"[a-z0-9]+", ascii_summary.lower())
+    slug = ""
+
+    for word in words:
+        longer = f"{slug}-{word}" if slug else word
+
+        if len(longer) > MAX_SLUG_LENGTH:
+            break
+
+        slug = longer
+
+    if not slug and words:
+        slug = words[0][:MAX_SLUG_LENGTH]
+
+    return f"{issue_key}-{slug}" if slug else issue_key
 
 
 def _replay_expired(session: AgentSession, now: float | None = None) -> bool:
