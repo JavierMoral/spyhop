@@ -31,7 +31,21 @@ def test_autodetects_orca_ide_in_path(tmp_path: Path, monkeypatch: pytest.Monkey
     assert find_orca_executable(None) == orca_ide
 
 
+def test_autodetects_orca_ide_registered_outside_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".local" / "bin").mkdir(parents=True)
+
+    orca_ide = script(tmp_path / ".local" / "bin" / "orca-ide", "#!/usr/bin/env bash\n")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+
+    assert find_orca_executable(None) == orca_ide
+
+
 def test_missing_cli_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", str(tmp_path))
 
     with pytest.raises(OrcaError, match="Orca CLI not found"):
