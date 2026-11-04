@@ -86,7 +86,7 @@ drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
 2. For each one it reads the changelog to find the exact transition, resolves
    the workflow for that project and issue type, and records an automation run.
 3. It reuses the ticket's Orca worktree or creates one linked to the ticket,
-   writes `TASK.md` from the ticket, and launches Claude Code with a verifiable
+   writes `TASK.md` with the ticket and its parents, and launches Claude Code with a verifiable
    `/goal`: first a `PLAN.md` for you to approve, then the implementation, ending
    with local commits and a `RESULT.md`. The agent marks its Orca card when each
    step is done.
@@ -264,8 +264,6 @@ projects:
 | `jira.user_env` / `jira.token_env` | `JIRA_API_USER` / `JIRA_API_TOKEN` | Names of the credential variables. |
 | `jira.request_timeout` | `20` | Seconds per JIRA request. |
 | `jira.transition_margin_minutes` | `5` | Overlap between polls, because JQL dates work to the minute. |
-| `jira.acceptance_criteria_fields` | `[]` | Custom fields copied to `TASK.md` as acceptance criteria, such as `customfield_10048`. |
-| `jira.max_comments` | `20` | Latest comments copied to `TASK.md`. |
 | `repositories.<alias>.path` | — | Local checkout. Accepts `~` and `${VAR}`. |
 | `repositories.<alias>.default_base_branch` | `master` | Base branch for new worktrees. |
 | `repositories.<alias>.setup` | `inherit` | Orca setup hooks for new worktrees: `inherit` (the repository's policy in Orca), `run` or `skip`. |
@@ -318,7 +316,7 @@ Before launching, Spyhop writes three things into the worktree:
 
 | File | Content |
 | --- | --- |
-| `TASK.md` | Title, description, acceptance criteria and latest comments from JIRA, fenced and marked as data rather than instructions; the workflow's guidance; rules; the deliverables for `RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
+| `TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; the deliverables for `RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
 | `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (push, open pull requests, change JIRA, remove worktrees, `curl`, `wget`). |
 | `.git/info/exclude` | Entries for `TASK.md`, `PLAN.md`, `RESULT.md` and the permission profile, so they never end up in a commit. |
 
@@ -526,8 +524,10 @@ The token is wrong or expired. Update it in your session and in
   only travels in the HTTP `Authorization` header, and the credentials file is
   created with mode 600.
 - **No pushes, pull requests or ticket changes.** Publishing work stays with you.
-- **Ticket content is untrusted.** Ticket text reaches agents fenced in
-  `TASK.md` and marked as data, never as instructions.
+- **Ticket content is untrusted.** The agent reads tickets from JIRA itself,
+  through the project's skill or `orca jira`, and `TASK.md` tells it to treat
+  them as data, never as instructions. The deny list below keeps it from
+  sending anything out.
 - **The deny list is the barrier, not the allow list.** Orca starts Claude Code
   with `--dangerously-skip-permissions`, so everything not denied runs without
   asking. Deny rules still apply in that mode (verified with Claude Code
