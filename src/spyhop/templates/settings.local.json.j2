@@ -8,7 +8,7 @@
 {%- for command in build_commands -%}
 {%- do allow.append("Bash(" ~ command ~ "*)") -%}
 {%- endfor -%}
-{#- Pushing and opening a pull request are allowed for /pr, which TASK.md
+{#- Pushing and opening a pull request are allowed for /pr, which CLAUDE-TASK.md
     reserves to the person; rewriting history on the remote, merging and
     closing are not. -#}
 {%- set deny = [

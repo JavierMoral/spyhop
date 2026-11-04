@@ -1,8 +1,8 @@
 """Follows each launched run through Orca until its agent declares the end.
 
 Orca emits no event when Claude reaches its /goal, so the agent declares its
-own progress: it moves its card to the plan review column with PLAN.md written,
-or to in-review with RESULT.md written. Each cycle reads the agents of every
+own progress: it moves its card to the plan review column with CLAUDE-PLAN.md written,
+or to in-review with CLAUDE-RESULT.md written. Each cycle reads the agents of every
 worktree (`worktree ps`), the run's card (`worktree show`) and those two files,
 and applies the signal table in `observe`.
 
@@ -68,8 +68,8 @@ class Signal(StrEnum):
 class Observation:
     card_status: str | None
     agent: AgentRow | None
-    plan_written: bool  # PLAN.md written by this run's agent
-    result_written: bool  # RESULT.md written by this run's agent
+    plan_written: bool  # CLAUDE-PLAN.md written by this run's agent
+    result_written: bool  # CLAUDE-RESULT.md written by this run's agent
 
 
 def observe(
@@ -206,7 +206,7 @@ class AgentSupervisor:
             if session is not None:
                 self._sessions.mark_finished(session.id)
 
-            _log.info("%s: completed; RESULT.md is in %s", run.issue_key, worktree.path)
+            _log.info("%s: completed; CLAUDE-RESULT.md is in %s", run.issue_key, worktree.path)
         elif signal is Signal.WORKING:
             self._resume(run)
         elif signal is Signal.QUESTION:

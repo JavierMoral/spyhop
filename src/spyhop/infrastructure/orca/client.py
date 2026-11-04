@@ -151,7 +151,7 @@ class OrcaClient:
         reference: str,
         setup: str,
     ) -> OrcaWorktree:
-        """Creates the worktree without an agent, so that TASK.md and the
+        """Creates the worktree without an agent, so that CLAUDE-TASK.md and the
         permission profile are in place before the agent starts."""
 
         args = [

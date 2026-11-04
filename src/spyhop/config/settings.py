@@ -20,7 +20,7 @@ from spyhop.config.paths import default_env_file, expand_path
 from spyhop.domain.exceptions import ConfigurationError
 
 # Board column the agent moves its card to when the work is ready for review.
-# Built into Orca; together with RESULT.md it is the only completion signal.
+# Built into Orca; together with CLAUDE-RESULT.md it is the only completion signal.
 
 REVIEW_STATUS = "in-review"
 

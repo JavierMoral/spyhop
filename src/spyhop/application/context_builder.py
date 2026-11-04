@@ -1,4 +1,4 @@
-"""Prepares a worktree for its agent: TASK.md, Git exclusions, permission
+"""Prepares a worktree for its agent: CLAUDE-TASK.md, Git exclusions, permission
 profile, and the /goal prompt that starts the work.
 
 Templates come from ~/.config/spyhop/templates/ when present there, otherwise
@@ -23,9 +23,13 @@ from spyhop.config.settings import REVIEW_STATUS
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.domain.models import ResolvedWorkflow, TicketDetails
 
-TASK_FILE = "TASK.md"
-PLAN_FILE = "PLAN.md"
-RESULT_FILE = "RESULT.md"
+# Named CLAUDE-*.md so that liferay-portal's "ant clean" (and "ant all") keeps
+# them: its git clean -X removes ignored files except those matching
+# **/CLAUDE*.md, among others.
+
+TASK_FILE = "CLAUDE-TASK.md"
+PLAN_FILE = "CLAUDE-PLAN.md"
+RESULT_FILE = "CLAUDE-RESULT.md"
 SETTINGS_FILE = Path(".claude") / "settings.local.json"
 
 # Anchored to the worktree root. info/exclude is shared by every worktree of a

@@ -34,7 +34,7 @@ projects:
         name: bug_fix
         trigger_statuses: ["In Progress"]
         repository: main
-        prompt: bug_fix.md        # template with the guidance added to TASK.md, looked
+        prompt: bug_fix.md        # template with the guidance added to CLAUDE-TASK.md, looked
                                   # up first in ~/.config/spyhop/templates/, then among
                                   # the bundled ones; copy one there to customize it
                                   # (`spyhop doctor` lists the directory)
@@ -62,7 +62,7 @@ orca:
   # each machine.
   #
   # Board column the agent moves its card to when the plan is ready. Finished
-  # work goes to in-review too; Spyhop tells them apart by PLAN.md and RESULT.md.
+  # work goes to in-review too; Spyhop tells them apart by CLAUDE-PLAN.md and CLAUDE-RESULT.md.
   plan_review_status: in-review
   # Column that approves a plan: dragging the card there makes Spyhop send the
   # agent the implementation /goal.
