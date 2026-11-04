@@ -338,15 +338,13 @@ def _check_service() -> list[Check]:
 
     linger = linger_enabled()
 
-    if linger is False:
+    if linger is not None:
+        starts = "at boot" if linger else "when you log in"
+
         checks.append(
             Check(
-                Level.WARNING,
-                "linger",
-                'disabled: the service only starts at login; run `loginctl enable-linger "$USER"`',
+                Level.OK, "linger", f"{'en' if linger else 'dis'}abled: the service starts {starts}"
             )
         )
-    elif linger:
-        checks.append(Check(Level.OK, "linger", "enabled: the service starts at boot"))
 
     return checks

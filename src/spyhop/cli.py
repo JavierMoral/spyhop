@@ -332,8 +332,8 @@ def service_install(
 
     if linger_enabled() is False:
         typer.echo(
-            "Linger is disabled, so the service only starts when you log in. To start it at "
-            'boot, run once: loginctl enable-linger "$USER"'
+            "The service starts when you log in. To start it at boot instead, "
+            'run once: loginctl enable-linger "$USER"'
         )
 
 
