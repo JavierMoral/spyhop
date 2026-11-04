@@ -86,8 +86,9 @@ drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
 2. For each one it reads the changelog to find the exact transition, resolves
    the workflow for that project and issue type, and records an automation run.
 3. It reuses the ticket's Orca worktree or creates one linked to the ticket,
-   writes `TASK.md` with the ticket and its parents, and launches Claude Code with a verifiable
-   `/goal`: first a `PLAN.md` for you to approve, then the implementation, ending
+   named after its key and title (`LPD-1234-fix-the-import`). It writes
+   `TASK.md` with the ticket and its parents, and launches Claude Code with a
+   verifiable `/goal`: first a `PLAN.md` for you to approve, then the implementation, ending
    with local commits and a `RESULT.md`. The agent marks its Orca card when each
    step is done.
 4. Every cycle it follows each agent through Orca: working, asking you
