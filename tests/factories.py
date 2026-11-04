@@ -1,5 +1,7 @@
-"""Builders for JIRA REST payloads and settings used across tests."""
+"""Builders for JIRA REST payloads, settings and Orca profiles used across tests."""
 
+import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,36 @@ def settings(tmp_path: Path, **overrides: Any) -> Settings:
     data.update(overrides)
 
     return Settings(**data)
+
+
+DEFAULT_COLUMNS = [
+    {"id": "todo", "label": "Todo"},
+    {"id": "in-progress", "label": "In progress"},
+    {"id": "in-review", "label": "In review"},
+    {"id": "completed", "label": "Done"},
+]
+
+
+def orca_dir(
+    tmp_path: Path, columns: list[dict[str, str]] | None = None, profile: str = "local-default"
+) -> Path:
+    directory = tmp_path / "orca"
+    profile_dir = directory / "profiles" / profile
+
+    profile_dir.mkdir(parents=True)
+    (directory / "orca-profile-index.json").write_text(json.dumps({"activeProfileId": profile}))
+
+    connection = sqlite3.connect(profile_dir / "profile-state.db")
+
+    connection.execute("CREATE TABLE profile_state_documents (domain TEXT, payload TEXT)")
+    connection.execute(
+        "INSERT INTO profile_state_documents VALUES ('ui', ?)",
+        (json.dumps({"workspaceStatuses": DEFAULT_COLUMNS if columns is None else columns}),),
+    )
+    connection.commit()
+    connection.close()
+
+    return directory
 
 
 def history(

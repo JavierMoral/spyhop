@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from spyhop.config.settings import ProjectSettings
-from spyhop.doctor import Level, _check_project, _check_templates
-from tests.factories import settings
+from spyhop.doctor import Level, _check_board, _check_project, _check_templates
+from tests.factories import DEFAULT_COLUMNS, orca_dir, settings
 
 
 def project(tmp_path: Path) -> ProjectSettings:
@@ -61,3 +61,35 @@ def test_customized_templates_are_reported(tmp_path: Path) -> None:
     check = _check_templates(settings(tmp_path), tmp_path / "templates")
 
     assert "customized" in check.detail and "bug_fix.md" in check.detail
+
+
+def test_default_board_columns_are_ok(tmp_path: Path) -> None:
+    check = _check_board(settings(tmp_path), orca_dir(tmp_path))
+
+    assert check.level is Level.OK
+    assert "completed (Done)" in check.detail
+
+
+def test_missing_board_column_is_an_error_listing_the_columns(tmp_path: Path) -> None:
+    config = settings(tmp_path)
+    config.orca.plan_review_status = "status-6"
+
+    check = _check_board(config, orca_dir(tmp_path))
+
+    assert check.level is Level.ERROR
+    assert "'status-6'" in check.detail and "in-progress (In progress)" in check.detail
+
+
+def test_finished_work_column_is_required(tmp_path: Path) -> None:
+    columns = [column for column in DEFAULT_COLUMNS if column["id"] != "in-review"]
+
+    check = _check_board(settings(tmp_path), orca_dir(tmp_path, columns))
+
+    assert check.level is Level.ERROR
+    assert "finished work: 'in-review'" in check.detail
+
+
+def test_unreadable_board_is_a_warning(tmp_path: Path) -> None:
+    check = _check_board(settings(tmp_path), tmp_path / "no-orca")
+
+    assert check.level is Level.WARNING
