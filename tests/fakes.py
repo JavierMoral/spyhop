@@ -24,6 +24,7 @@ from spyhop.domain.models import (
     PromptDelivery,
     RemoveResult,
     TerminalRow,
+    Worktree,
 )
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
@@ -325,7 +326,15 @@ class Harness:
             branch_exists=lambda repository, branch: branch in self.branches,
             free_bytes=lambda path: self.free_bytes(path),
         )
-        self.remover = WorktreeRemover(self.runs, self.worktrees, self.orca)
+        self.cleaned: list[Path] = []
+        self.cleanup_errors: list[Exception] = []
+        self.remover = WorktreeRemover(
+            self.runs,
+            self.worktrees,
+            self.orca,
+            self.config.repositories,
+            cleanup_script=self.cleanup_script,
+        )
         self.janitor = WorktreeJanitor(
             remover=self.remover,
             runs=self.runs,
@@ -344,6 +353,12 @@ class Harness:
             plan_review_status=PLAN_REVIEW,
             plan_approved_status=PLAN_APPROVED,
         )
+
+    async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:
+        if self.cleanup_errors:
+            raise self.cleanup_errors.pop(0)
+
+        self.cleaned.append(worktree.path)
 
     def free_bytes(self, path: Path) -> int:
         self.measured.append(path)

@@ -9,8 +9,10 @@ import pytest
 from spyhop.infrastructure.worktree_script import (
     WorktreeRequest,
     WorktreeScriptError,
+    run_cleanup_script,
     run_worktree_script,
 )
+from tests.factories import worktree_record
 
 
 def script(tmp_path: Path, body: str) -> Path:
@@ -87,3 +89,33 @@ async def test_slow_script_is_stopped(tmp_path: Path) -> None:
 async def test_missing_script_is_reported(tmp_path: Path) -> None:
     with pytest.raises(WorktreeScriptError, match="cannot run"):
         await run_worktree_script(tmp_path / "missing", request(tmp_path), 10)
+
+
+async def test_cleanup_script_gets_the_removed_worktree(tmp_path: Path) -> None:
+    removed = worktree_record(tmp_path)
+    removed.repository_path.mkdir(parents=True, exist_ok=True)
+    cleanup = script(
+        tmp_path,
+        'echo "$SPYHOP_ISSUE_KEY $SPYHOP_WORKTREE_PATH $SPYHOP_BRANCH '
+        '$SPYHOP_REPOSITORY_PATH $PWD" > "$0.log"',
+    )
+
+    await run_cleanup_script(cleanup, removed, 10)
+
+    assert (tmp_path / "create-worktree.log").read_text().split() == [
+        removed.issue_key,
+        str(removed.path),
+        removed.branch_name,
+        str(removed.repository_path),
+        str(removed.repository_path),
+    ]
+
+
+async def test_failed_cleanup_script_is_reported(tmp_path: Path) -> None:
+    removed = worktree_record(tmp_path)
+    removed.repository_path.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(WorktreeScriptError, match="exited with 2: tomcat still running"):
+        await run_cleanup_script(
+            script(tmp_path, "echo 'tomcat still running' >&2\nexit 2"), removed, 10
+        )

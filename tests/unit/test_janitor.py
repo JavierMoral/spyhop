@@ -12,6 +12,7 @@ from spyhop.domain.exceptions import (
     OrcaUncertainError,
 )
 from spyhop.domain.models import AutomationRun, Worktree
+from spyhop.infrastructure.worktree_script import WorktreeScriptError
 from tests.factories import settings
 from tests.fakes import Harness
 
@@ -285,3 +286,71 @@ async def test_retry_creates_a_new_run_on_the_same_worktree(harness: Harness) ->
     assert harness.run(retried.id).worktree_id == worktree.id
     assert harness.runs.find(run.id[:8]) == [harness.run(run.id)]
     assert harness.runs.find("lpd-1") == [harness.run(retried.id)]
+
+
+def with_cleanup_script(tmp_path: Path) -> Harness:
+    return Harness(
+        tmp_path,
+        settings(
+            tmp_path,
+            repositories={
+                "portal": {
+                    "path": str(tmp_path / "portal"),
+                    "worktree_cleanup_script": str(tmp_path / "remove-bundle"),
+                }
+            },
+        ),
+    )
+
+
+async def test_cleanup_script_runs_once_orca_removed_the_worktree(tmp_path: Path) -> None:
+    harness = with_cleanup_script(tmp_path)
+    _, worktree = await launched(harness)
+
+    harness.tickets.closed.add("LPD-1")
+    await harness.janitor.sweep()
+
+    assert harness.orca.removed == [worktree.orca_worktree_id]
+    assert harness.cleaned == [worktree.path]
+    assert worktree_status(harness, worktree) is WorktreeStatus.REMOVED
+
+
+async def test_blocked_removal_keeps_what_the_cleanup_script_would_remove(
+    tmp_path: Path,
+) -> None:
+    harness = with_cleanup_script(tmp_path)
+    _, worktree = await launched(harness)
+    harness.orca.remove_errors.append(DIRTY)
+
+    harness.tickets.closed.add("LPD-1")
+    await harness.janitor.sweep()
+
+    assert worktree_status(harness, worktree) is WorktreeStatus.CLEANUP_BLOCKED
+    assert harness.cleaned == []
+
+
+async def test_failed_cleanup_script_runs_again_next_cycle(tmp_path: Path) -> None:
+    harness = with_cleanup_script(tmp_path)
+    _, worktree = await launched(harness)
+    harness.cleanup_errors.append(WorktreeScriptError("worktree script exited with 1: busy"))
+
+    harness.tickets.closed.add("LPD-1")
+    await harness.janitor.sweep()
+
+    assert worktree_status(harness, worktree) is WorktreeStatus.REMOVING
+    assert harness.cleaned == []
+
+    await harness.janitor.sweep()
+
+    assert worktree_status(harness, worktree) is WorktreeStatus.REMOVED
+    assert harness.cleaned == [worktree.path]
+
+
+async def test_without_cleanup_script_only_orca_removes(harness: Harness) -> None:
+    _, worktree = await launched(harness)
+
+    harness.tickets.closed.add("LPD-1")
+    await harness.janitor.sweep()
+
+    assert worktree_status(harness, worktree) is WorktreeStatus.REMOVED
+    assert harness.cleaned == []

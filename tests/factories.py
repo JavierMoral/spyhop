@@ -2,10 +2,13 @@
 
 import json
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from spyhop.config.settings import Settings
+from spyhop.domain.enums import WorktreeStatus
+from spyhop.domain.models import Worktree
 
 
 def settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -108,3 +111,21 @@ def issue(
             "total": len(histories) if changelog_total is None else changelog_total,
         },
     }
+
+
+def worktree_record(tmp_path: Path, key: str = "LPD-1") -> Worktree:
+    path = tmp_path / "agents" / key / "portal"
+
+    return Worktree(
+        id="worktree-1",
+        issue_key=key,
+        orca_worktree_id=f"repo::{path}",
+        repository_path=tmp_path / "portal",
+        path=path,
+        branch_name=key,
+        base_branch="master",
+        created_at=datetime(2026, 11, 1, tzinfo=UTC),
+        status=WorktreeStatus.REMOVING,
+        cleanup_error=None,
+        removed_at=None,
+    )
