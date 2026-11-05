@@ -11,6 +11,7 @@ from spyhop.domain.exceptions import (
     OrcaCommandError,
     OrcaUncertainError,
 )
+from spyhop.infrastructure.worktree_script import WorktreeRequest, WorktreeScriptError
 from tests.factories import settings
 from tests.fakes import Harness
 
@@ -265,3 +266,112 @@ def test_long_titles_are_cut_at_a_word() -> None:
 
 def test_title_without_letters_or_digits_leaves_the_key() -> None:
     assert worktree_name("LPD-1", " ¿? ") == "LPD-1"
+
+
+class FakeWorktreeScript:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.requests: list[WorktreeRequest] = []
+        self.errors: list[Exception] = []
+
+    async def __call__(self, script: Path, request: WorktreeRequest, time_limit: float) -> Path:
+        self.requests.append(request)
+
+        if self.errors:
+            raise self.errors.pop(0)
+
+        path = self.root / "agents" / request.name / "portal"
+        (path / ".git").mkdir(parents=True, exist_ok=True)
+
+        return path
+
+
+def scripted(tmp_path: Path) -> tuple[Harness, FakeWorktreeScript]:
+    config = settings(
+        tmp_path,
+        repositories={
+            "portal": {
+                "path": str(tmp_path / "portal"),
+                "worktree_script": str(tmp_path / "create-worktree"),
+            }
+        },
+    )
+    harness = Harness(tmp_path, config)
+    worktree_script = FakeWorktreeScript(tmp_path)
+    harness.launcher._worktree_script = worktree_script
+
+    return harness, worktree_script
+
+
+async def test_worktree_script_creates_the_worktree_instead_of_orca(tmp_path: Path) -> None:
+    harness, worktree_script = scripted(tmp_path)
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    worktree = harness.worktrees.find_current("LPD-1")
+    path = tmp_path / "agents" / "LPD-1-summary-of-lpd-1" / "portal"
+
+    assert harness.run(run.id).status is RunStatus.RUNNING
+    assert harness.orca.created == []
+    assert worktree_script.requests == [
+        WorktreeRequest(
+            "LPD-1",
+            "LPD-1-summary-of-lpd-1",
+            "LPD-1-summary-of-lpd-1",
+            "master",
+            tmp_path / "portal",
+        )
+    ]
+    assert harness.orca.linked == [str(path)]
+    assert worktree is not None and worktree.path == path
+    assert (path / "CLAUDE-TASK.md").exists()
+
+
+async def test_scripted_worktree_waits_until_orca_lists_it(tmp_path: Path) -> None:
+    harness, worktree_script = scripted(tmp_path)
+    run = harness.discover()
+    harness.orca.link_errors.append(OrcaCommandError("selector_not_found", "no such worktree"))
+
+    await harness.launcher.launch_pending()
+
+    assert harness.run(run.id).status is RunStatus.PREPARING
+
+    await harness.launcher.launch_pending()
+
+    assert harness.run(run.id).status is RunStatus.RUNNING
+    assert len(worktree_script.requests) == 2
+
+
+async def test_failed_worktree_script_fails_the_run(tmp_path: Path) -> None:
+    harness, worktree_script = scripted(tmp_path)
+    run = harness.discover()
+    worktree_script.errors.append(WorktreeScriptError("worktree script exited with 1: nope"))
+
+    await harness.launcher.launch_pending()
+
+    assert harness.run(run.id).status is RunStatus.FAILED
+    assert harness.run(run.id).error_message == "worktree script exited with 1: nope"
+    assert harness.orca.linked == []
+
+
+async def test_reopened_ticket_asks_the_script_for_its_kept_branch(tmp_path: Path) -> None:
+    harness, worktree_script = scripted(tmp_path)
+    harness.discover()
+    await harness.launcher.launch_pending()
+    worktree = harness.worktrees.find_current("LPD-1")
+
+    assert worktree is not None
+
+    harness.tickets.closed.add("LPD-1")
+    await harness.janitor.sweep()
+    harness.tickets.closed.clear()
+    harness.branches.add(worktree.branch_name)
+
+    harness.discover()
+    await harness.launcher.launch_pending()
+
+    reopened = worktree_script.requests[-1]
+
+    assert reopened.branch == worktree.branch_name
+    assert reopened.base_branch == worktree.branch_name

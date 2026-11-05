@@ -100,6 +100,8 @@ class FakeOrca:
         self.unavailable = False
         self.launch_errors: list[Exception] = []
         self.create_errors: list[Exception] = []
+        self.linked: list[str] = []
+        self.link_errors: list[Exception] = []
         self.agents: dict[str, list[AgentRow]] = {}
         self.terminal_rows: dict[str, list[TerminalRow]] = {}
         self.prompts: list[dict[str, str]] = []
@@ -170,6 +172,27 @@ class FakeOrca:
 
         if self.create_errors:
             raise self.create_errors.pop(0)
+
+        return worktree
+
+    async def link_worktree(self, path: Path, reference: str) -> OrcaWorktree:
+        self.linked.append(str(path))
+
+        if self.link_errors:
+            raise self.link_errors.pop(0)
+
+        worktree = OrcaWorktree(
+            id=f"repo::{path}",
+            path=path,
+            branch=path.name,
+            base_ref=None,
+            workspace_status="in-progress",
+            comment="",
+            unread=False,
+        )
+
+        self.worktrees[worktree.id] = worktree
+        self.references[reference] = worktree.id
 
         return worktree
 

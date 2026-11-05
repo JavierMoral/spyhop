@@ -137,6 +137,19 @@ async def test_create_worktree_links_the_ticket_without_an_agent() -> None:
     ]
 
 
+async def test_link_worktree_adds_the_reference_and_shows_the_worktree() -> None:
+    runner = FakeRunner('{"ok": true, "result": {}}', fixture("worktree_show.json"))
+    path = Path("/home/user/git/project/wt/PROJ-123")
+
+    worktree = await client(runner).link_worktree(path, "PROJ-123")
+
+    assert worktree.id == WORKTREE_ID
+    assert [call[0][1:] for call in runner.calls] == [
+        ["reference", "add", "PROJ-123", "--worktree", f"path:{path}", "--json"],
+        ["worktree", "show", "--worktree", f"path:{path}", "--json"],
+    ]
+
+
 async def test_create_worktree_inherits_the_setup_policy_by_default() -> None:
     runner = FakeRunner(fixture("worktree_create.json"))
 

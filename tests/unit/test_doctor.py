@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from spyhop.config.settings import ProjectSettings
-from spyhop.doctor import Level, _check_board, _check_project, _check_templates
+from spyhop.doctor import (
+    Level,
+    _check_board,
+    _check_project,
+    _check_templates,
+    _check_worktree_script,
+)
 from tests.factories import DEFAULT_COLUMNS, orca_dir, settings
 
 
@@ -93,3 +99,15 @@ def test_unreadable_board_is_a_warning(tmp_path: Path) -> None:
     check = _check_board(settings(tmp_path), tmp_path / "no-orca")
 
     assert check.level is Level.WARNING
+
+
+def test_worktree_script_must_be_executable(tmp_path: Path) -> None:
+    script = tmp_path / "create-worktree"
+    script.write_text("#!/bin/sh\n")
+
+    assert _check_worktree_script("main", script).level is Level.ERROR
+    assert _check_worktree_script("main", tmp_path / "missing").level is Level.ERROR
+
+    script.chmod(0o755)
+
+    assert _check_worktree_script("main", script).level is Level.OK
