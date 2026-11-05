@@ -233,7 +233,9 @@ def cleanup(
         raise typer.Exit(1)
 
     try:
-        remover = WorktreeRemover(RunRepository(connection), worktrees, orca_client(settings))
+        remover = WorktreeRemover(
+            RunRepository(connection), worktrees, orca_client(settings), settings.repositories
+        )
         outcome = asyncio.run(remover.clean_up(worktree, "cleaned up by a person"))
     except SpyhopError as error:
         typer.echo(f"{worktree.issue_key}: removal not finished: {error}", err=True)

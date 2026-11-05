@@ -12,12 +12,12 @@ REMOVING (Orca unavailable, Spyhop stopped mid-way) is resumed next cycle.
 """
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 
 from spyhop.application.launcher import PENDING
-from spyhop.config.settings import CleanupSettings
+from spyhop.config.settings import CleanupSettings, RepositorySettings
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import (
     JiraAuthenticationError,
@@ -30,6 +30,7 @@ from spyhop.domain.models import Worktree
 from spyhop.domain.protocols import JiraGateway, OrcaGateway
 from spyhop.infrastructure.git import has_changes
 from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
+from spyhop.infrastructure.worktree_script import WorktreeScriptError, run_cleanup_script
 
 _log = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ class WorktreeJanitor:
             try:
                 if await self._remover.clean_up(worktree, TICKET_CLOSED) is Cleanup.REMOVED:
                     removed.append(worktree)
-            except OrcaError as error:
+            except (OrcaError, WorktreeScriptError) as error:
                 _log.warning("%s: removal will resume next cycle: %s", worktree.issue_key, error)
 
         return removed
@@ -160,16 +161,28 @@ class WorktreeRemover:
     """Removes one worktree: used by the janitor and by `spyhop cleanup`."""
 
     def __init__(
-        self, runs: RunRepository, worktrees: WorktreeRepository, orca: OrcaGateway
+        self,
+        runs: RunRepository,
+        worktrees: WorktreeRepository,
+        orca: OrcaGateway,
+        repositories: Mapping[str, RepositorySettings] | None = None,
+        cleanup_script: Callable[[Path, Worktree, float], Awaitable[None]] = run_cleanup_script,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
         self._orca = orca
+        self._repositories = {
+            repository.path: repository for repository in (repositories or {}).values()
+        }
+        self._cleanup_script = cleanup_script
 
     async def clean_up(self, worktree: Worktree, reason: str) -> Cleanup:
-        """Cancels the ticket's active run, stops its agents and removes the
-        worktree. Raises OrcaUnavailableError or OrcaUncertainError when the
-        outcome is unknown; the worktree then stays REMOVING."""
+        """Cancels the ticket's active run, stops its agents, removes the
+        worktree and then runs the repository's cleanup script. Raises
+        OrcaUnavailableError or OrcaUncertainError when the outcome is
+        unknown, and WorktreeScriptError when the cleanup script fails; the
+        worktree then stays REMOVING, and the next attempt finds it gone from
+        Orca and runs the script again."""
 
         self._worktrees.mark_removing(worktree.id)
 
@@ -184,6 +197,8 @@ class WorktreeRemover:
             result = await self._orca.remove_worktree(worktree.orca_worktree_id)
         except OrcaCommandError as error:
             if error.code == "selector_not_found":
+                await self._run_cleanup_script(worktree)
+
                 self._worktrees.mark_removed(worktree.id, "already gone from Orca")
 
                 _log.info("%s: worktree %s was already removed", worktree.issue_key, worktree.path)
@@ -193,6 +208,8 @@ class WorktreeRemover:
             await self._block(worktree, error.message)
 
             return Cleanup.BLOCKED
+
+        await self._run_cleanup_script(worktree)
 
         self._worktrees.mark_removed(worktree.id)
 
@@ -206,6 +223,25 @@ class WorktreeRemover:
         )
 
         return Cleanup.REMOVED
+
+    async def _run_cleanup_script(self, worktree: Worktree) -> None:
+        repository = self._repositories.get(worktree.repository_path)
+
+        if repository is None or repository.worktree_cleanup_script is None:
+            return
+
+        await self._cleanup_script(
+            repository.worktree_cleanup_script,
+            worktree,
+            repository.worktree_cleanup_script_timeout,
+        )
+
+        _log.info(
+            "%s: cleanup script %s done for %s",
+            worktree.issue_key,
+            repository.worktree_cleanup_script,
+            worktree.path,
+        )
 
     async def _block(self, worktree: Worktree, message: str) -> None:
         self._worktrees.mark_cleanup_blocked(worktree.id, message)

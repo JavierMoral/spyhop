@@ -62,6 +62,10 @@ class RepositorySettings(BaseModel):
     # its contract. Orca's setup hooks do not run for the worktrees it creates.
     worktree_script: ExpandedPath | None = None
     worktree_script_timeout: float = Field(default=600, gt=0)
+    # Executable run once Orca has removed a worktree, to remove what lives
+    # next to it, such as a bundle of its own.
+    worktree_cleanup_script: ExpandedPath | None = None
+    worktree_cleanup_script_timeout: float = Field(default=600, gt=0)
 
 
 class WorkflowSettings(BaseModel):

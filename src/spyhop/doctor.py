@@ -224,11 +224,18 @@ def _check_repositories(settings: Settings) -> list[Check]:
         if repository.worktree_script is not None:
             checks.append(_check_worktree_script(alias, repository.worktree_script))
 
+        if repository.worktree_cleanup_script is not None:
+            checks.append(
+                _check_worktree_script(
+                    alias, repository.worktree_cleanup_script, "worktree cleanup script"
+                )
+            )
+
     return checks
 
 
-def _check_worktree_script(alias: str, script: Path) -> Check:
-    name = f"worktree script {alias}"
+def _check_worktree_script(alias: str, script: Path, what: str = "worktree script") -> Check:
+    name = f"{what} {alias}"
 
     if not script.is_file() or not os.access(script, os.X_OK):
         return Check(Level.ERROR, name, f"{script} is not an executable file")

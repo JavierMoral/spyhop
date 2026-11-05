@@ -186,7 +186,7 @@ def _agents(
     )
 
     janitor = WorktreeJanitor(
-        remover=WorktreeRemover(runs, worktrees, orca),
+        remover=WorktreeRemover(runs, worktrees, orca, settings.repositories),
         runs=runs,
         worktrees=worktrees,
         jira=jira,

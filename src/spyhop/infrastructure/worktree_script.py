@@ -1,17 +1,24 @@
-"""Runs the script that creates a ticket's worktree in place of Orca.
+"""Runs the scripts that create a ticket's worktree in place of Orca and
+clean up after Orca removes it.
 
-The script gets what to create in SPYHOP_* environment variables, runs from the
-repository and prints the worktree's absolute path as the last line of its
-standard output; anything else it wants to say goes to standard error. A run
-interrupted after the script may run it again for the same ticket, so the
-script must answer with the existing worktree when it is already there.
+Both get what to work on in SPYHOP_* environment variables and run from the
+repository; anything they want to say goes to standard error. Both may run
+again for the same worktree after an interruption, so they must be idempotent.
+
+The creation script prints the worktree's absolute path as the last line of
+its standard output, and answers with the existing worktree when it is
+already there. The cleanup script runs once Orca has removed the worktree, to
+remove what lives next to it; a folder that is already gone is not an error.
 """
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from spyhop.domain.exceptions import SpyhopError
+from spyhop.domain.models import Worktree
 from spyhop.infrastructure.process.command_runner import (
+    CommandResult,
     CommandRunner,
     CommandTimeoutError,
     SubprocessRunner,
@@ -22,7 +29,7 @@ from spyhop.infrastructure.process.command_runner import (
 MAX_DETAIL_LENGTH = 500
 
 
-class WorktreeScriptError(Exception):
+class WorktreeScriptError(SpyhopError):
     pass
 
 
@@ -41,31 +48,19 @@ async def run_worktree_script(
     time_limit: float,
     runner: CommandRunner | None = None,
 ) -> Path:
-    environment = {
-        **os.environ,
-        "SPYHOP_ISSUE_KEY": request.issue_key,
-        "SPYHOP_WORKTREE_NAME": request.name,
-        "SPYHOP_BRANCH": request.branch,
-        "SPYHOP_BASE_BRANCH": request.base_branch,
-        "SPYHOP_REPOSITORY_PATH": str(request.repository_path),
-    }
-
-    try:
-        completed = await (runner or SubprocessRunner()).run(
-            [str(script)], time_limit, cwd=request.repository_path, env=environment
-        )
-    except CommandTimeoutError as error:
-        raise WorktreeScriptError(f"worktree script {script} gave {error}") from None
-    except OSError as error:
-        raise WorktreeScriptError(f"cannot run worktree script {script}: {error}") from None
-
-    if completed.exit_code != 0:
-        detail = completed.stderr.strip()[-MAX_DETAIL_LENGTH:]
-
-        raise WorktreeScriptError(
-            f"worktree script {script} exited with {completed.exit_code}: {detail}"
-        )
-
+    completed = await _run(
+        script,
+        {
+            "SPYHOP_ISSUE_KEY": request.issue_key,
+            "SPYHOP_WORKTREE_NAME": request.name,
+            "SPYHOP_BRANCH": request.branch,
+            "SPYHOP_BASE_BRANCH": request.base_branch,
+            "SPYHOP_REPOSITORY_PATH": str(request.repository_path),
+        },
+        request.repository_path,
+        time_limit,
+        runner,
+    )
     lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
     if not lines:
@@ -82,3 +77,49 @@ async def run_worktree_script(
         raise WorktreeScriptError(f"worktree script {script} printed {path}, not a Git worktree")
 
     return path
+
+
+async def run_cleanup_script(
+    script: Path,
+    worktree: Worktree,
+    time_limit: float,
+    runner: CommandRunner | None = None,
+) -> None:
+    await _run(
+        script,
+        {
+            "SPYHOP_ISSUE_KEY": worktree.issue_key,
+            "SPYHOP_WORKTREE_PATH": str(worktree.path),
+            "SPYHOP_BRANCH": worktree.branch_name,
+            "SPYHOP_REPOSITORY_PATH": str(worktree.repository_path),
+        },
+        worktree.repository_path,
+        time_limit,
+        runner,
+    )
+
+
+async def _run(
+    script: Path,
+    variables: dict[str, str],
+    cwd: Path,
+    time_limit: float,
+    runner: CommandRunner | None,
+) -> CommandResult:
+    try:
+        completed = await (runner or SubprocessRunner()).run(
+            [str(script)], time_limit, cwd=cwd, env={**os.environ, **variables}
+        )
+    except CommandTimeoutError as error:
+        raise WorktreeScriptError(f"worktree script {script} gave {error}") from None
+    except OSError as error:
+        raise WorktreeScriptError(f"cannot run worktree script {script}: {error}") from None
+
+    if completed.exit_code != 0:
+        detail = completed.stderr.strip()[-MAX_DETAIL_LENGTH:]
+
+        raise WorktreeScriptError(
+            f"worktree script {script} exited with {completed.exit_code}: {detail}"
+        )
+
+    return completed

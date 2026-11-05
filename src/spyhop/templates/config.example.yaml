@@ -27,6 +27,8 @@ repositories:                     # alias -> path on this machine
     build_commands: []            # allowed to the agent, e.g. ["./gradlew", "ant"]
     # worktree_script: ~/bin/spyhop-create-worktree  # creates worktrees instead of Orca (see README)
     # worktree_script_timeout: 600  # seconds the script may take
+    # worktree_cleanup_script: ~/bin/spyhop-remove-worktree  # runs after Orca removes a worktree
+    # worktree_cleanup_script_timeout: 600
 
 projects:
   PROJ:
