@@ -1,7 +1,7 @@
 """Runs external commands without a shell and without blocking the event loop."""
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -23,17 +23,26 @@ class CommandTimeoutError(Exception):
 
 class CommandRunner(Protocol):
     async def run(
-        self, args: Sequence[str], time_limit: float, cwd: Path | None = None
+        self,
+        args: Sequence[str],
+        time_limit: float,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> CommandResult: ...
 
 
 class SubprocessRunner:
     async def run(
-        self, args: Sequence[str], time_limit: float, cwd: Path | None = None
+        self,
+        args: Sequence[str],
+        time_limit: float,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> CommandResult:
         process = await asyncio.create_subprocess_exec(
             *args,
             cwd=cwd,
+            env=env,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

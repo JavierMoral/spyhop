@@ -221,7 +221,19 @@ def _check_repositories(settings: Settings) -> list[Check]:
                 _check_disk(alias, repository.path, settings.application.min_free_disk_gb)
             )
 
+        if repository.worktree_script is not None:
+            checks.append(_check_worktree_script(alias, repository.worktree_script))
+
     return checks
+
+
+def _check_worktree_script(alias: str, script: Path) -> Check:
+    name = f"worktree script {alias}"
+
+    if not script.is_file() or not os.access(script, os.X_OK):
+        return Check(Level.ERROR, name, f"{script} is not an executable file")
+
+    return Check(Level.OK, name, str(script))
 
 
 def _check_disk(alias: str, path: Path, min_free_gb: float) -> Check:

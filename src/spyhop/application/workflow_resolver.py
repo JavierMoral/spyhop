@@ -60,4 +60,6 @@ class WorkflowResolver:
             plan_review=workflow.plan_review,
             setup=repository.setup,
             build_commands=tuple(repository.build_commands),
+            worktree_script=repository.worktree_script,
+            worktree_script_timeout=repository.worktree_script_timeout,
         )

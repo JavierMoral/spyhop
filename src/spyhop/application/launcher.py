@@ -15,7 +15,7 @@ import logging
 import re
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +34,7 @@ from spyhop.domain.exceptions import (
 from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
+    OrcaWorktree,
     ResolvedWorkflow,
     TicketDetails,
     TicketRef,
@@ -54,6 +55,11 @@ from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
     WorktreeRepository,
+)
+from spyhop.infrastructure.worktree_script import (
+    WorktreeRequest,
+    WorktreeScriptError,
+    run_worktree_script,
 )
 
 _log = logging.getLogger(__name__)
@@ -110,6 +116,9 @@ class AgentLauncher:
         min_free_disk_gb: float = 0,
         branch_exists: Callable[[Path, str], bool] = branch_exists,
         free_bytes: Callable[[Path], int] = free_bytes,
+        worktree_script: Callable[
+            [Path, WorktreeRequest, float], Awaitable[Path]
+        ] = run_worktree_script,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
@@ -124,6 +133,7 @@ class AgentLauncher:
         self._min_free_bytes = int(min_free_disk_gb * GIB)
         self._branch_exists = branch_exists
         self._free_bytes = free_bytes
+        self._worktree_script = worktree_script
 
     async def launch_pending(self) -> list[AutomationRun]:
         """Advances pending runs, oldest first, while there are free slots.
@@ -376,22 +386,34 @@ class AgentLauncher:
 
         if orca_worktree is None:
             name = worktree_name(issue_key, ticket.summary)
+            branch = name
             previous = self._reopened(issue_key, workflow)
 
             if previous is not None:
-                # The same name makes Orca check the kept branch out again
-                # instead of creating a new one, even if the title changed.
-
-                name = previous.path.name
                 base_branch = previous.branch_name
+                branch = previous.branch_name
 
-            orca_worktree = await self._orca.create_worktree(
-                workflow.repository_path,
-                name,
-                base_branch,
-                issue_key,
-                workflow.setup,
-            )
+            if workflow.worktree_script is not None:
+                orca_worktree = await self._scripted_worktree(
+                    WorktreeRequest(issue_key, name, branch, base_branch, workflow.repository_path),
+                    workflow.worktree_script,
+                    workflow.worktree_script_timeout,
+                )
+            else:
+                if previous is not None:
+                    # The same name makes Orca check the kept branch out
+                    # again instead of creating a new one, even if the
+                    # title changed.
+
+                    name = previous.path.name
+
+                orca_worktree = await self._orca.create_worktree(
+                    workflow.repository_path,
+                    name,
+                    base_branch,
+                    issue_key,
+                    workflow.setup,
+                )
 
             _log.info(
                 "%s: created worktree %s on branch %s from %s",
@@ -406,6 +428,27 @@ class AgentLauncher:
         return self._worktrees.create(
             issue_key, orca_worktree, workflow.repository_path, base_branch
         )
+
+    async def _scripted_worktree(
+        self, request: WorktreeRequest, script: Path, time_limit: float
+    ) -> OrcaWorktree:
+        """Creates the worktree with the repository's script and links it to
+        the ticket in Orca. Until Orca has seen the new worktree in Git, the
+        run waits; next cycle the script runs again and answers with the
+        worktree it already created."""
+
+        try:
+            path = await self._worktree_script(script, request, time_limit)
+        except WorktreeScriptError as error:
+            raise _RunFailed(str(error)) from error
+
+        try:
+            return await self._orca.link_worktree(path, request.issue_key)
+        except OrcaCommandError as error:
+            if error.code != "selector_not_found":
+                raise
+
+            raise _NotYet(f"Orca does not list {path} yet") from error
 
     def _reopened(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree | None:
         """The removed worktree a reopened ticket continues from, when Git

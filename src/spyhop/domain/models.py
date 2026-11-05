@@ -46,6 +46,8 @@ class ResolvedWorkflow:
     plan_review: bool
     setup: str = "inherit"
     build_commands: tuple[str, ...] = ()
+    worktree_script: Path | None = None
+    worktree_script_timeout: float = 600
 
 
 @dataclass(frozen=True)

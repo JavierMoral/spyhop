@@ -58,6 +58,10 @@ class RepositorySettings(BaseModel):
     default_base_branch: str = "master"
     setup: Literal["inherit", "run", "skip"] = "inherit"
     build_commands: list[str] = Field(default_factory=list)
+    # Executable that creates new worktrees instead of Orca; see the README for
+    # its contract. Orca's setup hooks do not run for the worktrees it creates.
+    worktree_script: ExpandedPath | None = None
+    worktree_script_timeout: float = Field(default=600, gt=0)
 
 
 class WorkflowSettings(BaseModel):

@@ -175,6 +175,27 @@ class OrcaClient:
 
         return to_orca_worktree(result["worktree"])
 
+    async def link_worktree(self, path: Path, reference: str) -> OrcaWorktree:
+        """Links a worktree created outside Orca to the ticket. Orca lists such
+        a worktree once it has seen it in Git; until then this is refused with
+        ``selector_not_found``. Existing links are kept, so repeating it is
+        harmless."""
+
+        selector = f"path:{path}"
+
+        await self._call(
+            ["reference", "add", reference, "--worktree", selector],
+            self._operation_timeout,
+            uncertain=True,
+        )
+        result = await self._call(
+            ["worktree", "show", "--worktree", selector],
+            self._operation_timeout,
+            uncertain=False,
+        )
+
+        return to_orca_worktree(result["worktree"])
+
     async def launch_agent(
         self,
         orca_worktree_id: str,

@@ -47,6 +47,8 @@ class OrcaGateway(Protocol):
         setup: str,
     ) -> OrcaWorktree: ...
 
+    async def link_worktree(self, path: Path, reference: str) -> OrcaWorktree: ...
+
     async def launch_agent(
         self,
         orca_worktree_id: str,
