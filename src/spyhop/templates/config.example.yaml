@@ -25,6 +25,8 @@ repositories:                     # alias -> path on this machine
     default_base_branch: master
     setup: inherit                # Orca setup hooks for new worktrees: inherit | run | skip
     build_commands: []            # allowed to the agent, e.g. ["./gradlew", "ant"]
+    # worktree_script: ~/bin/spyhop-create-worktree  # creates worktrees instead of Orca (see README)
+    # worktree_script_timeout: 600  # seconds the script may take
 
 projects:
   PROJ:

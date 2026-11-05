@@ -271,6 +271,8 @@ projects:
 | `repositories.<alias>.default_base_branch` | `master` | Base branch for new worktrees. |
 | `repositories.<alias>.setup` | `inherit` | Orca setup hooks for new worktrees: `inherit` (the repository's policy in Orca), `run` or `skip`. |
 | `repositories.<alias>.build_commands` | `[]` | Commands added to the agent's allow list, such as `./gradlew`. |
+| `repositories.<alias>.worktree_script` | — | Executable that creates new worktrees instead of Orca; see [Creating worktrees with a script](#creating-worktrees-with-a-script). Accepts `~` and `${VAR}`. |
+| `repositories.<alias>.worktree_script_timeout` | `600` | Seconds the script may take before the run fails. |
 | `projects.<KEY>.enabled` | `true` | Ignore a project without deleting its workflows. |
 | `projects.<KEY>.workflows.<IssueType>.name` | — | Workflow name, shown in logs and `status`. |
 | `….trigger_statuses` | — | Statuses that start an automation for this issue type. |
@@ -312,6 +314,63 @@ SPYHOP_APPLICATION__POLLING_INTERVAL=120 spyhop run
 | Custom templates (optional) | `~/.config/spyhop/templates/` |
 
 All of them follow `XDG_CONFIG_HOME` and `XDG_STATE_HOME`.
+
+### Creating worktrees with a script
+
+By default Orca creates each worktree in its worktree directory for the
+repository. To choose the layout yourself, for example one folder per ticket
+holding the worktree and a Liferay bundle of its own, set
+`repositories.<alias>.worktree_script` to an executable. Spyhop then runs it
+instead of `orca worktree create`, links the worktree it prints to the ticket
+with `orca reference add`, and goes on as usual: same context files, same agent,
+same cleanup with `orca worktree rm`.
+
+The script runs from the repository with these variables:
+
+| Variable | Content |
+| --- | --- |
+| `SPYHOP_ISSUE_KEY` | The ticket, `LPD-1234`. |
+| `SPYHOP_WORKTREE_NAME` | The ticket and its title as a slug, `LPD-1234-fix-the-import`. |
+| `SPYHOP_BRANCH` | The branch to check out. When it exists (a reopened ticket whose branch was kept), check it out; otherwise create it. |
+| `SPYHOP_BASE_BRANCH` | Where to create `SPYHOP_BRANCH` from: the workflow's base branch. |
+| `SPYHOP_REPOSITORY_PATH` | The repository's `path`. |
+
+Its contract:
+
+- **Print the worktree's absolute path as the last line of standard output.**
+  Send everything else, such as Git's progress, to standard error.
+- **Exit with a non-zero code to refuse.** The run fails with the end of
+  standard error as its message; `spyhop retry` starts it again.
+- **Be idempotent.** When the worktree already exists, print its path again.
+  Orca lists a worktree created outside it once it has seen it in Git; until
+  then the run waits in `PREPARING`, and the next cycle runs the script again.
+- **Do the setup yourself.** Orca's setup hooks and the repository's `setup`
+  value do not apply to worktrees the script creates.
+
+For example, a worktree in `agents/<name>/portal`, next to a bundle in
+`agents/<name>/bundles`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+worktree="$HOME/git/liferay-portal/agents/$SPYHOP_WORKTREE_NAME/portal"
+
+if [[ ! -e "$worktree/.git" ]]; then
+	mkdir -p "$(dirname "$worktree")"
+	git fetch --quiet upstream >&2
+
+	if git rev-parse --verify --quiet "refs/heads/$SPYHOP_BRANCH" >/dev/null; then
+		git worktree add "$worktree" "$SPYHOP_BRANCH" >&2
+	else
+		git worktree add -b "$SPYHOP_BRANCH" "$worktree" "upstream/$SPYHOP_BASE_BRANCH" >&2
+	fi
+fi
+
+echo "$worktree"
+```
+
+`spyhop doctor` checks that the script exists and is executable.
 
 ### What the agent gets
 
