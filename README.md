@@ -273,6 +273,8 @@ projects:
 | `repositories.<alias>.build_commands` | `[]` | Commands added to the agent's allow list, such as `./gradlew`. |
 | `repositories.<alias>.worktree_script` | — | Executable that creates new worktrees instead of Orca; see [Creating worktrees with a script](#creating-worktrees-with-a-script). Accepts `~` and `${VAR}`. |
 | `repositories.<alias>.worktree_script_timeout` | `600` | Seconds the script may take before the run fails. |
+| `repositories.<alias>.worktree_cleanup_script` | — | Executable run once Orca has removed a worktree, to remove what lives next to it; see [Creating worktrees with a script](#creating-worktrees-with-a-script). |
+| `repositories.<alias>.worktree_cleanup_script_timeout` | `600` | Seconds the cleanup script may take before the removal is retried. |
 | `projects.<KEY>.enabled` | `true` | Ignore a project without deleting its workflows. |
 | `projects.<KEY>.workflows.<IssueType>.name` | — | Workflow name, shown in logs and `status`. |
 | `….trigger_statuses` | — | Statuses that start an automation for this issue type. |
@@ -370,7 +372,36 @@ fi
 echo "$worktree"
 ```
 
-`spyhop doctor` checks that the script exists and is executable.
+What the script creates next to the worktree, such as the bundle above, is
+not removed by `orca worktree rm`. Set
+`repositories.<alias>.worktree_cleanup_script` to an executable that removes
+it. Spyhop runs it, from the repository, only after Orca has removed the
+worktree, so a worktree kept for its uncommitted changes
+(`CLEANUP_BLOCKED`) keeps its bundle too. It gets `SPYHOP_ISSUE_KEY`,
+`SPYHOP_WORKTREE_PATH` (the removed worktree), `SPYHOP_BRANCH` and
+`SPYHOP_REPOSITORY_PATH`. It runs for every worktree of the repository,
+including ones Orca created before the creation script was set, so it must
+check that the path is one of its own. A non-zero exit leaves the worktree in
+`REMOVING` and the next cycle runs it again, so it must also succeed when
+there is nothing left to remove:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+agents="$HOME/git/liferay-portal/agents"
+folder="$(dirname "$SPYHOP_WORKTREE_PATH")"
+
+if [[ "$(dirname "$folder")" != "$agents" || "$(basename "$SPYHOP_WORKTREE_PATH")" != "portal" ]]; then
+	exit 0
+fi
+
+pkill -f -- "$folder/" || true  # Tomcat, sidecar and Gradle daemon running from it
+rm -rf -- "$folder"
+git -C "$SPYHOP_REPOSITORY_PATH" worktree prune >&2
+```
+
+`spyhop doctor` checks that both scripts exist and are executable.
 
 ### What the agent gets
 
@@ -431,6 +462,10 @@ the worktree with `orca worktree rm`, never forced:
   `CLEANUP_BLOCKED` and its Orca card gets a comment and the unread dot. Commit
   or discard the changes and the next cycle removes it; reopening the ticket
   instead reuses it.
+
+Once the worktree is gone, the repository's `worktree_cleanup_script`, when
+set, removes what lived next to it, such as its bundle; see
+[Creating worktrees with a script](#creating-worktrees-with-a-script).
 
 `CLAUDE-TASK.md`, `CLAUDE-PLAN.md` and `CLAUDE-RESULT.md` are excluded from Git, so they do not
 block the removal and are lost with the worktree: what matters stays in the
