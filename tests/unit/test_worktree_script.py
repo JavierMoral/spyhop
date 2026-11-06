@@ -9,6 +9,7 @@ import pytest
 from spyhop.infrastructure.worktree_script import (
     WorktreeRequest,
     WorktreeScriptError,
+    WorktreeScriptTryAgainError,
     run_cleanup_script,
     run_worktree_script,
 )
@@ -64,6 +65,13 @@ async def test_failed_script_reports_its_exit_code_and_error_output(tmp_path: Pa
 
     with pytest.raises(WorktreeScriptError, match="exited with 3: branch already checked out"):
         await run_worktree_script(failing, request(tmp_path), 10)
+
+
+async def test_script_asks_to_try_again_with_exit_code_75(tmp_path: Path) -> None:
+    waiting = script(tmp_path, "echo 'Permission denied (publickey).' >&2\nexit 75")
+
+    with pytest.raises(WorktreeScriptTryAgainError, match="asked to try again: Permission denied"):
+        await run_worktree_script(waiting, request(tmp_path), 10)
 
 
 @pytest.mark.parametrize(

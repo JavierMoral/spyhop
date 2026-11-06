@@ -11,7 +11,11 @@ from spyhop.domain.exceptions import (
     OrcaCommandError,
     OrcaUncertainError,
 )
-from spyhop.infrastructure.worktree_script import WorktreeRequest, WorktreeScriptError
+from spyhop.infrastructure.worktree_script import (
+    WorktreeRequest,
+    WorktreeScriptError,
+    WorktreeScriptTryAgainError,
+)
 from tests.factories import settings
 from tests.fakes import Harness
 
@@ -353,6 +357,30 @@ async def test_failed_worktree_script_fails_the_run(tmp_path: Path) -> None:
     assert harness.run(run.id).status is RunStatus.FAILED
     assert harness.run(run.id).error_message == "worktree script exited with 1: nope"
     assert harness.orca.linked == []
+
+
+async def test_worktree_script_that_asks_to_try_again_keeps_the_run(tmp_path: Path) -> None:
+    harness, worktree_script = scripted(tmp_path)
+    run = harness.discover()
+    worktree_script.errors.append(WorktreeScriptTryAgainError("asked to try again: locked"))
+
+    await harness.launcher.launch_pending()
+
+    waiting = harness.run(run.id)
+
+    assert waiting.status is RunStatus.PREPARING
+    assert waiting.waiting_reason is WaitingReason.WORKTREE_SCRIPT
+    assert waiting.error_message == "asked to try again: locked"
+    assert harness.orca.linked == []
+
+    await harness.launcher.launch_pending()
+
+    resumed = harness.run(run.id)
+
+    assert resumed.status is RunStatus.RUNNING
+    assert resumed.waiting_reason is None
+    assert resumed.error_message is None
+    assert len(worktree_script.requests) == 2
 
 
 async def test_reopened_ticket_asks_the_script_for_its_kept_branch(tmp_path: Path) -> None:
