@@ -341,8 +341,13 @@ Its contract:
 
 - **Print the worktree's absolute path as the last line of standard output.**
   Send everything else, such as Git's progress, to standard error.
-- **Exit with a non-zero code to refuse.** The run fails with the end of
-  standard error as its message; `spyhop retry` starts it again.
+- **Exit with 75 to try again later** (`EX_TEMPFAIL`), for a problem that
+  goes away by itself, such as a fetch that fails while the SSH agent is
+  locked. The run stays in `PREPARING` with `waiting: worktree_script` and the
+  end of standard error in `spyhop status`, and the script runs again every
+  cycle until it succeeds or exits with another code.
+- **Exit with any other non-zero code to refuse.** The run fails with the end
+  of standard error as its message; `spyhop retry` starts it again.
 - **Be idempotent.** When the worktree already exists, print its path again.
   Orca lists a worktree created outside it once it has seen it in Git; until
   then the run waits in `PREPARING`, and the next cycle runs the script again.
@@ -360,7 +365,7 @@ worktree="$HOME/git/liferay-portal/agents/$SPYHOP_WORKTREE_NAME/portal"
 
 if [[ ! -e "$worktree/.git" ]]; then
 	mkdir -p "$(dirname "$worktree")"
-	git fetch --quiet upstream >&2
+	git fetch --quiet upstream >&2 || exit 75  # try again next cycle
 
 	if git rev-parse --verify --quiet "refs/heads/$SPYHOP_BRANCH" >/dev/null; then
 		git worktree add "$worktree" "$SPYHOP_BRANCH" >&2
