@@ -7,8 +7,10 @@ again for the same worktree after an interruption, so they must be idempotent.
 
 The creation script prints the worktree's absolute path as the last line of
 its standard output, and answers with the existing worktree when it is
-already there. The cleanup script runs once Orca has removed the worktree, to
-remove what lives next to it; a folder that is already gone is not an error.
+already there. It exits with TRY_AGAIN_EXIT_CODE when it cannot create the
+worktree now but may later, such as when the remote cannot be reached. The
+cleanup script runs once Orca has removed the worktree, to remove what lives
+next to it; a folder that is already gone is not an error.
 """
 
 import os
@@ -28,8 +30,17 @@ from spyhop.infrastructure.process.command_runner import (
 
 MAX_DETAIL_LENGTH = 500
 
+# EX_TEMPFAIL in sysexits.h: the script asks to be run again next cycle
+# instead of failing the run.
+
+TRY_AGAIN_EXIT_CODE = 75
+
 
 class WorktreeScriptError(SpyhopError):
+    pass
+
+
+class WorktreeScriptTryAgainError(WorktreeScriptError):
     pass
 
 
@@ -115,9 +126,12 @@ async def _run(
     except OSError as error:
         raise WorktreeScriptError(f"cannot run worktree script {script}: {error}") from None
 
-    if completed.exit_code != 0:
-        detail = completed.stderr.strip()[-MAX_DETAIL_LENGTH:]
+    detail = completed.stderr.strip()[-MAX_DETAIL_LENGTH:]
 
+    if completed.exit_code == TRY_AGAIN_EXIT_CODE:
+        raise WorktreeScriptTryAgainError(f"worktree script {script} asked to try again: {detail}")
+
+    if completed.exit_code != 0:
         raise WorktreeScriptError(
             f"worktree script {script} exited with {completed.exit_code}: {detail}"
         )

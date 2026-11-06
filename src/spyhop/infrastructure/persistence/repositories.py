@@ -123,13 +123,13 @@ class RunRepository:
     def mark_preparing(self, run_id: str) -> None:
         self._update(run_id, RunStatus.PREPARING, waiting_reason=None, error_message=None)
 
-    def note_disk_wait(self, run_id: str, message: str) -> None:
+    def note_wait(self, run_id: str, reason: WaitingReason, message: str) -> None:
         """Records why a pending run does not advance, without changing its
-        status: it resumes by itself once there is space."""
+        status: it resumes by itself once the reason is gone."""
 
         self._connection.execute(
             "UPDATE automation_runs SET waiting_reason = ?, error_message = ? WHERE id = ?",
-            (WaitingReason.DISK_SPACE, message, run_id),
+            (reason, message, run_id),
         )
 
     def mark_ready(self, run_id: str, worktree_id: str) -> None:

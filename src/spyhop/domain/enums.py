@@ -23,6 +23,9 @@ class WaitingReason(StrEnum):
     # Not a WAITING_FOR_HUMAN reason: a pending run waiting for free disk
     # space to create its worktree. It resumes by itself.
     DISK_SPACE = "disk_space"
+    # Not a WAITING_FOR_HUMAN reason either: a preparing run whose worktree
+    # script exited with TRY_AGAIN_EXIT_CODE. It runs again every cycle.
+    WORKTREE_SCRIPT = "worktree_script"
 
 
 class WorktreeStatus(StrEnum):

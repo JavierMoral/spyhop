@@ -7,6 +7,8 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
   (Orca or JIRA down, timeout, restart) simply prepares again next cycle.
 - READY launches the agent. The operation id is stored before calling Orca and
   reused on every attempt, so the launch is never duplicated (see OrcaClient).
+- A worktree script that asks to try again keeps the run in PREPARING with
+  waiting_reason worktree_script, and runs again next cycle.
 - Only a definite refusal or a broken setup fails the run. Spyhop does not
   retry FAILED runs by itself.
 """
@@ -59,6 +61,7 @@ from spyhop.infrastructure.persistence.repositories import (
 from spyhop.infrastructure.worktree_script import (
     WorktreeRequest,
     WorktreeScriptError,
+    WorktreeScriptTryAgainError,
     run_worktree_script,
 )
 
@@ -92,6 +95,14 @@ class _RunFailed(Exception):
 
 class _NotYet(Exception):
     """The run cannot advance now but may next cycle."""
+
+
+class _Waiting(Exception):
+    """Like _NotYet, but the reason is recorded on the run for `status`."""
+
+    def __init__(self, reason: WaitingReason, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -183,6 +194,11 @@ class AgentLauncher:
             _log.error("%s: run %s failed: %s", run.issue_key, run.id, error)
 
             self._runs.mark_failed(run.id, str(error))
+        except _Waiting as waiting:
+            if run.waiting_reason is not waiting.reason:
+                _log.warning("%s: will retry every cycle: %s", run.issue_key, waiting)
+
+            self._runs.note_wait(run.id, waiting.reason, str(waiting))
         except JiraAuthenticationError:
             raise
         except (JiraError, OrcaUnavailableError, OrcaUncertainError, _NotYet) as error:
@@ -221,7 +237,7 @@ class AgentLauncher:
         if run.waiting_reason is not WaitingReason.DISK_SPACE:
             _log.warning("%s: %s", run.issue_key, message)
 
-        self._runs.note_disk_wait(run.id, message)
+        self._runs.note_wait(run.id, WaitingReason.DISK_SPACE, message)
 
         return True
 
@@ -435,10 +451,13 @@ class AgentLauncher:
         """Creates the worktree with the repository's script and links it to
         the ticket in Orca. Until Orca has seen the new worktree in Git, the
         run waits; next cycle the script runs again and answers with the
-        worktree it already created."""
+        worktree it already created. A script that asks to try again runs
+        again next cycle too."""
 
         try:
             path = await self._worktree_script(script, request, time_limit)
+        except WorktreeScriptTryAgainError as error:
+            raise _Waiting(WaitingReason.WORKTREE_SCRIPT, str(error)) from error
         except WorktreeScriptError as error:
             raise _RunFailed(str(error)) from error
 
