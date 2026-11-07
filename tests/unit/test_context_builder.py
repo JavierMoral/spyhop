@@ -95,6 +95,19 @@ def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
     assert "salvo que la persona ejecute `/pr`" in task
 
 
+@pytest.mark.parametrize("plan_review", [True, False])
+def test_plan_follows_the_patterns_of_similar_cases(tmp_path: Path, plan_review: bool) -> None:
+    context = builder(tmp_path)
+    task = context.render_task(ticket(), workflow(plan_review=plan_review))
+    goal = context.launch_goal("LPD-1", workflow(plan_review=plan_review))
+
+    assert "no crees ninguno nuevo" in task
+    assert "## Patterns\n" in task
+    assert "sección «Patrones»" in task
+    assert "otros upgrade processes del mismo tipo" in task
+    assert "casos similares del código que sigue, según la sección Patterns" in goal
+
+
 def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
     task = builder(tmp_path).render_task(ticket(), workflow())
 
