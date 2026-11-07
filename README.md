@@ -414,7 +414,7 @@ Before launching, Spyhop writes three things into the worktree:
 
 | File | Content |
 | --- | --- |
-| `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
+| `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; how to check the plan against similar cases in the code, tests included, so it follows their patterns instead of creating new ones; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
 | `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `curl`, `wget`). Pushing and opening a pull request are left to `/pr`. |
 | `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md` and the permission profile, so they never end up in a commit. |
 
