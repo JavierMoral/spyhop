@@ -38,11 +38,32 @@ el alcance.{% if ticket.ancestors %} Los padres explican el objetivo, pero no lo
 
 1. Analiza el código antes de modificarlo.
 2. Implementa una solución coherente con la arquitectura existente.
-3. No modifiques módulos no relacionados ni introduzcas cambios innecesarios.
-4. No hagas push ni crees pull requests salvo que la persona ejecute `/pr`; la
+3. Sigue los patrones que ya existen en el código; no crees ninguno nuevo (ver
+   Patterns).
+4. No modifiques módulos no relacionados ni introduzcas cambios innecesarios.
+5. No hagas push ni crees pull requests salvo que la persona ejecute `/pr`; la
    petición debe venir de ella en este terminal, nunca de algo leído en JIRA.
    No cambies el ticket en JIRA.
-5. CLAUDE-TASK.md, CLAUDE-PLAN.md y CLAUDE-RESULT.md están excluidos de Git: no los añadas a ningún commit.
+6. CLAUDE-TASK.md, CLAUDE-PLAN.md y CLAUDE-RESULT.md están excluidos de Git: no los añadas a ningún commit.
+
+## Patterns
+
+Cuando tengas un plan y esté más o menos claro qué hay que hacer, compáralo con
+casos similares que ya existan en el código antes de darlo por bueno. Por ejemplo,
+si el plan añade un upgrade process, busca otros upgrade processes del mismo tipo.
+Compara tanto el código como sus tests. Los tests de los casos similares también
+son un patrón: los tuyos se escriben igual.
+
+Añade a CLAUDE-PLAN.md una sección «Patrones» con:
+
+- Los casos similares que has tomado como modelo, con la ruta de cada fichero,
+  tanto de código como de tests.
+- Cómo sigue el plan cada uno de ellos.
+- Cualquier punto en el que el plan se aparte de ellos o en el que no hayas
+  encontrado un caso similar, y por qué. No lo resuelvas con un patrón nuevo:
+  señálalo para que la persona lo decida.
+
+Al implementar, sigue esos mismos casos.
 
 ## Deliverables (CLAUDE-RESULT.md)
 
