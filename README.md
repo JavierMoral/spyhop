@@ -116,7 +116,9 @@ What you do is in **bold**; the rest happens on its own.
    - **answer the agent in its terminal** to change it.
 
    Workflows with `plan_review: false` skip this step.
-3. The agent implements the plan, commits locally, writes `CLAUDE-RESULT.md` and moves
+3. The agent implements the plan and commits locally. With
+   `agents.review_command` set, it then runs that review over its commits and
+   applies the most important findings. It writes `CLAUDE-RESULT.md` and moves
    its card to *In review*. **Review the commits, then push and open the pull
    request**, yourself or by running `/pr` in the agent's terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
@@ -287,6 +289,7 @@ projects:
 | `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
 | `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there sends the implementation `/goal`. |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. |
+| `agents.review_command` | — | Command, usually a slash command such as `/code-review-loop --rounds 2`, that the agent runs over its commits once the implementation is done and its tests pass, letting it apply the most important findings before it writes `CLAUDE-RESULT.md`. Nothing is pushed. Unset, there is no review step. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
 | `cleanup.close_status_categories` | `["done"]` | JIRA status categories that count as closed. |
 | `cleanup.close_statuses` | `[]` | Extra closed statuses outside those categories. |
