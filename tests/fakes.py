@@ -21,9 +21,7 @@ from spyhop.domain.models import (
     JiraUser,
     LaunchResult,
     OrcaWorktree,
-    PromptDelivery,
     RemoveResult,
-    TerminalRow,
     Worktree,
 )
 from spyhop.infrastructure.jira.mapping import to_issue
@@ -104,9 +102,7 @@ class FakeOrca:
         self.linked: list[str] = []
         self.link_errors: list[Exception] = []
         self.agents: dict[str, list[AgentRow]] = {}
-        self.terminal_rows: dict[str, list[TerminalRow]] = {}
-        self.prompts: list[dict[str, str]] = []
-        self.prompt_errors: list[Exception] = []
+        self.open_terminals: dict[str, int] = {}
         self.closed_terminals: list[str] = []
         self.removed: list[str] = []
         self.remove_errors: list[Exception] = []
@@ -206,7 +202,13 @@ class FakeOrca:
         effort: str | None,
     ) -> LaunchResult:
         self.launches.append(
-            {"worktree": orca_worktree_id, "prompt": prompt, "operation_id": operation_id}
+            {
+                "worktree": orca_worktree_id,
+                "prompt": prompt,
+                "operation_id": operation_id,
+                "model": model,
+                "effort": effort,
+            }
         )
 
         if self.launch_errors:
@@ -215,9 +217,7 @@ class FakeOrca:
         number = len(self.launches)
         pane_key = f"tab{number}:leaf{number}"
 
-        self.terminal_rows.setdefault(orca_worktree_id, []).append(
-            TerminalRow(f"term_{number}", pane_key, "Claude Code")
-        )
+        self.open_terminals[orca_worktree_id] = self.open_terminals.get(orca_worktree_id, 0) + 1
 
         return LaunchResult(f"term_{number}", operation_id, "terminal", "submitted", pane_key)
 
@@ -227,21 +227,6 @@ class FakeOrca:
 
         return self.agents
 
-    async def terminals(self, orca_worktree_id: str) -> list[TerminalRow]:
-        return self.terminal_rows.get(orca_worktree_id, [])
-
-    async def send_prompt(
-        self, terminal_handle: str, text: str, request_id: str, wait_submit: float = 15
-    ) -> PromptDelivery:
-        self.prompts.append({"terminal": terminal_handle, "text": text, "request_id": request_id})
-
-        if self.prompt_errors:
-            raise self.prompt_errors.pop(0)
-
-        replayed = any(p["request_id"] == request_id for p in self.prompts[:-1])
-
-        return PromptDelivery(request_id, replayed, ("input_accepted", "turn_started"))
-
     async def close_terminals(self, orca_worktree_id: str) -> int:
         if orca_worktree_id not in self.worktrees:
             raise OrcaCommandError("selector_not_found", "selector_not_found")
@@ -249,7 +234,7 @@ class FakeOrca:
         self.closed_terminals.append(orca_worktree_id)
         self.agents.pop(orca_worktree_id, None)
 
-        return len(self.terminal_rows.pop(orca_worktree_id, []))
+        return self.open_terminals.pop(orca_worktree_id, 0)
 
     async def remove_worktree(self, orca_worktree_id: str) -> RemoveResult:
         if self.remove_errors:
@@ -350,6 +335,7 @@ class Harness:
             sessions=self.sessions,
             orca=self.orca,
             context=self.context,
+            agents=self.config.agents,
             plan_review_status=PLAN_REVIEW,
             plan_approved_status=PLAN_APPROVED,
         )

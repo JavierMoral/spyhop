@@ -52,6 +52,25 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert session.agent_handle == "term_1"
 
 
+@pytest.mark.parametrize(("plan_review", "model"), [(True, "opus"), (False, "sonnet")])
+async def test_plan_comes_from_the_plan_model(
+    tmp_path: Path, plan_review: bool, model: str
+) -> None:
+    config = settings(tmp_path)
+    config.projects["LPD"].workflows["Bug"].plan_review = plan_review
+    harness = Harness(tmp_path, config)
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    [session] = harness.sessions.list_for_run(run.id)
+    [launch] = harness.orca.launches
+
+    assert session.model == model
+    assert launch["model"] == model
+    assert launch["effort"] == "high"
+
+
 async def test_task_lists_the_ticket_ancestors_up_to_the_root(harness: Harness) -> None:
     harness.tickets.parents.update({"LPD-1": "LPD-2", "LPD-2": "LPD-3"})
     harness.discover()

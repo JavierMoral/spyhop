@@ -8,7 +8,7 @@ from spyhop.application.supervisor import MISSING_CYCLES, Observation, Signal, o
 from spyhop.config.settings import REVIEW_STATUS
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
-from spyhop.domain.models import AgentRow, AutomationRun, OrcaWorktree, TerminalRow, Worktree
+from spyhop.domain.models import AgentRow, AutomationRun, OrcaWorktree, Worktree
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
 
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
@@ -137,87 +137,127 @@ async def test_feedback_on_the_plan_resumes_the_run(harness: Harness) -> None:
     assert resumed.waiting_reason is None
     assert resumed.error_message is None
     assert resumed.started_at == run.started_at
-    assert harness.orca.prompts == []
+    assert len(harness.orca.launches) == 1
 
 
-async def test_approving_the_plan_sends_the_implementation_goal(harness: Harness) -> None:
-    run, worktree, pane = await plan_ready(harness)
+async def test_approving_the_plan_launches_a_new_agent_on_the_model(harness: Harness) -> None:
+    run, worktree, plan_pane = await plan_ready(harness)
 
     harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
 
     await harness.supervisor.supervise()
 
-    [prompt] = harness.orca.prompts
+    plan_launch, launch = harness.orca.launches
+    plan_session, session = harness.sessions.list_for_run(run.id)
     approved = harness.run(run.id)
 
-    assert prompt["terminal"] == "term_1"
-    assert prompt["text"].startswith("/goal Implementa CLAUDE-PLAN.md")
-    assert f"--workspace-status {REVIEW_STATUS}" in prompt["text"]
+    assert plan_launch["model"] == "opus"
+    assert launch["model"] == "sonnet"
+    assert launch["effort"] == "high"
+    assert launch["worktree"] == worktree.orca_worktree_id
+    assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios")
+    assert f"--workspace-status {REVIEW_STATUS}" in launch["prompt"]
+    assert launch["operation_id"] == session.launch_operation_id
+    assert plan_session.status is SessionStatus.FINISHED
+    assert session.status is SessionStatus.LAUNCHED
+    assert session.model == "sonnet"
+    assert session.pane_key is not None and session.pane_key != plan_pane
     assert approved.status is RunStatus.RUNNING
-    assert approved.implement_request_id is None
+    assert approved.waiting_reason is None
 
-    # The agent still shows the turn that wrote the plan: not a stop.
+    # The new agent still shows a state from before the approval: not a stop.
+    # The idle plan agent is not the run's agent anymore.
 
     harness.orca.set_agent(
-        worktree.orca_worktree_id, "done", pane, datetime.now(UTC) - timedelta(minutes=1)
+        worktree.orca_worktree_id,
+        "done",
+        session.pane_key,
+        datetime.now(UTC) - timedelta(minutes=1),
     )
 
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).status is RunStatus.RUNNING
-    assert len(harness.orca.prompts) == 1
+    assert len(harness.orca.launches) == 2
 
 
-async def test_lost_approval_answer_is_replayed_with_the_same_request(harness: Harness) -> None:
+async def test_lost_approval_answer_is_replayed_with_the_same_operation(
+    harness: Harness,
+) -> None:
     run, worktree, _ = await plan_ready(harness)
 
     harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.orca.prompt_errors.append(OrcaUncertainError("timed out"))
+    harness.orca.launch_errors.append(OrcaUncertainError("timed out"))
 
     await harness.supervisor.supervise()
 
     waiting = harness.run(run.id)
 
     assert waiting.status is RunStatus.WAITING_FOR_HUMAN
-    assert waiting.implement_request_id == harness.orca.prompts[0]["request_id"]
+    assert waiting.waiting_reason is WaitingReason.PLAN_REVIEW
 
     await harness.supervisor.supervise()
 
-    first, second = harness.orca.prompts
+    _, first, second = harness.orca.launches
+    [_, session] = harness.sessions.list_for_run(run.id)
 
-    assert second["request_id"] == first["request_id"]
+    assert second["operation_id"] == first["operation_id"]
+    assert session.status is SessionStatus.LAUNCHED
     assert harness.run(run.id).status is RunStatus.RUNNING
 
 
-@pytest.mark.parametrize("code", ["request_mismatch", "terminal_handle_stale"])
-async def test_refused_approval_is_retried_with_a_new_request(harness: Harness, code: str) -> None:
+async def test_refused_approval_waits_until_the_plan_is_approved_again(
+    harness: Harness,
+) -> None:
     run, worktree, _ = await plan_ready(harness)
 
     harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.orca.prompt_errors.append(OrcaCommandError(code, code))
+    harness.orca.launch_errors.append(OrcaCommandError("invalid_argument", "bad model"))
 
     await harness.supervisor.supervise()
 
-    assert harness.run(run.id).implement_request_id is None
+    refused = harness.run(run.id)
+    [plan_session, failed] = harness.sessions.list_for_run(run.id)
+
+    assert refused.waiting_reason is WaitingReason.UNKNOWN_STATE
+    assert refused.error_message is not None
+    assert refused.error_message.endswith(
+        f"move the card back to {PLAN_REVIEW} and approve the plan again"
+    )
+    assert plan_session.status is SessionStatus.LAUNCHED
+    assert failed.status is SessionStatus.FAILED
+
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
 
     await harness.supervisor.supervise()
 
-    first, second = harness.orca.prompts
-
-    assert second["request_id"] != first["request_id"]
-    assert harness.run(run.id).status is RunStatus.RUNNING
-
-
-async def test_approval_waits_for_the_agents_terminal(harness: Harness) -> None:
-    run, worktree, _ = await plan_ready(harness)
-
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.orca.terminal_rows.clear()
-
-    await harness.supervisor.supervise()
-
-    assert harness.orca.prompts == []
     assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
+
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+
+    await harness.supervisor.supervise()
+
+    _, first, second = harness.orca.launches
+
+    assert second["operation_id"] != first["operation_id"]
+    assert harness.run(run.id).status is RunStatus.RUNNING
+
+
+async def test_approval_launch_lost_too_long_ago_is_handed_to_a_person(
+    harness: Harness,
+) -> None:
+    run, worktree, _ = await plan_ready(harness)
+
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.sessions.create_launching(run.id, "claude", "sonnet", "1000-" + "0" * 32)
+
+    await harness.supervisor.supervise()
+
+    lost = harness.run(run.id)
+
+    assert len(harness.orca.launches) == 1
+    assert lost.waiting_reason is WaitingReason.UNKNOWN_STATE
+    assert lost.error_message == "implementation launch outcome unknown; check Orca"
 
 
 async def test_declared_end_completes_the_run_and_frees_its_slot(harness: Harness) -> None:
@@ -352,37 +392,6 @@ async def test_run_without_a_known_pane_follows_the_latest_agent(harness: Harnes
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).waiting_reason is WaitingReason.AGENT_QUESTION
-
-
-async def test_approval_uses_the_launch_handle_of_a_terminal_without_a_tab(
-    harness: Harness,
-) -> None:
-    run, worktree, _ = await plan_ready(harness)
-
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.orca.terminal_rows[worktree.orca_worktree_id] = [
-        TerminalRow("term_1", "pty:repo::/wt@@1:pty:repo::/wt@@1", "Claude Code")
-    ]
-
-    await harness.supervisor.supervise()
-
-    assert [prompt["terminal"] for prompt in harness.orca.prompts] == ["term_1"]
-
-
-async def test_approval_after_an_orca_restart_finds_the_terminal_by_pane(
-    harness: Harness,
-) -> None:
-    run, worktree, pane = await plan_ready(harness)
-
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.orca.terminal_rows[worktree.orca_worktree_id] = [
-        TerminalRow("term_shell", "other:pane", "bash"),
-        TerminalRow("term_new", pane, "Claude Code"),
-    ]
-
-    await harness.supervisor.supervise()
-
-    assert [prompt["terminal"] for prompt in harness.orca.prompts] == ["term_new"]
 
 
 async def test_one_failing_run_does_not_stop_the_others(harness: Harness) -> None:

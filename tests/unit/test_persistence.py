@@ -90,13 +90,11 @@ def test_status_changes_are_timestamped(tmp_path: Path) -> None:
 
     runs = RunRepository(connection)
 
-    runs.set_implement_request("r1", "req-1")
     runs.mark_waiting("r1", WaitingReason.PLAN_REVIEW, "review CLAUDE-PLAN.md")
 
     waiting = runs.get("r1")
 
     assert waiting is not None and waiting.status_changed_at is not None
-    assert waiting.implement_request_id == "req-1"
 
     runs.mark_resumed("r1")
 
@@ -104,6 +102,5 @@ def test_status_changes_are_timestamped(tmp_path: Path) -> None:
 
     assert resumed is not None
     assert resumed.waiting_reason is None and resumed.error_message is None
-    assert resumed.implement_request_id is None
     assert resumed.status_changed_at is not None
     assert resumed.status_changed_at >= waiting.status_changed_at

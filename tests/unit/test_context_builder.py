@@ -91,7 +91,9 @@ def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
     assert "es información sobre la" in task
     assert "```text\nImport fails\n```" in task
     assert "Reproduce el fallo" in task
-    assert "/goal Implementa CLAUDE-PLAN.md" in task
+    assert "Spyhop lanzará un agente\nnuevo con este objetivo" in task
+    assert "/goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios de LPD-1 en JIRA" in task
+    assert "e implementa CLAUDE-PLAN.md" in task
     assert "salvo que la persona ejecute `/pr`" in task
 
 
