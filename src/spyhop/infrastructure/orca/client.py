@@ -12,10 +12,6 @@ it has never seen and replays the accepted one for an id it has, so repeating
 the same command after a lost answer, a timeout or a Spyhop restart never
 starts a second agent.
 
-Prompts sent to a running agent follow the same pattern with ``terminal send
---retry-request <uuid>``: a new id sends, a known id replays the accepted send,
-and a known id with other text is refused with ``request_mismatch``.
-
 Verified against Orca 1.4.245; the captured answers are in tests/fixtures/orca.
 """
 
@@ -37,9 +33,7 @@ from spyhop.domain.models import (
     AgentRow,
     LaunchResult,
     OrcaWorktree,
-    PromptDelivery,
     RemoveResult,
-    TerminalRow,
 )
 from spyhop.infrastructure.process.command_runner import (
     CommandRunner,
@@ -59,8 +53,6 @@ SURFACE = "terminal"
 _UNAVAILABLE_CODES = {"runtime_unavailable", "runtime_not_running", "app_not_running"}
 
 _DEFINITE_CODES = {
-    "terminal_handle_stale",
-    "request_mismatch",
     "agent_session_operation_conflict",
     "selector_not_found",
     "invalid_argument",
@@ -235,46 +227,6 @@ class OrcaClient:
             for row in result.get("worktrees", [])
         }
 
-    async def terminals(self, orca_worktree_id: str) -> list[TerminalRow]:
-        result = await self._call(
-            ["terminal", "list", "--worktree", f"id:{orca_worktree_id}"],
-            self._operation_timeout,
-            uncertain=False,
-        )
-
-        return [to_terminal_row(terminal) for terminal in result.get("terminals", [])]
-
-    async def send_prompt(
-        self, terminal_handle: str, text: str, request_id: str, wait_submit: float = 15
-    ) -> PromptDelivery:
-        """Types ``text`` into the agent's terminal and submits it. Repeating
-        the call with the same request id never submits twice."""
-
-        result = await self._call(
-            [
-                "terminal",
-                "send",
-                "--terminal",
-                terminal_handle,
-                "--text",
-                text,
-                "--enter",
-                "--retry-request",
-                request_id,
-                "--wait-submit",
-                f"{wait_submit:g}",
-            ],
-            self._operation_timeout + wait_submit,
-            uncertain=True,
-        )
-        prompt = (result.get("send") or {}).get("prompt") or {}
-
-        return PromptDelivery(
-            request_id=prompt.get("requestId") or request_id,
-            replayed=bool((result.get("mutation") or {}).get("replayed")),
-            stages=tuple(prompt.get("stages") or ()),
-        )
-
     async def close_terminals(self, orca_worktree_id: str) -> int:
         """Stops the worktree's agents and closes its terminals."""
 
@@ -422,18 +374,6 @@ def to_agent_row(data: dict[str, Any]) -> AgentRow:
         has_live_pty=bool(data.get("hasLivePty")),
         prompt=data.get("prompt"),
         state_started_at=_from_epoch_ms(data.get("stateStartedAt")),
-    )
-
-
-def to_terminal_row(data: dict[str, Any]) -> TerminalRow:
-    # An agent's paneKey is "<tabId>:<leafId>" of the terminal it runs in.
-
-    tab, leaf = data.get("tabId"), data.get("leafId")
-
-    return TerminalRow(
-        handle=data["handle"],
-        pane_key=f"{tab}:{leaf}" if tab and leaf else None,
-        title=data.get("title") or "",
     )
 
 

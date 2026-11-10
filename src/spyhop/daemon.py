@@ -169,6 +169,7 @@ def _agents(
         sessions=sessions,
         orca=orca,
         context=context,
+        agents=settings.agents,
         plan_review_status=settings.orca.plan_review_status,
         plan_approved_status=settings.orca.plan_approved_status,
     )

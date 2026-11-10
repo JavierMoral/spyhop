@@ -266,13 +266,17 @@ class AgentLauncher:
         return _Prepared(workflow, worktree)
 
     async def _launch(self, run: AutomationRun, prepared: _Prepared) -> bool:
+        # The implementation of a plan comes later, from a new agent on
+        # agents.model (see AgentSupervisor).
+
+        model = self._agents.plan_model if prepared.workflow.plan_review else self._agents.model
         session = self._sessions.find_launching(run.id)
 
         if session is None:
             session = self._sessions.create_launching(
-                run.id, self._agents.provider, self._agents.model, new_operation_id()
+                run.id, self._agents.provider, model, new_operation_id()
             )
-        elif _replay_expired(session):
+        elif replay_expired(session):
             _log.warning(
                 "%s: the answer to launch %s was lost too long ago to replay it safely; "
                 "check the worktree in Orca",
@@ -294,7 +298,7 @@ class AgentLauncher:
                 prepared.worktree.orca_worktree_id,
                 self._context.launch_goal(run.issue_key, prepared.workflow),
                 session.launch_operation_id,
-                self._agents.model,
+                session.model,
                 self._agents.effort,
             )
         except OrcaCommandError as error:
@@ -306,12 +310,13 @@ class AgentLauncher:
         self._runs.mark_running(run.id)
 
         _log.info(
-            "%s: agent %s started in %s (branch %s, %s)",
+            "%s: agent %s started in %s (branch %s, %s, %s)",
             run.issue_key,
             result.agent_handle,
             prepared.worktree.path,
             prepared.worktree.branch_name,
             "plan review" if prepared.workflow.plan_review else "no plan review",
+            session.model,
         )
 
         return True
@@ -510,7 +515,7 @@ def worktree_name(issue_key: str, summary: str) -> str:
     return f"{issue_key}-{slug}" if slug else issue_key
 
 
-def _replay_expired(session: AgentSession, now: float | None = None) -> bool:
+def replay_expired(session: AgentSession, now: float | None = None) -> bool:
     operation_id = session.launch_operation_id or ""
 
     try:

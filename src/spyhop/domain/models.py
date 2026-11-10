@@ -78,7 +78,6 @@ class AutomationRun:
     error_message: str | None
     retry_of: str | None
     status_changed_at: datetime | None = None
-    implement_request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -165,22 +164,6 @@ class AgentRow:
     has_live_pty: bool
     prompt: str | None
     state_started_at: datetime | None = None
-
-
-@dataclass(frozen=True)
-class TerminalRow:
-    """One live terminal in `orca terminal list`."""
-
-    handle: str
-    pane_key: str | None
-    title: str
-
-
-@dataclass(frozen=True)
-class PromptDelivery:
-    request_id: str
-    replayed: bool
-    stages: tuple[str, ...]
 
 
 @dataclass(frozen=True)

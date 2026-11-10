@@ -74,7 +74,8 @@ orca:
 
 agents:
   provider: claude
-  model: sonnet
+  plan_model: opus                # writes CLAUDE-PLAN.md when plan_review is true
+  model: sonnet                   # implements; a new agent after the plan is approved
   effort: high
   max_retries: 0
   # review_command: /code-review-loop --rounds 2  # run over the commits before CLAUDE-RESULT.md

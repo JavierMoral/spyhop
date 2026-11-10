@@ -146,7 +146,6 @@ class RunRepository:
             RunStatus.RUNNING,
             waiting_reason=None,
             error_message=None,
-            implement_request_id=None,
         )
 
     def mark_waiting(self, run_id: str, reason: WaitingReason, message: str | None = None) -> None:
@@ -160,17 +159,7 @@ class RunRepository:
             RunStatus.COMPLETED,
             waiting_reason=None,
             error_message=None,
-            implement_request_id=None,
             finished_at=_to_text(utc_now()),
-        )
-
-    def set_implement_request(self, run_id: str, request_id: str | None) -> None:
-        """Stored before sending the implementation /goal, so a send whose
-        answer was lost is replayed instead of repeated."""
-
-        self._connection.execute(
-            "UPDATE automation_runs SET implement_request_id = ? WHERE id = ?",
-            (request_id, run_id),
         )
 
     def mark_cancelled(self, run_id: str, reason: str) -> None:
@@ -178,7 +167,6 @@ class RunRepository:
             run_id,
             RunStatus.CANCELLED,
             waiting_reason=None,
-            implement_request_id=None,
             error_message=reason,
             finished_at=_to_text(utc_now()),
         )
@@ -239,7 +227,6 @@ class RunRepository:
             run_id,
             RunStatus.FAILED,
             waiting_reason=None,
-            implement_request_id=None,
             error_message=error_message[:2000],
             finished_at=_to_text(utc_now()),
         )
@@ -517,7 +504,6 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         error_message=row["error_message"],
         retry_of=row["retry_of"],
         status_changed_at=_to_datetime(row["status_changed_at"]),
-        implement_request_id=row["implement_request_id"],
     )
 
 

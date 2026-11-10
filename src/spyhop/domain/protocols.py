@@ -6,9 +6,7 @@ from spyhop.domain.models import (
     JiraUser,
     LaunchResult,
     OrcaWorktree,
-    PromptDelivery,
     RemoveResult,
-    TerminalRow,
 )
 
 
@@ -59,12 +57,6 @@ class OrcaGateway(Protocol):
     ) -> LaunchResult: ...
 
     async def worktree_agents(self) -> dict[str, list[AgentRow]]: ...
-
-    async def terminals(self, orca_worktree_id: str) -> list[TerminalRow]: ...
-
-    async def send_prompt(
-        self, terminal_handle: str, text: str, request_id: str, wait_submit: float = 15
-    ) -> PromptDelivery: ...
 
     async def close_terminals(self, orca_worktree_id: str) -> int: ...
 

@@ -7,9 +7,14 @@ worktree (`worktree ps`), the run's card (`worktree show`) and those two files,
 and applies the signal table in `observe`.
 
 Plan approval: a person moves the card from the plan review column to the
-approved column, and Spyhop types the implementation /goal into the agent's
-terminal. The request id is stored before sending, so a send whose answer was
-lost is replayed rather than repeated.
+approved column, and Spyhop launches a new agent on agents.model with the
+implementation /goal. CLAUDE-PLAN.md is all that agent gets from the plan. The
+launch follows the launcher's rules: the operation id is stored before calling
+Orca, so a launch whose answer was lost is replayed rather than repeated. The
+plan agent stays open and idle; its session is finished.
+
+A new agent, and not /model in the plan agent's session, because /model asks
+for a confirmation and saves the model as the user's default for every session.
 
 The first cycle after a start also reconciles: runs left RUNNING or
 WAITING_FOR_HUMAN are checked against Orca with the same table. Nothing is
@@ -17,7 +22,6 @@ ever COMPLETED without the agent's explicit signal.
 """
 
 import logging
-import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,7 +29,8 @@ from enum import StrEnum
 from pathlib import Path
 
 from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBuilder
-from spyhop.config.settings import REVIEW_STATUS
+from spyhop.application.launcher import replay_expired
+from spyhop.config.settings import REVIEW_STATUS, AgentSettings
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
@@ -34,6 +39,7 @@ from spyhop.domain.exceptions import (
 )
 from spyhop.domain.models import AgentRow, AgentSession, AutomationRun, Worktree
 from spyhop.domain.protocols import OrcaGateway
+from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
@@ -120,6 +126,7 @@ class AgentSupervisor:
         sessions: SessionRepository,
         orca: OrcaGateway,
         context: ContextBuilder,
+        agents: AgentSettings,
         plan_review_status: str,
         plan_approved_status: str,
     ) -> None:
@@ -128,6 +135,7 @@ class AgentSupervisor:
         self._sessions = sessions
         self._orca = orca
         self._context = context
+        self._agents = agents
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
         self._missing: dict[str, int] = {}
@@ -214,9 +222,7 @@ class AgentSupervisor:
         elif signal is Signal.PLAN_READY:
             self._wait(run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}")
         elif signal is Signal.PLAN_APPROVED:
-            assert seen.agent is not None
-
-            await self._approve(run, worktree, seen.agent, session)
+            await self._approve(run, worktree, session)
         elif signal is Signal.STOPPED:
             self._wait(
                 run,
@@ -238,77 +244,57 @@ class AgentSupervisor:
         self._wait(run, WaitingReason.UNKNOWN_STATE, f"no agent running in {worktree.path}")
 
     async def _approve(
-        self,
-        run: AutomationRun,
-        worktree: Worktree,
-        agent: AgentRow,
-        session: AgentSession | None,
+        self, run: AutomationRun, worktree: Worktree, plan_session: AgentSession | None
     ) -> None:
-        request_id = run.implement_request_id
+        session = self._sessions.find_launching(run.id)
 
-        if request_id is None:
-            request_id = str(uuid.uuid4())
-
-            self._runs.set_implement_request(run.id, request_id)
-
-        handle = await self._terminal_handle(worktree, agent, session)
-
-        if handle is None:
-            _log.warning(
-                "%s: plan approved, but the agent's terminal is not open; "
-                "will try again next cycle",
-                run.issue_key,
+        if session is None:
+            session = self._sessions.create_launching(
+                run.id, self._agents.provider, self._agents.model, new_operation_id()
+            )
+        elif replay_expired(session):
+            self._sessions.mark_failed(session.id)
+            self._wait(
+                run,
+                WaitingReason.UNKNOWN_STATE,
+                "implementation launch outcome unknown; check Orca",
             )
 
             return
+
+        assert session.launch_operation_id is not None
 
         try:
-            delivery = await self._orca.send_prompt(
-                handle, self._context.goal(run.issue_key, "implement"), request_id
+            result = await self._orca.launch_agent(
+                worktree.orca_worktree_id,
+                self._context.goal(run.issue_key, "implement"),
+                session.launch_operation_id,
+                session.model,
+                self._agents.effort,
             )
         except OrcaCommandError as error:
-            # The id is bound to the text and to the terminal process: after
-            # either changes, the next attempt needs a new one.
-
-            if error.code in ("request_mismatch", "terminal_handle_stale"):
-                self._runs.set_implement_request(run.id, None)
-
-            _log.warning("%s: could not send the implementation goal: %s", run.issue_key, error)
+            self._sessions.mark_failed(session.id)
+            self._wait(
+                run,
+                WaitingReason.UNKNOWN_STATE,
+                f"Orca refused the implementation launch: {error}; move the card back to "
+                f"{self._plan_review_status} and approve the plan again",
+            )
 
             return
 
+        if plan_session is not None:
+            self._sessions.mark_finished(plan_session.id)
+
+        self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_resumed(run.id)
 
         _log.info(
-            "%s: plan approved; implementation goal %s (%s)",
+            "%s: plan approved; implementation agent %s started (%s)",
             run.issue_key,
-            "already sent" if delivery.replayed else "sent",
-            ", ".join(delivery.stages) or "no confirmation",
+            result.agent_handle,
+            session.model,
         )
-
-    async def _terminal_handle(
-        self, worktree: Worktree, agent: AgentRow, session: AgentSession | None
-    ) -> str | None:
-        """The handle returned by the launch while it is still live, else the
-        terminal of the agent's pane: handles change when Orca restarts. A
-        terminal without a tab in the window reports a placeholder pane
-        ("pty:…"), so the launch handle comes first."""
-
-        terminals = await self._orca.terminals(worktree.orca_worktree_id)
-
-        launched = session.agent_handle if session is not None else None
-
-        if launched is not None and any(terminal.handle == launched for terminal in terminals):
-            return launched
-
-        if agent.pane_key is None:
-            return None
-
-        for terminal in terminals:
-            if terminal.pane_key == agent.pane_key:
-                return terminal.handle
-
-        return None
 
     def _resume(self, run: AutomationRun) -> None:
         if run.status is RunStatus.RUNNING:

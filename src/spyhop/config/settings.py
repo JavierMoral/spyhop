@@ -109,6 +109,9 @@ class OrcaSettings(BaseModel):
 
 class AgentSettings(BaseModel):
     provider: str = "claude"
+    # The plan of a workflow with plan_review comes from an agent on
+    # plan_model. The implementation always comes from an agent on model.
+    plan_model: str = "opus"
     model: str = "sonnet"
     effort: str = "high"
     max_retries: int = Field(default=0, ge=0)
