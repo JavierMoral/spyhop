@@ -89,11 +89,12 @@ drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
    named after its key and title (`LPD-1234-fix-the-import`). It writes
    `CLAUDE-TASK.md` with the ticket and its parents, and launches Claude Code with a
    verifiable `/goal`: first a `CLAUDE-PLAN.md` for you to approve, then the implementation, ending
-   with local commits and a `CLAUDE-RESULT.md`. The agent marks its Orca card when each
-   step is done.
+   with local commits and a `CLAUDE-RESULT.md`. The plan comes from an agent on
+   `agents.plan_model` and the implementation from an agent on `agents.model`.
+   The agent marks its Orca card when each step is done.
 4. Every cycle it follows each agent through Orca: working, asking you
    something, waiting for its plan to be approved, or done. When you approve the
-   plan, it sends the agent the implementation `/goal`.
+   plan, it launches a new agent on `agents.model` with the implementation `/goal`.
 5. When the ticket is closed, it cancels the ticket's run, stops its agents and
    removes the worktree. Orca deletes the branch only if it is already merged;
    if the ticket is reopened, the new worktree continues from that branch.
@@ -109,14 +110,18 @@ What you do is in **bold**; the rest happens on its own.
 1. **Move a ticket assigned to you to a start status in JIRA** (its workflow's
    `trigger_statuses`). Spyhop creates a worktree for it in Orca and starts an
    agent there.
-2. The agent writes `CLAUDE-PLAN.md` and moves its card to *In review*
+2. The agent, on `agents.plan_model`, writes `CLAUDE-PLAN.md` and moves its card to *In review*
    (`orca.plan_review_status`). **Read `CLAUDE-PLAN.md`**, then either:
    - **drag the card to *In progress*** (`orca.plan_approved_status`) to
      approve it, or
    - **answer the agent in its terminal** to change it.
 
-   Workflows with `plan_review: false` skip this step.
-3. The agent implements the plan and commits locally. With
+   The implementation agent does not see this conversation. It reads only
+   `CLAUDE-PLAN.md`, so make sure that the plan agent writes each change into
+   that file. Workflows with `plan_review: false` skip this step.
+3. Spyhop launches a new agent on `agents.model`, which implements the plan and
+   commits locally. The plan agent stays open with no work. Workflows with
+   `plan_review: false` keep one agent on `agents.model` for all the work. With
    `agents.review_command` set, it then runs that review over its commits and
    applies the most important findings. It writes `CLAUDE-RESULT.md` and moves
    its card to *In review*. **Review the commits, then push and open the pull
@@ -287,8 +292,9 @@ projects:
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
 | `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
-| `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there sends the implementation `/goal`. |
-| `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. |
+| `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there launches a new agent with the implementation `/goal`. |
+| `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. `model` implements: after an approved plan, or all the work with `plan_review: false`. |
+| `agents.plan_model` | `opus` | Model of the agent that writes `CLAUDE-PLAN.md` when the workflow has `plan_review: true`. |
 | `agents.review_command` | — | Command, usually a slash command such as `/code-review-loop --rounds 2`, that the agent runs over its commits once the implementation is done and its tests pass, letting it apply the most important findings before it writes `CLAUDE-RESULT.md`. Nothing is pushed. Unset, there is no review step. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
 | `cleanup.close_status_categories` | `["done"]` | JIRA status categories that count as closed. |
