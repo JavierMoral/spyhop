@@ -68,11 +68,13 @@ class ContextBuilder:
         orca_executable: Path,
         plan_review_status: str,
         plan_approved_status: str = "in-progress",
+        review_command: str | None = None,
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
+        self._review_command = review_command
 
     def prepare(
         self, worktree_path: Path, ticket: TicketDetails, workflow: ResolvedWorkflow
@@ -104,6 +106,7 @@ class ContextBuilder:
             implement_goal=self.goal(ticket.key, "implement"),
             plan_review_status=self._plan_review_status,
             plan_approved_status=self._plan_approved_status,
+            review_command=self._review_command,
         )
 
     def render_settings(self, workflow: ResolvedWorkflow) -> str:
@@ -133,6 +136,7 @@ class ContextBuilder:
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,
             review_status=REVIEW_STATUS,
+            review_command=self._review_command,
         )
 
         return oneline(text)

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -112,6 +112,14 @@ class AgentSettings(BaseModel):
     model: str = "sonnet"
     effort: str = "high"
     max_retries: int = Field(default=0, ge=0)
+    # A command, usually a slash command, the agent runs over its commits once
+    # the implementation is done, before writing CLAUDE-RESULT.md.
+    review_command: str | None = None
+
+    @field_validator("review_command")
+    @classmethod
+    def _blank_review_command_is_none(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
 
 
 class CleanupSettings(BaseModel):

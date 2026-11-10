@@ -77,6 +77,7 @@ agents:
   model: sonnet
   effort: high
   max_retries: 0
+  # review_command: /code-review-loop --rounds 2  # run over the commits before CLAUDE-RESULT.md
 
 cleanup:                          # remove worktrees of closed tickets (never forced)
   enabled: true

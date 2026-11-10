@@ -65,10 +65,22 @@ Añade a CLAUDE-PLAN.md una sección «Patrones» con:
 
 Al implementar, sigue esos mismos casos.
 
+{% if review_command -%}
+## Review
+
+Cuando la implementación esté terminada, con commits locales limpios y los tests
+del módulo en verde, ejecuta `{{ review_command }}` antes de escribir CLAUDE-RESULT.md.
+Deja que aplique automáticamente los hallazgos más importantes y vuelve a pasar
+los tests de los módulos que cambie. Nada de esto se publica: no hagas push.
+
+{% endif -%}
 ## Deliverables (CLAUDE-RESULT.md)
 
 - Resumen de los cambios y commits creados.
 - Tests ejecutados y resultados.
+{% if review_command -%}
+- Qué hallazgos de la revisión se aplicaron y cuáles se descartaron, y por qué.
+{% endif -%}
 - Riesgos o limitaciones detectados.
 - Trabajo pendiente, si lo hubiera.
 {% if workflow.plan_review %}

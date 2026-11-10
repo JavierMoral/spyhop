@@ -161,6 +161,7 @@ def _agents(
         executable,
         settings.orca.plan_review_status,
         settings.orca.plan_approved_status,
+        settings.agents.review_command,
     )
     supervisor = AgentSupervisor(
         runs=runs,
