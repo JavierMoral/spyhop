@@ -108,6 +108,37 @@ def test_plan_follows_the_patterns_of_similar_cases(tmp_path: Path, plan_review:
     assert "casos similares del código que sigue, según la sección Patterns" in goal
 
 
+@pytest.mark.parametrize("plan_review", [True, False])
+def test_review_command_runs_after_the_implementation(tmp_path: Path, plan_review: bool) -> None:
+    context = ContextBuilder(
+        template_environment(tmp_path),
+        ORCA,
+        "plan-review",
+        review_command="/code-review-loop --rounds 2",
+    )
+    task = context.render_task(ticket(), workflow(plan_review=plan_review))
+    goal = context.goal("LPD-1", "implement" if plan_review else "full")
+
+    assert "## Review\n" in task
+    assert "ejecuta `/code-review-loop --rounds 2` antes de escribir CLAUDE-RESULT.md" in task
+    assert "hallazgos de la revisión se aplicaron" in task
+    assert "\n" not in goal
+    assert (
+        "en verde. Después ejecuta /code-review-loop --rounds 2 según la sección Review. "
+        "Escribe CLAUDE-RESULT.md"
+    ) in goal
+
+
+def test_without_review_command_there_is_no_review(tmp_path: Path) -> None:
+    context = builder(tmp_path)
+    task = context.render_task(ticket(), workflow())
+
+    assert "## Review" not in task
+    assert "hallazgos" not in task
+    assert "en verde. Escribe CLAUDE-RESULT.md" in context.goal("LPD-1", "implement")
+    assert "Review" not in context.launch_goal("LPD-1", workflow(plan_review=True))
+
+
 def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
     task = builder(tmp_path).render_task(ticket(), workflow())
 
@@ -152,7 +183,9 @@ def test_missing_workflow_template_is_a_context_error(tmp_path: Path) -> None:
         builder(tmp_path).render_task(ticket(), workflow(prompt="missing.md"))
 
 
-def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_ways(tmp_path: Path) -> None:
+def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_ways(
+    tmp_path: Path,
+) -> None:
     permissions = json.loads(builder(tmp_path).render_settings(workflow()))["permissions"]
 
     assert "Bash(git push --force*)" in permissions["deny"]

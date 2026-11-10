@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.config.settings import load_settings
+from spyhop.config.settings import AgentSettings, load_settings
 from spyhop.domain.exceptions import ConfigurationError
 from tests.factories import settings
 
@@ -18,6 +18,18 @@ def test_example_configuration_is_valid(tmp_path: Path) -> None:
     assert loaded.application.dry_run is True
     assert loaded.repositories["main"].path == Path.home() / "git" / "your-repository"
     assert loaded.service.env_source == "env_file"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("  ", None),
+        (" /code-review-loop --rounds 2 ", "/code-review-loop --rounds 2"),
+    ],
+)
+def test_blank_review_command_means_no_review(value: str | None, expected: str | None) -> None:
+    assert AgentSettings(review_command=value).review_command == expected
 
 
 def test_environment_overrides_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
