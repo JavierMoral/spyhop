@@ -14,7 +14,7 @@
 {%- set deny = [
     "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git push --delete*)",
     "Bash(gh pr merge*)", "Bash(gh pr close*)", "Bash(git reset --hard*)",
-    "Bash(git worktree remove*)", "Bash(curl*)", "Bash(wget*)"] -%}
+    "Bash(git worktree remove*)", "Bash(wget*)"] -%}
 {%- for orca in orca_commands -%}
 {%- do allow.append("Bash(" ~ orca ~ " worktree set --worktree active*)") -%}
 {%- do allow.append("Bash(" ~ orca ~ " jira issue*)") -%}
