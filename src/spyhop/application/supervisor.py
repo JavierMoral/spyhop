@@ -2,9 +2,9 @@
 
 Orca emits no event when Claude reaches its /goal, so the agent declares its
 own progress: it moves its card to the plan review column with CLAUDE-PLAN.md written,
-or to in-review with CLAUDE-RESULT.md written. Each cycle reads the agents of every
-worktree (`worktree ps`), the run's card (`worktree show`) and those two files,
-and applies the signal table in `observe`.
+or to the approved column with CLAUDE-RESULT.md written. Each cycle reads the agents
+of every worktree (`worktree ps`), the run's card (`worktree show`) and those two
+files, and applies the signal table in `observe`.
 
 Plan approval: a person moves the card from the plan review column to the
 approved column, and Spyhop launches a new agent on agents.model with the
@@ -30,7 +30,7 @@ from pathlib import Path
 
 from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBuilder
 from spyhop.application.launcher import replay_expired
-from spyhop.config.settings import REVIEW_STATUS, AgentSettings
+from spyhop.config.settings import AgentSettings
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
@@ -84,7 +84,7 @@ def observe(
     """The signal table. Order matters: the agent's explicit declaration of
     the end wins, then what the agent is doing right now, then the card."""
 
-    if seen.card_status == REVIEW_STATUS and seen.result_written:
+    if seen.card_status == plan_approved_status and seen.result_written:
         return Signal.COMPLETED
 
     agent = seen.agent

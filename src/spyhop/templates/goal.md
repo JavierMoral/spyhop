@@ -11,12 +11,12 @@ afectados, los tests previstos y los casos similares del código que sigue, seg�
 {%- elif phase == "implement" -%}
 /goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios de {{ issue_key }} en JIRA e implementa CLAUDE-PLAN.md hasta tener commits locales limpios y los tests del módulo
 en verde.{% if review_command %} Después ejecuta {{ review_command }} según la sección Review.{% endif %} Escribe CLAUDE-RESULT.md según CLAUDE-TASK.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ review_status }}
+{{ orca }} worktree set --worktree active --workspace-status {{ plan_approved_status }}
 --comment "{{ issue_key }}: listo para revisión" --unread --json
 {%- else -%}
 /goal Lee CLAUDE-TASK.md, obtén de JIRA el contexto que indica, analiza el código, escribe CLAUDE-PLAN.md con el enfoque, los tests
 previstos y los casos similares del código que sigue, según la sección Patterns, e impleméntalo hasta tener commits locales limpios y los tests del módulo
 en verde.{% if review_command %} Después ejecuta {{ review_command }} según la sección Review.{% endif %} Escribe CLAUDE-RESULT.md según CLAUDE-TASK.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ review_status }}
+{{ orca }} worktree set --worktree active --workspace-status {{ plan_approved_status }}
 --comment "{{ issue_key }}: listo para revisión" --unread --json
 {%- endif -%}

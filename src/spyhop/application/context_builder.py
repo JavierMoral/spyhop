@@ -19,7 +19,6 @@ from jinja2 import (
     TemplateError,
 )
 
-from spyhop.config.settings import REVIEW_STATUS
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.domain.models import ResolvedWorkflow, TicketDetails
 
@@ -135,7 +134,7 @@ class ContextBuilder:
             issue_key=issue_key,
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,
-            review_status=REVIEW_STATUS,
+            plan_approved_status=self._plan_approved_status,
             review_command=self._review_command,
         )
 

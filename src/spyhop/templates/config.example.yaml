@@ -65,11 +65,11 @@ orca:
   # same id everywhere, while Orca gives a custom column a different status-N on
   # each machine.
   #
-  # Board column the agent moves its card to when the plan is ready. Finished
-  # work goes to in-review too; Spyhop tells them apart by CLAUDE-PLAN.md and CLAUDE-RESULT.md.
+  # Board column the agent moves its card to when the plan is ready.
   plan_review_status: in-review
   # Column that approves a plan: dragging the card there makes Spyhop send the
-  # agent the implementation /goal.
+  # agent the implementation /goal. Finished work stays in this column too;
+  # Spyhop tells them apart by CLAUDE-RESULT.md.
   plan_approved_status: in-progress
 
 agents:

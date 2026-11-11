@@ -15,7 +15,7 @@ from spyhop.application.context_builder import template_environment
 from spyhop.application.janitor import closed_tickets_jql
 from spyhop.config.credentials import JiraCredentials, read_env_file
 from spyhop.config.paths import orca_config_dir, systemd_user_unit_file, user_templates_dir
-from spyhop.config.settings import REVIEW_STATUS, ProjectSettings, Settings, load_settings
+from spyhop.config.settings import ProjectSettings, Settings, load_settings
 from spyhop.domain.exceptions import JiraError, SpyhopError
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.jira.client import JiraClient
@@ -311,7 +311,6 @@ def _check_board(settings: Settings, orca_dir: Path | None = None) -> Check:
     used = {
         "orca.plan_review_status": settings.orca.plan_review_status,
         "orca.plan_approved_status": settings.orca.plan_approved_status,
-        "finished work": REVIEW_STATUS,
     }
 
     try:
