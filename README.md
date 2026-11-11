@@ -67,8 +67,8 @@ move them to *In Progress* yourself. Spyhop only takes over from there.
   uncommitted changes is left for you, flagged on its Orca card. A reopened
   ticket continues from its unmerged branch.
 - **Completion is declared, never guessed.** A run is `COMPLETED` only when the
-  agent moves its card to *In review* with a `CLAUDE-RESULT.md`. Anything Spyhop cannot
-  determine is handed to you, not assumed.
+  agent leaves its card in *In progress* with a `CLAUDE-RESULT.md`. Anything
+  Spyhop cannot determine is handed to you, not assumed.
 - **Safe dry-run mode**, with its own database, to see what *would* be
   automated before anything is.
 - **Runs in the background** as a systemd user service that starts when you
@@ -123,9 +123,10 @@ What you do is in **bold**; the rest happens on its own.
    commits locally. The plan agent stays open with no work. Workflows with
    `plan_review: false` keep one agent on `agents.model` for all the work. With
    `agents.review_command` set, it then runs that review over its commits and
-   applies the most important findings. It writes `CLAUDE-RESULT.md` and moves
-   its card to *In review*. **Review the commits, then push and open the pull
-   request**, yourself or by running `/pr` in the agent's terminal.
+   applies the most important findings. It writes `CLAUDE-RESULT.md` and leaves
+   its card in *In progress*, with an unread dot. **Review the commits, then
+   push and open the pull request**, yourself or by running `/pr` in the agent's
+   terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
    if it is not merged. See [When the ticket closes](#when-the-ticket-closes).
 
@@ -138,7 +139,7 @@ the reason tells you what to do:
 - `unknown_state`: the agent stopped without finishing. Tell it to go on in its
   terminal, or give up with `spyhop fail KEY`.
 
-Moving a card yourself does not finish a run: *In review* counts only once the
+Moving a card yourself does not finish a run: *In progress* counts only once the
 agent has written `CLAUDE-RESULT.md`. To start a finished run again, use
 `spyhop retry KEY`; to remove a worktree before the ticket closes,
 `spyhop cleanup KEY`.
@@ -292,7 +293,7 @@ projects:
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
 | `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
-| `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there launches a new agent with the implementation `/goal`. |
+| `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there launches a new agent with the implementation `/goal`. The card stays there when the work is finished. |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. `model` implements: after an approved plan, or all the work with `plan_review: false`. |
 | `agents.plan_model` | `opus` | Model of the agent that writes `CLAUDE-PLAN.md` when the workflow has `plan_review: true`. |
 | `agents.review_command` | — | Command, usually a slash command such as `/code-review-loop --rounds 2`, that the agent runs over its commits once the implementation is done and its tests pass, letting it apply the most important findings before it writes `CLAUDE-RESULT.md`. Nothing is pushed. Unset, there is no review step. |
@@ -430,8 +431,8 @@ Before launching, Spyhop writes three things into the worktree:
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
 `CLAUDE-PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
 with an unread dot. With `plan_review: false`, one `/goal` covers plan and
-implementation. Either way the agent ends by writing `CLAUDE-RESULT.md` and moving its
-card to `in-review`.
+implementation. Either way the agent ends by writing `CLAUDE-RESULT.md` and putting its
+card in `orca.plan_approved_status`.
 
 ### Orca board columns
 
@@ -439,10 +440,10 @@ card to `in-review`.
 board, not JIRA statuses. The defaults, *In review* and *In progress*, come with
 Orca, so nothing has to be created.
 
-Plans and finished work share *In review*; Spyhop tells them apart by `CLAUDE-PLAN.md`
-and `CLAUDE-RESULT.md`. Avoid custom columns: Orca gives each one a `status-N` id that
-differs from machine to machine, so a configuration using it only works on
-yours.
+Plans wait in *In review*. Approved and finished work share *In progress*;
+Spyhop tells them apart by `CLAUDE-RESULT.md`. Avoid custom columns: Orca gives
+each one a `status-N` id that differs from machine to machine, so a
+configuration using it only works on yours.
 
 ### Following a run
 
