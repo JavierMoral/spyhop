@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from spyhop.application.supervisor import MISSING_CYCLES, Observation, Signal, observe
-from spyhop.config.settings import REVIEW_STATUS
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AgentRow, AutomationRun, OrcaWorktree, Worktree
@@ -47,9 +46,9 @@ LATER = NOW + timedelta(minutes=1)
     ("run", "seen", "expected"),
     [
         # The agent's declaration of the end wins, even mid-turn.
-        (RUNNING, Observation(REVIEW_STATUS, agent("working"), True, True), Signal.COMPLETED),
-        # in-review without CLAUDE-RESULT.md is not the end (and may be a plan column).
-        (RUNNING, Observation(REVIEW_STATUS, agent("done", LATER), True, False), Signal.STOPPED),
+        (RUNNING, Observation(PLAN_APPROVED, agent("working"), True, True), Signal.COMPLETED),
+        # The approved column without CLAUDE-RESULT.md is not the end.
+        (RUNNING, Observation(PLAN_APPROVED, agent("done", LATER), True, False), Signal.STOPPED),
         (RUNNING, Observation("in-progress", None, False, False), Signal.MISSING),
         (RUNNING, Observation("in-progress", agent("working"), False, False), Signal.WORKING),
         (RUNNING, Observation("in-progress", agent("waiting"), False, False), Signal.QUESTION),
@@ -156,7 +155,7 @@ async def test_approving_the_plan_launches_a_new_agent_on_the_model(harness: Har
     assert launch["effort"] == "high"
     assert launch["worktree"] == worktree.orca_worktree_id
     assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios")
-    assert f"--workspace-status {REVIEW_STATUS}" in launch["prompt"]
+    assert f"--workspace-status {PLAN_APPROVED}" in launch["prompt"]
     assert launch["operation_id"] == session.launch_operation_id
     assert plan_session.status is SessionStatus.FINISHED
     assert session.status is SessionStatus.LAUNCHED
@@ -265,7 +264,7 @@ async def test_declared_end_completes_the_run_and_frees_its_slot(harness: Harnes
     queued = harness.discover("LPD-2")
 
     (worktree.path / "CLAUDE-RESULT.md").write_text("done")
-    harness.orca.set_card(worktree.orca_worktree_id, REVIEW_STATUS)
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
 
     await harness.supervisor.supervise()
@@ -287,7 +286,7 @@ async def test_files_from_an_earlier_run_are_no_signal(harness: Harness) -> None
 
     result.write_text("from the previous run")
     os.utime(result, (old, old))
-    harness.orca.set_card(worktree.orca_worktree_id, REVIEW_STATUS)
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.set_agent(
         worktree.orca_worktree_id, "done", pane, datetime.now(UTC) + timedelta(seconds=1)
     )

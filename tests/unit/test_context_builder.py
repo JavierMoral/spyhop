@@ -76,10 +76,10 @@ def test_plan_goal_is_one_line_and_marks_the_card_for_review(tmp_path: Path) -> 
     ) in goal
 
 
-def test_goal_without_plan_review_goes_to_in_review(tmp_path: Path) -> None:
+def test_goal_without_plan_review_goes_to_in_progress(tmp_path: Path) -> None:
     goal = builder(tmp_path).launch_goal("LPD-1", workflow(plan_review=False))
 
-    assert "--workspace-status in-review" in goal
+    assert "--workspace-status in-progress" in goal
     assert "CLAUDE-RESULT.md" in goal
     assert "plan-review" not in goal
 

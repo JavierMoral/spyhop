@@ -8,7 +8,7 @@ from spyhop.doctor import (
     _check_templates,
     _check_worktree_script,
 )
-from tests.factories import DEFAULT_COLUMNS, orca_dir, settings
+from tests.factories import orca_dir, settings
 
 
 def project(tmp_path: Path) -> ProjectSettings:
@@ -84,15 +84,6 @@ def test_missing_board_column_is_an_error_listing_the_columns(tmp_path: Path) ->
 
     assert check.level is Level.ERROR
     assert "'status-6'" in check.detail and "in-progress (In progress)" in check.detail
-
-
-def test_finished_work_column_is_required(tmp_path: Path) -> None:
-    columns = [column for column in DEFAULT_COLUMNS if column["id"] != "in-review"]
-
-    check = _check_board(settings(tmp_path), orca_dir(tmp_path, columns))
-
-    assert check.level is Level.ERROR
-    assert "finished work: 'in-review'" in check.detail
 
 
 def test_unreadable_board_is_a_warning(tmp_path: Path) -> None:
