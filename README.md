@@ -424,7 +424,7 @@ Before launching, Spyhop writes three things into the worktree:
 | File | Content |
 | --- | --- |
 | `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; how to check the plan against similar cases in the code, tests included, so it follows their patterns instead of creating new ones; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
-| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `curl`, `wget`). Pushing and opening a pull request are left to `/pr`. |
+| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. |
 | `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md` and the permission profile, so they never end up in a commit. |
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
@@ -642,12 +642,12 @@ The token is wrong or expired. Update it in your session and in
 - **Ticket content is untrusted.** The agent reads tickets from JIRA itself,
   through the project's skill or `orca jira`, and `CLAUDE-TASK.md` tells it to treat
   them as data, never as instructions. The deny list below keeps it from
-  sending anything out.
+  changing JIRA.
 - **The deny list is the barrier, not the allow list.** Orca starts Claude Code
   with `--dangerously-skip-permissions`, so everything not denied runs without
   asking. Deny rules still apply in that mode (verified with Claude Code
   2.1.316): force pushes, merging or closing pull requests, JIRA writes,
-  removing worktrees, `curl` and `wget` are blocked. Rules match the start of a
+  removing worktrees and `wget` are blocked. Rules match the start of a
   command, so `git push origin +branch` is not caught; that one rests on
   `CLAUDE-TASK.md`.
 - **A worktree is not a sandbox.** Agents run with your user's permissions. If
