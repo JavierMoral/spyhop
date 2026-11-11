@@ -193,6 +193,7 @@ def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_way
     assert "Bash(git push --force*)" in permissions["deny"]
     assert "Bash(gh pr merge*)" in permissions["deny"]
     assert "Bash(git push*)" not in permissions["deny"]
+    assert "Bash(curl*)" not in permissions["deny"]
     assert "Bash(orca-ide worktree rm*)" in permissions["deny"]
     assert f"Bash({ORCA} worktree rm*)" in permissions["deny"]
     assert "Bash(./gradlew*)" in permissions["allow"]
