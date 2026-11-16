@@ -290,6 +290,7 @@ projects:
 | `….base_branch` | repository default | Overrides the repository's base branch. |
 | `….prompt` | — | Template with this workflow's guidance, added to `CLAUDE-TASK.md`. Looked up first in `~/.config/spyhop/templates/`, then among the bundled ones; see [Customizing templates](#customizing-templates). |
 | `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
+| `….checkpoints` | `[]` | Names of the checkpoints of this workflow; see [Checkpoints](#checkpoints). |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
 | `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
@@ -508,6 +509,41 @@ name a new template, such as `my_workflow.md`, as long as it exists in either
 directory. `spyhop doctor` checks that every template exists and lists the ones
 you customized.
 
+### Checkpoints
+
+A checkpoint is a check that runs after the implementation, such as a
+mutation test or a security review. Each checkpoint is a Claude Code subagent in
+`~/.claude/agents/checkpoint-<name>.md` (`$CLAUDE_CONFIG_DIR/agents` when that
+variable is set). Its frontmatter gives the subagent's `model` and two keys for
+Spyhop:
+
+```markdown
+---
+name: checkpoint-mutation
+description: Revert the production change and confirm that the new tests fail.
+model: sonnet
+mode: exclusive
+after: [regressions]
+---
+```
+
+- `mode`: `read` for a checkpoint that only reads the code, `exclusive` for one
+  that changes files or runs a build or tests. Read checkpoints of a stage run
+  in parallel. An exclusive checkpoint runs alone in the worktree. The default
+  is `exclusive`.
+- `after`: the checkpoints that run before this one. It only sets the order.
+  The order also goes through a checkpoint that the workflow does not have.
+
+A workflow lists its checkpoints in `checkpoints`, for example
+`checkpoints: [regressions, mutation, security]`. A workflow without the key
+has no checkpoints.
+
+`spyhop checkpoints plan` reads the checkpoints of the current worktree's run
+and prints the stages in which they run. Spyhop finds the run from the
+directory, so run the command inside the worktree. It stops with an error for a
+missing file, a `name` that is not `checkpoint-<name>`, an unknown `mode` or a
+cycle in `after`.
+
 ## Running as a service
 
 ```sh
@@ -549,6 +585,7 @@ spyhop service uninstall
 | `spyhop retry RUN\|KEY` | Start a finished run again as a new run (same ticket and worktree). Takes the run id from `status` (its first characters are enough) or a ticket key for its latest run. |
 | `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
+| `spyhop checkpoints plan [NAME...]` | Print as JSON the stages of the checkpoints of the current worktree's run. `NAME...` selects only those checkpoints, `--from NAME` that checkpoint and the ones after it, `--workflow NAME` a workflow outside a run. See [Checkpoints](#checkpoints). |
 | `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca, its board columns and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
 | `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
