@@ -143,7 +143,6 @@ class ContextBuilder:
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,
             plan_approved_status=self._plan_approved_status,
-            review_command=self._review_command,
         )
 
         return oneline(text)
