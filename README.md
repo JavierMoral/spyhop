@@ -123,7 +123,8 @@ What you do is in **bold**; the rest happens on its own.
    commits locally. The plan agent stays open with no work. Workflows with
    `plan_review: false` keep one agent on `agents.model` for all the work. With
    `agents.review_command` set, it then runs that review over its commits and
-   applies the most important findings. It writes `CLAUDE-RESULT.md` and leaves
+   applies the most important findings. With [checkpoints](#checkpoints) in the
+   workflow, it then runs `/checkpoints`. It writes `CLAUDE-RESULT.md` and leaves
    its card in *In progress*, with an unread dot. **Review the commits, then
    push and open the pull request**, yourself or by running `/pr` in the agent's
    terminal.
@@ -426,7 +427,7 @@ Before launching, Spyhop writes three things into the worktree:
 | File | Content |
 | --- | --- |
 | `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; how to check the plan against similar cases in the code, tests included, so it follows their patterns instead of creating new ones; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
-| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. |
+| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. It also allows the commands of `/checkpoints`: `spyhop checkpoints plan` and `check`, `git rev-parse`, `git merge-base` and `git restore --source=`. |
 | `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md`, the permission profile, `CLAUDE-CHECKPOINTS.md` and `CLAUDE-CHECKPOINT-*.md`, so they never end up in a commit. |
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
@@ -537,6 +538,11 @@ after: [regressions]
 A workflow lists its checkpoints in `checkpoints`, for example
 `checkpoints: [regressions, mutation, security]`. A workflow without the key
 has no checkpoints.
+
+In a run, the agent runs the `/checkpoints` skill after the implementation and
+after `agents.review_command`, because a later commit makes the verdicts
+stale. The skill must be installed in `~/.claude/skills/checkpoints/`, and
+`spyhop` must be in the `PATH` of the agent's terminal.
 
 `spyhop checkpoints plan` reads the checkpoints of the current worktree's run
 and prints the stages in which they run, with the base branch of the workflow. Spyhop finds the run from the
