@@ -539,7 +539,7 @@ A workflow lists its checkpoints in `checkpoints`, for example
 has no checkpoints.
 
 `spyhop checkpoints plan` reads the checkpoints of the current worktree's run
-and prints the stages in which they run. Spyhop finds the run from the
+and prints the stages in which they run, with the base branch of the workflow. Spyhop finds the run from the
 directory, so run the command inside the worktree. It stops with an error for a
 missing file, a `name` that is not `checkpoint-<name>`, an unknown `mode` or a
 cycle in `after`.
