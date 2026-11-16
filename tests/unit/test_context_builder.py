@@ -228,6 +228,7 @@ def test_prepare_writes_the_context_and_excludes_it_once(tmp_path: Path) -> None
     assert exclude.read_text() == (
         "# git's own comment\n*.log\n\n# Added by Spyhop: files written for its agents\n"
         "/CLAUDE-TASK.md\n/CLAUDE-PLAN.md\n/CLAUDE-RESULT.md\n/.claude/settings.local.json\n"
+        "/CLAUDE-CHECKPOINTS.md\n/CLAUDE-CHECKPOINT-*.md\n"
     )
 
 

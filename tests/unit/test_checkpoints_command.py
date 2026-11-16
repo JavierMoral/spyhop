@@ -1,4 +1,5 @@
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -60,9 +61,43 @@ def plan(config_file: Path, *arguments: str) -> tuple[int, str]:
     return result.exit_code, result.output
 
 
-def test_the_workflow_comes_from_the_run_of_the_current_worktree(
-    config_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def check(config_file: Path, *arguments: str) -> tuple[int, dict[str, object]]:
+    result = CliRunner().invoke(
+        app, ["checkpoints", "check", "--config", str(config_file), *arguments]
+    )
+
+    return result.exit_code, json.loads(result.stdout)
+
+
+def git(path: Path, *arguments: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            *arguments,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def commit(path: Path, message: str) -> str:
+    git(path, "commit", "--allow-empty", "--quiet", "-m", message)
+
+    return git(path, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def run_worktree(config_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The worktree of a bug_fix run for LPD-1, a Git repository with one
+    commit, with the current directory in one of its subdirectories."""
+
     path = tmp_path / "worktrees" / "LPD-1"
     connection = connect(database_file(dry_run=False))
     workflow = WorkflowResolver(load_settings(config_file)).resolve("LPD", "Bug")
@@ -89,8 +124,23 @@ def test_the_workflow_comes_from_the_run_of_the_current_worktree(
 
     RunRepository(connection).mark_ready(automation_run.id, worktree.id)
     (path / "modules").mkdir(parents=True)
+    git(path, "init", "--quiet")
+    commit(path, "First")
     monkeypatch.chdir(path / "modules")
 
+    return path
+
+
+def verdicts(path: Path, *rows: tuple[str, str, str]) -> None:
+    (path / "CLAUDE-CHECKPOINTS.md").write_text(
+        "| Checkpoint | Verdict | HEAD |\n| --- | --- | --- |\n"
+        + "".join(f"| {name} | {verdict} | {head} |\n" for name, verdict, head in rows)
+    )
+
+
+def test_the_workflow_comes_from_the_run_of_the_current_worktree(
+    config_file: Path, run_worktree: Path
+) -> None:
     exit_code, output = plan(config_file)
 
     assert exit_code == 0
@@ -142,3 +192,65 @@ def test_an_unknown_workflow_is_an_error(config_file: Path) -> None:
 
     assert exit_code == 1
     assert "No enabled project has a workflow named 'feature'" in output
+
+
+def test_check_accepts_verdicts_that_pass_on_head(config_file: Path, run_worktree: Path) -> None:
+    head = git(run_worktree, "rev-parse", "HEAD")
+
+    verdicts(run_worktree, ("regressions", "PASS", head), ("security", "PASS", head))
+
+    exit_code, outcome = check(config_file)
+
+    assert exit_code == 0
+    assert outcome == {
+        "workflow": "bug_fix",
+        "head": head,
+        "accepted": True,
+        "reason": None,
+        "problems": [],
+    }
+
+
+def test_check_rejects_a_verdict_of_an_older_head(config_file: Path, run_worktree: Path) -> None:
+    old = git(run_worktree, "rev-parse", "HEAD")
+    head = commit(run_worktree, "Fix")
+
+    verdicts(run_worktree, ("regressions", "PASS", head), ("security", "PASS", old))
+
+    exit_code, outcome = check(config_file)
+
+    assert exit_code == 1
+    assert outcome["reason"] == "checkpoints_stale"
+    assert outcome["problems"] == [
+        {
+            "checkpoint": "security",
+            "reason": "checkpoints_stale",
+            "detail": f"PASS on {old[:12]}, HEAD is {head[:12]}",
+        }
+    ]
+
+
+def test_check_without_the_file_reports_missing_verdicts(
+    config_file: Path, run_worktree: Path
+) -> None:
+    exit_code, outcome = check(config_file)
+
+    assert exit_code == 1
+    assert outcome["reason"] == "checkpoints_missing"
+
+
+def test_check_with_the_workflow_option_reads_the_current_repository(
+    config_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+
+    (repository / "modules").mkdir(parents=True)
+    git(repository, "init", "--quiet")
+    head = commit(repository, "First")
+    verdicts(repository, ("regressions", "PASS", head), ("security", "FAIL", head))
+    monkeypatch.chdir(repository / "modules")
+
+    exit_code, outcome = check(config_file, "--workflow", "bug_fix")
+
+    assert exit_code == 1
+    assert outcome["reason"] == "checkpoints_failed"
