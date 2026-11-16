@@ -62,10 +62,28 @@ def top_level(path: Path) -> Path | None:
     return Path(found) if found else None
 
 
+def merge_base(worktree: Path, base_branch: str) -> str | None:
+    """The SHA where HEAD leaves the base branch, or None when Git cannot
+    tell. The base branch is the first of ``upstream/<base_branch>``,
+    ``origin/<base_branch>`` and ``<base_branch>`` that exists."""
+
+    for ref in (f"upstream/{base_branch}", f"origin/{base_branch}", base_branch):
+        if _git(worktree, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") is not None:
+            return _git(worktree, "merge-base", ref, "HEAD")
+
+    return None
+
+
 def _rev_parse(path: Path, argument: str) -> str | None:
+    return _git(path, "rev-parse", argument)
+
+
+def _git(path: Path, *arguments: str) -> str | None:
+    """The output of a read-only Git command, or None when it fails."""
+
     try:
         completed = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", argument],
+            ["git", "-C", str(path), *arguments],
             capture_output=True,
             text=True,
             timeout=_TIMEOUT,

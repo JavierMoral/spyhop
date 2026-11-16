@@ -1,9 +1,10 @@
 """Puts the checkpoints of a workflow in the order that /checkpoints runs them.
 
 A checkpoint is a Claude Code subagent in ``checkpoint-<name>.md``. Its
-frontmatter gives ``mode`` (``read`` or ``exclusive``) and ``after``, the
-checkpoints that run before it. ``after`` only sets the order: a checkpoint
-that is not selected does not run, but the order through it stays.
+frontmatter gives ``mode`` (``read`` or ``exclusive``), ``after``, the
+checkpoints that run before it, and ``inputs``, what its verdict depends on
+(see checkpoint_verdicts). ``after`` only sets the order: a checkpoint that is
+not selected does not run, but the order through it stays.
 
 A stage holds the ``read`` checkpoints that can run in parallel, or one
 ``exclusive`` checkpoint, which runs alone in the worktree.
@@ -17,6 +18,7 @@ from typing import Literal, cast
 
 import yaml
 
+from spyhop.application.checkpoint_verdicts import INPUTS
 from spyhop.domain.exceptions import ConfigurationError
 
 AGENT_PREFIX = "checkpoint-"
@@ -32,6 +34,7 @@ class Checkpoint:
     name: str
     mode: Mode
     after: tuple[str, ...]
+    inputs: tuple[str, ...] = ("head",)
 
 
 @dataclass(frozen=True)
@@ -89,14 +92,14 @@ class CheckpointPlanner:
         if name in catalog:
             return
 
-        checkpoint = self._read(name)
+        checkpoint = self.read(name)
 
         for before in checkpoint.after:
             self._load(before, catalog, (*path, name))
 
         catalog[name] = checkpoint
 
-    def _read(self, name: str) -> Checkpoint:
+    def read(self, name: str) -> Checkpoint:
         if not _NAME.fullmatch(name):
             raise ConfigurationError(
                 f"Invalid checkpoint name {name!r}: use lowercase letters, digits and hyphens"
@@ -122,7 +125,24 @@ class CheckpointPlanner:
         if not isinstance(after, list) or not all(isinstance(before, str) for before in after):
             raise ConfigurationError(f"{agent_file}: after must be a list of checkpoint names")
 
-        return Checkpoint(name, cast(Mode, mode), tuple(after))
+        inputs = frontmatter.get("inputs", ["head"])
+
+        if (
+            not isinstance(inputs, list)
+            or not inputs
+            or not all(value in INPUTS for value in inputs)
+            or len(set(inputs)) != len(inputs)
+        ):
+            raise ConfigurationError(
+                f"{agent_file}: inputs must be a list of different values from {', '.join(INPUTS)}"
+            )
+
+        return Checkpoint(
+            name,
+            cast(Mode, mode),
+            tuple(after),
+            tuple(value for value in INPUTS if value in inputs),
+        )
 
     def _select(
         self,

@@ -2,6 +2,7 @@
 
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,15 +18,21 @@ class JiraCredentials:
     token: str = field(repr=False)
 
 
-def credentials_from_environment(settings: JiraSettings) -> JiraCredentials:
-    missing = [name for name in (settings.user_env, settings.token_env) if not os.environ.get(name)]
+def credentials_from_environment(
+    settings: JiraSettings, environment: Mapping[str, str] = os.environ
+) -> JiraCredentials:
+    missing = [
+        name for name in (settings.user_env, settings.token_env) if not environment.get(name)
+    ]
 
     if missing:
         raise ConfigurationError(
             "Missing JIRA credentials in the environment: " + ", ".join(missing)
         )
 
-    return JiraCredentials(user=os.environ[settings.user_env], token=os.environ[settings.token_env])
+    return JiraCredentials(
+        user=environment[settings.user_env], token=environment[settings.token_env]
+    )
 
 
 def read_env_file(env_file: Path) -> dict[str, str]:

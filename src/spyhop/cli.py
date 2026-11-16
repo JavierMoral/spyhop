@@ -12,10 +12,20 @@ import typer
 
 from spyhop import __version__
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner
-from spyhop.application.checkpoint_verdicts import VERDICTS_FILE, check_verdicts, run_reason
+from spyhop.application.checkpoint_verdicts import (
+    INPUT_VALUE,
+    VERDICTS_FILE,
+    check_verdicts,
+    fingerprint,
+    run_reason,
+)
 from spyhop.application.janitor import Cleanup, WorktreeRemover
 from spyhop.application.workflow_resolver import WorkflowResolver
-from spyhop.config.credentials import write_env_file
+from spyhop.config.credentials import (
+    credentials_from_environment,
+    read_env_file,
+    write_env_file,
+)
 from spyhop.config.paths import (
     claude_agents_dir,
     database_file,
@@ -28,7 +38,8 @@ from spyhop.doctor import Level, run_checks
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import ConfigurationError, SpyhopError
 from spyhop.domain.models import ResolvedWorkflow
-from spyhop.infrastructure.git import head, top_level
+from spyhop.infrastructure.git import head, merge_base, top_level
+from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     PollerStateRepository,
@@ -310,18 +321,26 @@ def checkpoints_plan(
 
     Without --workflow, the workflow is the one of the run whose worktree holds
     the current directory. A stage holds read checkpoints that run in
-    parallel, or one exclusive checkpoint."""
+    parallel, or one exclusive checkpoint. Each checkpoint has the
+    fingerprint of its inputs, which /checkpoints records with its verdict."""
 
     settings = _load(config)
 
     try:
-        resolved = (
-            _named_workflow(settings, workflow)
-            if workflow
-            else _current_workflow(settings, config, dry_run)[0]
-        )
-        stages = CheckpointPlanner(claude_agents_dir()).plan(
-            resolved.checkpoints, names or (), start
+        resolved, root, issue_key = _workflow(settings, workflow, config, dry_run)
+        planner = CheckpointPlanner(claude_agents_dir())
+        stages = planner.plan(resolved.checkpoints, names or (), start)
+        inputs = {name: planner.read(name).inputs for stage in stages for name in stage.checkpoints}
+        values = (
+            _input_values(
+                settings,
+                resolved,
+                root,
+                issue_key,
+                {"base", "head"}.union(*inputs.values()),
+            )
+            if stages
+            else {}
         )
     except SpyhopError as error:
         typer.echo(str(error), err=True)
@@ -331,11 +350,18 @@ def checkpoints_plan(
     plan = {
         "workflow": resolved.name,
         "base_branch": resolved.base_branch,
+        "base": values.get("base"),
+        "head": values.get("head"),
         "stages": [
             {
                 "mode": stage.mode,
                 "checkpoints": [
-                    {"name": name, "agent": f"{AGENT_PREFIX}{name}"} for name in stage.checkpoints
+                    {
+                        "name": name,
+                        "agent": f"{AGENT_PREFIX}{name}",
+                        "inputs": fingerprint({key: values[key] for key in inputs[name]}),
+                    }
+                    for name in stage.checkpoints
                 ],
             }
             for stage in stages
@@ -356,24 +382,20 @@ def checkpoints_check(
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
     ] = None,
 ) -> None:
-    """Print as JSON whether all the checkpoints pass on the current HEAD.
+    """Print as JSON whether all the checkpoints pass on their current inputs.
 
     Reads CLAUDE-CHECKPOINTS.md at the root of the worktree. Exits with 1 when
-    a verdict is missing, is FAIL, or is for an older HEAD."""
+    a verdict is missing, is FAIL, or is for older inputs."""
 
     settings = _load(config)
 
     try:
-        if workflow:
-            resolved = _named_workflow(settings, workflow)
-            root = top_level(Path.cwd())
-        else:
-            resolved, root = _current_workflow(settings, config, dry_run)
-
-        current_head = head(root) if root else None
-
-        if root is None or current_head is None:
-            raise ConfigurationError(f"Cannot read the HEAD of {root or Path.cwd()}")
+        resolved, root, issue_key = _workflow(settings, workflow, config, dry_run)
+        planner = CheckpointPlanner(claude_agents_dir())
+        inputs = {name: planner.read(name).inputs for name in dict.fromkeys(resolved.checkpoints)}
+        values = _input_values(
+            settings, resolved, root, issue_key, {"head"}.union(*inputs.values())
+        )
     except SpyhopError as error:
         typer.echo(str(error), err=True)
 
@@ -382,13 +404,12 @@ def checkpoints_check(
     verdicts_file = root / VERDICTS_FILE
     problems = check_verdicts(
         verdicts_file.read_text() if verdicts_file.is_file() else None,
-        resolved.checkpoints,
-        current_head,
+        {name: fingerprint({key: values[key] for key in keys}) for name, keys in inputs.items()},
     )
     reason = run_reason(problems)
     outcome = {
         "workflow": resolved.name,
-        "head": current_head,
+        "head": values["head"],
         "accepted": reason is None,
         "reason": reason,
         "problems": [
@@ -507,11 +528,92 @@ def _named_workflow(settings: Settings, name: str) -> ResolvedWorkflow:
     return matches[0]
 
 
+def _workflow(
+    settings: Settings, name: str | None, config: Path | None, dry_run: bool | None
+) -> tuple[ResolvedWorkflow, Path, str | None]:
+    """The workflow, the root of the worktree and the issue key of the run.
+    With a workflow name, the root is the Git worktree of the current
+    directory, and there is no issue key."""
+
+    if name is None:
+        return _current_workflow(settings, config, dry_run)
+
+    resolved = _named_workflow(settings, name)
+    root = top_level(Path.cwd())
+
+    if root is None:
+        raise ConfigurationError(f"{Path.cwd()} is not in a Git worktree")
+
+    return resolved, root, None
+
+
+def _input_values(
+    settings: Settings,
+    resolved: ResolvedWorkflow,
+    root: Path,
+    issue_key: str | None,
+    names: set[str],
+) -> dict[str, str]:
+    """The current values of the checkpoint inputs in ``names``."""
+
+    values = {}
+
+    if "head" in names:
+        current_head = head(root)
+
+        if current_head is None:
+            raise ConfigurationError(f"Cannot read the HEAD of {root}")
+
+        values["head"] = current_head
+
+    if "base" in names:
+        base = merge_base(root, resolved.base_branch)
+
+        if base is None:
+            raise ConfigurationError(
+                f"Cannot find where HEAD leaves {resolved.base_branch} in {root}"
+            )
+
+        values["base"] = base
+
+    if "ticket" in names:
+        if issue_key is None:
+            raise ConfigurationError(
+                "A checkpoint reads the ticket, so it needs the run of the current "
+                "worktree, not --workflow"
+            )
+
+        values["ticket"] = asyncio.run(_ticket_updated(settings, issue_key))
+
+    return values
+
+
+async def _ticket_updated(settings: Settings, issue_key: str) -> str:
+    """The ``updated`` field of the issue. The credentials come from the
+    environment, or from the env file of the service when it is not set."""
+
+    env_file = settings.service.env_file
+    environment = {**(read_env_file(env_file) if env_file.is_file() else {}), **os.environ}
+    credentials = credentials_from_environment(settings.jira, environment)
+
+    async with JiraClient(
+        settings.jira.base_url, credentials, settings.jira.request_timeout
+    ) as jira:
+        issue = await jira.issue(issue_key, ["updated"])
+
+    updated = issue.get("fields", {}).get("updated")
+
+    if not isinstance(updated, str) or not INPUT_VALUE.fullmatch(updated):
+        raise ConfigurationError(f"{issue_key} has no valid updated field in JIRA")
+
+    return updated
+
+
 def _current_workflow(
     settings: Settings, config: Path | None, dry_run: bool | None
-) -> tuple[ResolvedWorkflow, Path]:
+) -> tuple[ResolvedWorkflow, Path, str]:
     """The workflow of the run whose worktree holds the current directory,
-    and the root of that worktree."""
+    the root of that worktree and the issue key of the run."""
 
     connection = connect(_existing_database(config, dry_run, settings))
     current = Path.cwd().resolve()
@@ -554,7 +656,7 @@ def _current_workflow(
             f"is not in the configuration of project {project_key}"
         )
 
-    return resolved, worktree.path
+    return resolved, worktree.path, automation_run.issue_key
 
 
 def _load(config: Path | None) -> Settings:
