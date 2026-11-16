@@ -10,7 +10,7 @@ from spyhop.application.context_builder import (
     git_exclude_file,
     template_environment,
 )
-from spyhop.domain.models import ResolvedWorkflow, TicketDetails, TicketRef
+from spyhop.domain.models import ChecksPhase, Phase, ResolvedWorkflow, TicketDetails, TicketRef
 
 ORCA = Path("/opt/orca/orca-ide")
 
@@ -33,7 +33,7 @@ def ticket(**overrides: object) -> TicketDetails:
 
 
 def workflow(
-    plan_review: bool = True, prompt: str = "bug_fix.md", checkpoints: tuple[str, ...] = ()
+    plan_review: bool = True, prompt: str = "bug_fix.md", pipeline: tuple[Phase, ...] = ()
 ) -> ResolvedWorkflow:
     return ResolvedWorkflow(
         name="bug_fix",
@@ -44,7 +44,7 @@ def workflow(
         prompt=prompt,
         plan_review=plan_review,
         build_commands=("./gradlew",),
-        checkpoints=checkpoints,
+        pipeline=pipeline,
     )
 
 
@@ -125,9 +125,9 @@ def test_review_command_runs_after_the_implementation(tmp_path: Path, plan_revie
     goal = context.goal("LPD-1", "implement" if plan_review else "full")
 
     assert "## Review\n" in task
-    assert "antes de escribir CLAUDE-RESULT.md:\n\n- Ejecuta `/code-review-loop --rounds 2`" in task
+    assert "ejecuta `/code-review-loop --rounds 2` antes de escribir\nCLAUDE-RESULT.md" in task
     assert "hallazgos de la revisión se aplicaron" in task
-    assert "/checkpoints" not in task
+    assert "## Checkpoints" not in task
     assert "\n" not in goal
     assert (
         "en verde. Después sigue la sección Review de CLAUDE-TASK.md, si la tiene. "
@@ -145,32 +145,38 @@ def test_without_review_command_there_is_no_review(tmp_path: Path) -> None:
     assert "Review" not in context.launch_goal("LPD-1", workflow(plan_review=True))
 
 
-def test_checkpoints_run_in_the_review(tmp_path: Path) -> None:
+def test_the_task_tells_which_checkpoints_run_before_and_after(tmp_path: Path) -> None:
     task = builder(tmp_path).render_task(
-        ticket(), workflow(checkpoints=("regressions", "mutation"))
+        ticket(),
+        workflow(
+            pipeline=(
+                ChecksPhase(("ticket-info", "reproduce")),
+                "plan",
+                "plan_review",
+                "implement",
+                ChecksPhase(("regressions", "mutation"), "fix"),
+            )
+        ),
     )
 
-    assert "## Review\n" in task
-    assert "- Ejecuta `/checkpoints`. Ejecuta los checkpoints de este workflow\n" in task
-    assert "(regressions, mutation)" in task
-    assert "Ejecútalo al final, después de cualquier\n  otro commit" in task
+    assert "## Checkpoints\n" in task
+    assert "ha ejecutado ticket-info, reproduce. Lee\n  sus informes antes de planificar" in task
+    assert "Spyhop ejecuta regressions, mutation\n  sobre tus commits" in task
     assert "igual que\n   CLAUDE-CHECKPOINTS.md y CLAUDE-CHECKPOINT-*.md, están excluidos" in task
-    assert "- El resultado de `/checkpoints`" in task
-    assert "code-review" not in task
+    assert "/checkpoints" not in task
+    assert "## Review" not in task
 
 
-def test_checkpoints_run_after_the_review_command(tmp_path: Path) -> None:
-    context = ContextBuilder(
-        template_environment(tmp_path),
-        ORCA,
-        "plan-review",
-        review_command="/code-review-loop --rounds 2",
-    )
-    task = context.render_task(ticket(), workflow(checkpoints=("regressions",)))
+def test_the_fix_prompt_names_the_reports_and_ends_like_the_implementation(
+    tmp_path: Path,
+) -> None:
+    prompt = builder(tmp_path).fix_prompt("LPD-1", ["regressions", "mutation"])
 
-    assert task.index("- Ejecuta `/code-review-loop --rounds 2`") < task.index(
-        "- Después, ejecuta `/checkpoints`"
-    )
+    assert "\n" not in prompt
+    assert "han fallado: regressions, mutation." in prompt
+    assert "CLAUDE-CHECKPOINT-regressions.md, CLAUDE-CHECKPOINT-mutation.md" in prompt
+    assert "título de commit neutro" in prompt
+    assert prompt.endswith('--comment "LPD-1: correcciones listas" --unread --json')
 
 
 def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
@@ -229,9 +235,8 @@ def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_way
     assert "Bash(orca-ide worktree rm*)" in permissions["deny"]
     assert f"Bash({ORCA} worktree rm*)" in permissions["deny"]
     assert "Bash(./gradlew*)" in permissions["allow"]
-    assert "Bash(spyhop checkpoints plan*)" in permissions["allow"]
     assert "Bash(spyhop checkpoints check*)" in permissions["allow"]
-    assert "Bash(git restore --source=*)" in permissions["allow"]
+    assert "Bash(git restore --source=*)" not in permissions["allow"]
 
 
 def test_exclude_file_of_a_linked_worktree_is_in_the_common_git_dir(tmp_path: Path) -> None:

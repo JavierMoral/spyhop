@@ -157,3 +157,18 @@ def test_wrong_inputs_are_rejected(agents_dir: Path, inputs: list[str]) -> None:
 
     with pytest.raises(ConfigurationError, match="inputs must be a list of different values"):
         CheckpointPlanner(agents_dir).plan(["odd"])
+
+
+def test_a_checkpoint_with_tools_must_allow_the_structured_output(agents_dir: Path) -> None:
+    (agents_dir / "checkpoint-tools.md").write_text(
+        "---\nname: checkpoint-tools\ntools: Bash, Read\n---\n"
+    )
+
+    with pytest.raises(ConfigurationError, match="tools must include StructuredOutput"):
+        CheckpointPlanner(agents_dir).plan(["tools"])
+
+    (agents_dir / "checkpoint-tools.md").write_text(
+        "---\nname: checkpoint-tools\ntools: Bash, Read, StructuredOutput\n---\n"
+    )
+
+    assert CheckpointPlanner(agents_dir).plan(["tools"]) == [Stage("exclusive", ("tools",))]

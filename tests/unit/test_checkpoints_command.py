@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +38,14 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "application": {"dry_run": False},
         "jira": {"base_url": "https://example.atlassian.net"},
         "service": {"env_file": str(tmp_path / "env")},
+        "pipelines": {
+            "bug": [
+                "plan",
+                "plan_review",
+                "implement",
+                {"checks": ["regressions", "security"], "on_fail": "fix"},
+            ]
+        },
         "repositories": {"portal": {"path": str(tmp_path / "portal")}},
         "projects": {
             "LPD": {
@@ -45,7 +54,7 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                         **workflow,
                         "name": "bug_fix",
                         "prompt": "bug_fix.md",
-                        "checkpoints": ["regressions", "security"],
+                        "pipeline": "bug",
                     },
                     "Task": {**workflow, "name": "subtask", "prompt": "technical_task.md"},
                 }
@@ -189,23 +198,34 @@ def test_the_workflow_comes_from_the_run_of_the_current_worktree(
         "base_branch": "master",
         "base": first,
         "head": head,
-        "stages": [
+        "phases": [
             {
-                "mode": "read",
-                "checkpoints": [
-                    {"name": "security", "agent": "checkpoint-security", "inputs": f"head={head}"}
-                ],
-            },
-            {
-                "mode": "exclusive",
-                "checkpoints": [
+                "phase": 3,
+                "on_fail": "fix",
+                "rounds": 3,
+                "stages": [
                     {
-                        "name": "regressions",
-                        "agent": "checkpoint-regressions",
-                        "inputs": f"head={head}",
-                    }
+                        "mode": "read",
+                        "checkpoints": [
+                            {
+                                "name": "security",
+                                "agent": "checkpoint-security",
+                                "inputs": f"head={head}",
+                            }
+                        ],
+                    },
+                    {
+                        "mode": "exclusive",
+                        "checkpoints": [
+                            {
+                                "name": "regressions",
+                                "agent": "checkpoint-regressions",
+                                "inputs": f"head={head}",
+                            }
+                        ],
+                    },
                 ],
-            },
+            }
         ],
     }
 
@@ -227,17 +247,15 @@ def test_the_workflow_option_selects_a_workflow_by_name(
 ) -> None:
     head = git(other_repository, "rev-parse", "HEAD")
 
-    exit_code, output = plan(config_file, "--workflow", "bug_fix", "--from", "regressions")
+    exit_code, output = plan(config_file, "--workflow", "bug_fix")
 
     assert exit_code == 0
-    assert json.loads(output)["stages"] == [
-        {
-            "mode": "exclusive",
-            "checkpoints": [
-                {"name": "regressions", "agent": "checkpoint-regressions", "inputs": f"head={head}"}
-            ],
-        }
-    ]
+    assert json.loads(output)["phases"][0]["stages"][1] == {
+        "mode": "exclusive",
+        "checkpoints": [
+            {"name": "regressions", "agent": "checkpoint-regressions", "inputs": f"head={head}"}
+        ],
+    }
 
 
 def test_a_workflow_without_checkpoints_prints_no_stages(
@@ -251,7 +269,7 @@ def test_a_workflow_without_checkpoints_prints_no_stages(
         "base_branch": "master",
         "base": None,
         "head": None,
-        "stages": [],
+        "phases": [],
     }
 
 
@@ -274,10 +292,10 @@ def test_the_ticket_input_is_the_updated_field_of_the_issue(
     )
     head = git(run_worktree, "rev-parse", "HEAD")
 
-    exit_code, output = plan(config_file, "security")
+    exit_code, output = plan(config_file)
 
     assert exit_code == 0
-    assert json.loads(output)["stages"][0]["checkpoints"][0]["inputs"] == (
+    assert json.loads(output)["phases"][0]["stages"][0]["checkpoints"][0]["inputs"] == (
         f"ticket={UPDATED} head={head}"
     )
     assert route.calls.last.request.url.params["fields"] == "updated"
@@ -295,7 +313,7 @@ def test_the_credentials_can_come_from_the_env_file_of_the_service(
         return_value=httpx.Response(200, json={"fields": {"updated": UPDATED}})
     )
 
-    exit_code, _ = plan(config_file, "security")
+    exit_code, _ = plan(config_file)
 
     assert exit_code == 0
     assert route.calls.last.request.headers["Authorization"].startswith("Basic ")
@@ -308,8 +326,38 @@ def test_the_ticket_input_needs_the_run_of_the_worktree(
 
     exit_code, output = plan(config_file, "--workflow", "bug_fix")
 
-    assert exit_code == 1
-    assert "needs the run of the current worktree, not --workflow" in output
+    assert exit_code == 0
+    assert json.loads(output)["phases"][0]["stages"][0]["checkpoints"][0]["inputs"] is None
+
+    result = CliRunner().invoke(
+        app, ["checkpoints", "check", "--config", str(config_file), "--workflow", "bug_fix"]
+    )
+
+    assert result.exit_code == 1
+    assert "needs the run of the current worktree, not --workflow" in result.output
+
+
+def test_rerun_asks_for_a_new_round_of_the_current_checks_phase(
+    config_file: Path, run_worktree: Path
+) -> None:
+    runs = RunRepository(connect(database_file(dry_run=False)))
+    [automation_run] = runs.list(issue_key="LPD-1")
+
+    result = CliRunner().invoke(
+        app, ["checkpoints", "rerun", "LPD-1", "--config", str(config_file)]
+    )
+
+    assert result.exit_code == 1
+    assert "does not run checkpoints now" in result.output
+
+    runs.set_phase(automation_run.id, 3)
+
+    result = CliRunner().invoke(
+        app, ["checkpoints", "rerun", "lpd-1", "--config", str(config_file)]
+    )
+
+    assert result.exit_code == 0
+    assert runs.list(issue_key="LPD-1")[0].checks_requested_at is not None
 
 
 def test_an_unknown_workflow_is_an_error(config_file: Path) -> None:
@@ -415,3 +463,69 @@ def test_check_rejects_a_verdict_of_an_older_ticket(
             "detail": f"PASS on ticket={UPDATED}, now ticket=2026-11-17T08:00:00.000+0100",
         }
     ]
+
+
+def fake_claude(directory: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A claude command that prints a stream-json run and records its arguments."""
+
+    events = [
+        {"type": "system", "subtype": "init"},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git diff"}}]
+            },
+        },
+        {
+            "type": "result",
+            "is_error": False,
+            "structured_output": {"verdict": "PASS", "head": "h", "commands": [], "findings": []},
+        },
+    ]
+    script = directory / "claude"
+    calls = directory / "calls"
+
+    directory.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> {calls}\n'
+        + "".join(f"echo '{json.dumps(event)}'\n" for event in events)
+    )
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{directory}:{os.environ['PATH']}")
+
+    return calls
+
+
+def test_exec_runs_the_subagent_and_writes_its_result_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fake_claude(tmp_path / "bin", monkeypatch)
+    output = tmp_path / "results" / "run" / "row.json"
+    arguments = [
+        "checkpoints",
+        "exec",
+        "security",
+        "--base",
+        "b" * 40,
+        "--head",
+        "h" * 40,
+        "--root",
+        str(tmp_path),
+        "--output",
+        str(output),
+    ]
+
+    result = CliRunner().invoke(app, arguments)
+
+    assert result.exit_code == 0
+    assert '> Bash: {"command": "git diff"}' in result.output
+    assert "Checkpoint security: PASS." in result.output
+    assert json.loads(output.read_text())["output"]["structured_output"]["verdict"] == "PASS"
+    assert "--agent checkpoint-security" in calls.read_text()
+    assert "--json-schema" in calls.read_text()
+
+    again = CliRunner().invoke(app, arguments)
+
+    assert "already has a result" in again.output
+    assert calls.read_text().count("--dangerously-skip-permissions") == 1

@@ -3,10 +3,13 @@ database, the launcher and the supervisor."""
 
 import dataclasses
 import shutil
-from datetime import UTC, datetime
+import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from spyhop.application.checkpoint_planner import CheckpointPlanner
+from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.context_builder import ContextBuilder, template_environment
 from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.launcher import AgentLauncher
@@ -27,6 +30,7 @@ from spyhop.domain.models import (
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
+    CheckpointRunRepository,
     RunRepository,
     SessionRepository,
     WorktreeRepository,
@@ -38,6 +42,8 @@ PLAN_APPROVED = "in-progress"
 
 ORCA = Path("/opt/orca/orca-ide")
 
+SPYHOP = Path("/opt/spyhop/bin/spyhop")
+
 
 class FakeTickets:
     def __init__(self) -> None:
@@ -48,6 +54,7 @@ class FakeTickets:
         self.parents: dict[str, str] = {}
         self.hidden: set[str] = set()
         self.summaries: dict[str, str] = {}
+        self.updated: dict[str, str] = {}
 
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]:
         self.calls.append(issue_key)
@@ -64,6 +71,7 @@ class FakeTickets:
                 "issuetype": {"name": "Bug"},
                 "status": {"name": "In Progress"},
                 "parent": {"key": parent} if parent else None,
+                "updated": self.updated.get(issue_key, "2026-11-01T09:00:00.000+0000"),
             },
         }
 
@@ -88,6 +96,31 @@ class FakeTickets:
         return [{"key": key} for key in keys if key in self.closed]
 
 
+def git(path: Path, *arguments: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=t@example.com",
+            *arguments,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def init_repository(path: Path) -> None:
+    git(path, "init", "--quiet", "--initial-branch", "master")
+    (path / "App.java").write_text("class App {}\n")
+    git(path, "add", "App.java")
+    git(path, "commit", "--quiet", "-m", "First")
+
+
 class FakeOrca:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -107,6 +140,12 @@ class FakeOrca:
         self.removed: list[str] = []
         self.remove_errors: list[Exception] = []
         self.cards: dict[str, str] = {}
+        self.terminals: list[dict[str, str]] = []
+        self.terminal_errors: list[Exception] = []
+        self.prompts: list[tuple[str, str]] = []
+        self.prompt_errors: list[Exception] = []
+        # New worktrees are real Git repositories with one commit on master.
+        self.real_git = False
 
     @property
     def executable(self) -> Path:
@@ -140,7 +179,11 @@ class FakeOrca:
             suffix += 1
             path = self.root / "wt" / f"{name}-{suffix}"
 
-        (path / ".git").mkdir(parents=True)
+        if self.real_git:
+            path.mkdir(parents=True)
+            init_repository(path)
+        else:
+            (path / ".git").mkdir(parents=True)
 
         worktree = OrcaWorktree(
             id=f"repo::{path}",
@@ -256,6 +299,20 @@ class FakeOrca:
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None:
         self.cards[orca_worktree_id] = comment
 
+    async def create_terminal(self, orca_worktree_id: str, title: str, command: str) -> str | None:
+        self.terminals.append({"worktree": orca_worktree_id, "title": title, "command": command})
+
+        if self.terminal_errors:
+            raise self.terminal_errors.pop(0)
+
+        return f"term_check_{len(self.terminals)}"
+
+    async def send_prompt(self, terminal: str, prompt: str) -> None:
+        self.prompts.append((terminal, prompt))
+
+        if self.prompt_errors:
+            raise self.prompt_errors.pop(0)
+
     def set_card(self, orca_worktree_id: str, status: str) -> None:
         self.worktrees[orca_worktree_id] = dataclasses.replace(
             self.worktrees[orca_worktree_id], workspace_status=status
@@ -329,6 +386,18 @@ class Harness:
             settings=self.config.cleanup,
             has_changes=lambda path: path in self.dirty,
         )
+        self.agents_dir = tmp_path / "agents"
+        self.results_dir = tmp_path / "results"
+        self.checkpoint_runs = CheckpointRunRepository(self.connection)
+        self.check_runner = CheckRunner(
+            checkpoint_runs=self.checkpoint_runs,
+            orca=self.orca,
+            planner=CheckpointPlanner(self.agents_dir),
+            tickets=self.tickets,
+            spyhop=SPYHOP,
+            results_dir=self.results_dir,
+            timeout=timedelta(hours=3),
+        )
         self.supervisor = AgentSupervisor(
             runs=self.runs,
             worktrees=self.worktrees,
@@ -338,6 +407,8 @@ class Harness:
             agents=self.config.agents,
             plan_review_status=PLAN_REVIEW,
             plan_approved_status=PLAN_APPROVED,
+            resolver=WorkflowResolver(self.config),
+            check_runner=self.check_runner,
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:

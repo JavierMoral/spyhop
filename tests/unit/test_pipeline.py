@@ -1,0 +1,366 @@
+"""Pipelines: checks phases run by Spyhop before and after the agent steps."""
+
+import json
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from spyhop.domain.enums import RunStatus, WaitingReason
+from spyhop.domain.exceptions import OrcaUncertainError
+from spyhop.domain.models import AutomationRun, CheckpointRun, Worktree
+from tests.factories import settings
+from tests.fakes import PLAN_APPROVED, SPYHOP, Harness, git
+from tests.unit.test_checkpoint_planner import checkpoint
+
+BUG = {
+    "name": "bug_fix",
+    "trigger_statuses": ["In Progress"],
+    "repository": "portal",
+    "prompt": "bug_fix.md",
+    "pipeline": "bug",
+}
+
+
+def harness_with(tmp_path: Path, *pipeline: Any) -> Harness:
+    config = settings(
+        tmp_path,
+        projects={"LPD": {"workflows": {"Bug": BUG}}},
+        pipelines={"bug": list(pipeline)},
+    )
+    harness = Harness(tmp_path, config)
+
+    harness.orca.real_git = True
+
+    checkpoint(harness.agents_dir, "ticket-info", mode="read", inputs=["ticket"])
+    checkpoint(harness.agents_dir, "regressions")
+    checkpoint(harness.agents_dir, "security", mode="read")
+    checkpoint(harness.agents_dir, "mutation", after=["regressions"])
+
+    return harness
+
+
+async def started(harness: Harness) -> tuple[AutomationRun, Worktree]:
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    worktree = harness.worktrees.find_current("LPD-1")
+
+    assert worktree is not None
+
+    return harness.run(run.id), worktree
+
+
+def running(harness: Harness, run: AutomationRun) -> list[CheckpointRun]:
+    run = harness.run(run.id)
+    rows = harness.checkpoint_runs.list_round(
+        run.id, run.phase, harness.checkpoint_runs.last_round(run.id, run.phase)
+    )
+
+    return [row for row in rows if row.status == "RUNNING"]
+
+
+def answer(
+    harness: Harness,
+    run: AutomationRun,
+    name: str,
+    verdict: str = "PASS",
+    findings: list[dict[str, Any]] | None = None,
+    **overrides: Any,
+) -> None:
+    """Writes the result file that `spyhop checkpoints exec` would write."""
+
+    [row] = [row for row in running(harness, run) if row.name == name]
+    data = {
+        "verdict": verdict,
+        "head": row.head,
+        "commands": [{"command": "./gradlew test", "result": "0"}],
+        "findings": findings or [],
+        **overrides,
+    }
+
+    row.output_file.parent.mkdir(parents=True, exist_ok=True)
+    row.output_file.write_text(
+        json.dumps({"exit_code": 0, "output": {"is_error": False, "structured_output": data}})
+    )
+
+
+HIGH = [{"severity": "high", "file": "App.java", "line": 1, "summary": "Broken."}]
+
+
+async def test_checks_before_the_plan_run_without_an_agent_and_then_start_it(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(
+        tmp_path, {"checks": ["ticket-info"]}, "plan", "plan_review", "implement"
+    )
+    run, worktree = await started(harness)
+
+    assert run.status is RunStatus.RUNNING
+    assert harness.orca.launches == []
+
+    await harness.supervisor.supervise()
+
+    [terminal] = harness.orca.terminals
+    [row] = running(harness, run)
+
+    assert terminal["title"] == "checkpoint ticket-info"
+    assert terminal["command"].startswith(f"{SPYHOP} checkpoints exec ticket-info --base ")
+    assert row.inputs == "ticket=2026-11-01T09:00:00.000+0000"
+
+    answer(harness, run, "ticket-info")
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).phase == 1
+    assert len(harness.orca.launches) == 1
+    assert harness.orca.launches[0]["model"] == "opus"
+    assert "escribe CLAUDE-PLAN.md" in harness.orca.launches[0]["prompt"]
+    assert "| ticket-info | PASS | ticket=2026-11-01T09:00:00.000+0000 | 1 |" in (
+        (worktree.path / "CLAUDE-CHECKPOINTS.md").read_text()
+    )
+    assert (
+        ", phase 0, round 1: PASS"
+        in (worktree.path / "CLAUDE-CHECKPOINT-ticket-info.md").read_text()
+    )
+    assert git(worktree.path, "status", "--porcelain") == ""
+
+
+async def test_a_failed_check_waits_and_runs_again_when_the_ticket_changes(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
+    run, worktree = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    waiting = harness.run(run.id)
+
+    assert waiting.status is RunStatus.WAITING_FOR_HUMAN
+    assert waiting.waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+    assert waiting.error_message is not None
+    assert waiting.error_message.startswith("checkpoints failed: ticket-info; see ")
+
+    await harness.supervisor.supervise()
+
+    assert len(harness.orca.terminals) == 1
+
+    harness.tickets.updated["LPD-1"] = "2026-11-02T09:00:00.000+0000"
+    await harness.supervisor.supervise()
+
+    assert len(harness.orca.terminals) == 2
+    assert harness.run(run.id).status is RunStatus.RUNNING
+    assert harness.checkpoint_runs.last_round(run.id, 0) == 2
+
+
+async def test_rerun_on_request_without_a_change_of_inputs(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
+    run, _ = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+    harness.runs.request_checks(run.id)
+    await harness.supervisor.supervise()
+
+    assert harness.checkpoint_runs.last_round(run.id, 0) == 2
+
+
+async def implemented(harness: Harness) -> tuple[AutomationRun, Worktree, str]:
+    """The implementation agent declared the end; the checks start."""
+
+    run, worktree = await started(harness)
+    session = harness.sessions.find_launched(run.id)
+
+    assert session is not None and session.pane_key is not None
+
+    git(worktree.path, "checkout", "--quiet", "-b", "LPD-1")
+    (worktree.path / "App.java").write_text("class App { int fixed; }\n")
+    git(worktree.path, "commit", "--quiet", "-am", "LPD-1 Fix")
+    (worktree.path / "CLAUDE-RESULT.md").write_text("done")
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
+
+    await harness.supervisor.supervise()
+
+    return harness.run(run.id), worktree, session.pane_key
+
+
+async def test_checks_after_the_implementation_run_in_stages_and_complete_the_run(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(
+        tmp_path, "implement", {"checks": ["regressions", "security", "mutation"], "on_fail": "fix"}
+    )
+    run, worktree, _ = await implemented(harness)
+
+    assert run.status is RunStatus.RUNNING
+    assert run.phase == 1
+    assert [row.name for row in running(harness, run)] == ["security"]
+
+    answer(harness, run, "security")
+    await harness.supervisor.supervise()
+
+    assert [row.name for row in running(harness, run)] == ["regressions"]
+
+    answer(harness, run, "regressions")
+    await harness.supervisor.supervise()
+    answer(harness, run, "mutation")
+    await harness.supervisor.supervise()
+
+    completed = harness.run(run.id)
+    table = (worktree.path / "CLAUDE-CHECKPOINTS.md").read_text()
+
+    assert completed.status is RunStatus.COMPLETED
+    assert table.index("| regressions | PASS") < table.index("| security | PASS")
+    assert table.index("| security | PASS") < table.index("| mutation | PASS")
+
+
+async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(
+        tmp_path, "implement", {"checks": ["regressions", "mutation"], "on_fail": "fix"}
+    )
+    run, worktree, pane = await implemented(harness)
+    session = harness.sessions.find_launched(run.id)
+
+    assert session is not None
+
+    answer(harness, run, "regressions", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    # mutation comes after regressions, so it is skipped in this round.
+
+    [(terminal, prompt)] = harness.orca.prompts
+
+    assert terminal == session.agent_handle
+    assert "han fallado: regressions." in prompt
+    assert harness.run(run.id).fix_requested_at is not None
+    assert "**high** `App.java:1`: Broken." in (
+        (worktree.path / "CLAUDE-CHECKPOINT-regressions.md").read_text()
+    )
+
+    # The old CLAUDE-RESULT.md does not end the fix.
+
+    harness.orca.set_agent(worktree.orca_worktree_id, "working", pane)
+    await harness.supervisor.supervise()
+
+    assert harness.checkpoint_runs.last_round(run.id, 1) == 1
+
+    git(worktree.path, "commit", "--quiet", "--allow-empty", "-m", "LPD-1 Fix the caller")
+    (worktree.path / "CLAUDE-RESULT.md").write_text("fixed")
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).fix_requested_at is None
+    assert harness.checkpoint_runs.last_round(run.id, 1) == 2
+    assert [row.name for row in running(harness, run)] == ["regressions"]
+
+
+async def test_the_last_round_does_not_fix(tmp_path: Path) -> None:
+    harness = harness_with(
+        tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix", "rounds": 1}
+    )
+    run, _, _ = await implemented(harness)
+
+    answer(harness, run, "regressions", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    waiting = harness.run(run.id)
+
+    assert harness.orca.prompts == []
+    assert waiting.waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+    assert waiting.error_message is not None
+    assert "after 1 rounds" in waiting.error_message
+
+
+@pytest.mark.parametrize(
+    ("overrides", "validation"),
+    [
+        ({"head": "0" * 40}, "is not the HEAD of the stage"),
+        ({"commands": []}, "a PASS needs commands as evidence"),
+        (
+            {"findings": [{"severity": "medium", "summary": "Risk."}]},
+            "a PASS cannot have a high or medium finding",
+        ),
+    ],
+)
+async def test_a_result_that_breaks_the_contract_is_a_fail(
+    tmp_path: Path, overrides: dict[str, Any], validation: str
+) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"]})
+    run, worktree, _ = await implemented(harness)
+    [row] = running(harness, run)
+
+    answer(harness, run, "regressions", **overrides)
+    await harness.supervisor.supervise()
+
+    finished = harness.checkpoint_runs.get(row.id)
+
+    assert finished is not None and finished.verdict == "FAIL"
+    assert finished.detail is not None and validation in finished.detail
+    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+
+
+async def test_an_exclusive_check_that_leaves_changes_fails_and_blocks_the_next_stage(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions", "mutation"]})
+    run, worktree, _ = await implemented(harness)
+    [row] = running(harness, run)
+
+    (worktree.path / "App.java").write_text("class App {}\n")
+    answer(harness, run, "regressions")
+    await harness.supervisor.supervise()
+
+    finished = harness.checkpoint_runs.get(row.id)
+
+    assert finished is not None and finished.verdict == "FAIL"
+    assert finished.detail is not None and "left uncommitted changes" in finished.detail
+
+
+async def test_a_dirty_worktree_blocks_the_start_of_a_stage(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
+    run, worktree = await started(harness)
+
+    (worktree.path / "Notes.java").write_text("class Notes {}\n")
+    await harness.supervisor.supervise()
+
+    waiting = harness.run(run.id)
+
+    assert harness.orca.terminals == []
+    assert waiting.waiting_reason is WaitingReason.UNKNOWN_STATE
+    assert waiting.error_message is not None
+    assert "checkpoints need a clean worktree" in waiting.error_message
+
+
+async def test_a_lost_terminal_answer_opens_the_terminal_again(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
+    run, _ = await started(harness)
+    harness.orca.terminal_errors.append(OrcaUncertainError("timed out"))
+
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    commands = [terminal["command"] for terminal in harness.orca.terminals]
+
+    assert len(commands) == 2
+    assert commands[0] == commands[1]
+    assert len(running(harness, run)) == 1
+
+
+async def test_a_check_without_a_result_in_time_is_a_fail(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
+    run, _ = await started(harness)
+
+    await harness.supervisor.supervise()
+
+    late = running(harness, run)[0].started_at + timedelta(hours=4)
+    harness.check_runner._now = lambda: late
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED

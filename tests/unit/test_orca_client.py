@@ -329,3 +329,47 @@ async def test_mark_card_comments_and_marks_unread() -> None:
         "--unread",
         "--json",
     ]
+
+
+async def test_create_terminal_runs_the_command_in_the_worktree() -> None:
+    runner = FakeRunner(json.dumps({"ok": True, "result": {"terminal": {"handle": "term_9"}}}))
+
+    handle = await client(runner).create_terminal("repo::/wt/LPD-1", "checkpoint x", "spyhop x")
+
+    assert handle == "term_9"
+    assert runner.calls[0][0] == [
+        str(ORCA),
+        "terminal",
+        "create",
+        "--worktree",
+        "id:repo::/wt/LPD-1",
+        "--title",
+        "checkpoint x",
+        "--command",
+        "spyhop x",
+        "--json",
+    ]
+
+
+async def test_create_terminal_without_a_handle_is_not_an_error() -> None:
+    runner = FakeRunner(json.dumps({"ok": True, "result": {}}))
+
+    assert await client(runner).create_terminal("repo::/wt", "t", "c") is None
+
+
+async def test_send_prompt_submits_the_text_to_the_terminal() -> None:
+    runner = FakeRunner(json.dumps({"ok": True, "result": {}}))
+
+    await client(runner).send_prompt("term_1", "Fix it.")
+
+    assert runner.calls[0][0] == [
+        str(ORCA),
+        "terminal",
+        "send",
+        "--terminal",
+        "term_1",
+        "--text",
+        "Fix it.",
+        "--enter",
+        "--json",
+    ]
