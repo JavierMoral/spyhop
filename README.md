@@ -427,7 +427,7 @@ Before launching, Spyhop writes three things into the worktree:
 | --- | --- |
 | `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; how to check the plan against similar cases in the code, tests included, so it follows their patterns instead of creating new ones; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
 | `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. |
-| `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md` and the permission profile, so they never end up in a commit. |
+| `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md`, the permission profile, `CLAUDE-CHECKPOINTS.md` and `CLAUDE-CHECKPOINT-*.md`, so they never end up in a commit. |
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
 `CLAUDE-PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
@@ -544,6 +544,36 @@ directory, so run the command inside the worktree. It stops with an error for a
 missing file, a `name` that is not `checkpoint-<name>`, an unknown `mode` or a
 cycle in `after`.
 
+`/checkpoints` writes the last verdict of each checkpoint in
+`CLAUDE-CHECKPOINTS.md` at the root of the worktree, and one report per
+checkpoint in `CLAUDE-CHECKPOINT-<name>.md`. Spyhop reads the first table of
+`CLAUDE-CHECKPOINTS.md`:
+
+```markdown
+| Checkpoint | Verdict | HEAD | Rounds | Report |
+| --- | --- | --- | --- | --- |
+| regressions | PASS | 3265e17c3f0a9d2b4e8f1a6c7d5b9e0f2a4c6e8d | 1 | CLAUDE-CHECKPOINT-regressions.md |
+```
+
+- Spyhop finds the columns `Checkpoint`, `Verdict` and `HEAD` by their names.
+  Other columns are for people.
+- `Verdict` is `PASS` or `FAIL`. `HEAD` is the full SHA of the commit that the
+  verdict is for.
+- Spyhop ignores the rows of checkpoints that the workflow does not have.
+
+`spyhop checkpoints check` compares the table with the checkpoints of the
+workflow and with the current HEAD. It prints the result as JSON and exits with
+1 when a checkpoint has one of these problems:
+
+| Reason | Problem |
+| --- | --- |
+| `checkpoints_missing` | The checkpoint has no verdict, or the file or its table is not valid. |
+| `checkpoints_failed` | The verdict is `FAIL`. |
+| `checkpoints_stale` | The verdict is `PASS`, but for a HEAD that is not the current one. |
+
+When there are problems of more than one type, the reason of the result is the
+first one in this table.
+
 ## Running as a service
 
 ```sh
@@ -586,6 +616,7 @@ spyhop service uninstall
 | `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
 | `spyhop checkpoints plan [NAME...]` | Print as JSON the stages of the checkpoints of the current worktree's run. `NAME...` selects only those checkpoints, `--from NAME` that checkpoint and the ones after it, `--workflow NAME` a workflow outside a run. See [Checkpoints](#checkpoints). |
+| `spyhop checkpoints check` | Print as JSON whether all the checkpoints of the current worktree's run pass on its HEAD; exits with 1 when not. `--workflow NAME` checks the current repository against a workflow outside a run. See [Checkpoints](#checkpoints). |
 | `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca, its board columns and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
 | `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
