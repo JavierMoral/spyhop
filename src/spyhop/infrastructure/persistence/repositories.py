@@ -8,6 +8,7 @@ from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, Worktre
 from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
+    CheckpointRun,
     IssueEntry,
     JiraIssue,
     OrcaWorktree,
@@ -222,6 +223,32 @@ class RunRepository:
 
         return [_to_run(row) for row in rows]
 
+    def set_phase(self, run_id: str, phase: int) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET phase = ?, fix_requested_at = NULL WHERE id = ?",
+            (phase, run_id),
+        )
+
+    def mark_fix_requested(self, run_id: str) -> None:
+        """Back to RUNNING while the agent fixes the findings."""
+
+        self._connection.execute(
+            "UPDATE automation_runs SET fix_requested_at = ? WHERE id = ?",
+            (_to_text(utc_now()), run_id),
+        )
+        self.mark_resumed(run_id)
+
+    def clear_fix_request(self, run_id: str) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET fix_requested_at = NULL WHERE id = ?", (run_id,)
+        )
+
+    def request_checks(self, run_id: str) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET checks_requested_at = ? WHERE id = ?",
+            (_to_text(utc_now()), run_id),
+        )
+
     def mark_failed(self, run_id: str, error_message: str) -> None:
         self._update(
             run_id,
@@ -334,6 +361,104 @@ class WorktreeRepository:
         self._connection.execute(
             "UPDATE worktrees SET status = ?, cleanup_error = ? WHERE id = ?",
             (status, error, worktree_id),
+        )
+
+
+class CheckpointRunRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def create(
+        self,
+        run_id: str,
+        phase: int,
+        round_number: int,
+        name: str,
+        inputs: str,
+        base: str,
+        head: str,
+        results_dir: Path,
+    ) -> CheckpointRun:
+        """Stored before the terminal starts, so a lost answer from Orca does
+        not start the checkpoint twice. The result goes to a file named after
+        the row in ``results_dir``."""
+
+        checkpoint_run_id = str(uuid.uuid4())
+        output_file = results_dir / f"{checkpoint_run_id}.json"
+
+        self._connection.execute(
+            """
+            INSERT INTO checkpoint_runs (
+                id, run_id, phase, round, name, inputs, base, head, output_file,
+                status, started_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)
+            """,
+            (
+                checkpoint_run_id,
+                run_id,
+                phase,
+                round_number,
+                name,
+                inputs,
+                base,
+                head,
+                str(output_file),
+                _to_text(utc_now()),
+            ),
+        )
+
+        checkpoint_run = self.get(checkpoint_run_id)
+
+        assert checkpoint_run is not None
+
+        return checkpoint_run
+
+    def get(self, checkpoint_run_id: str) -> CheckpointRun | None:
+        row = self._connection.execute(
+            "SELECT * FROM checkpoint_runs WHERE id = ?", (checkpoint_run_id,)
+        ).fetchone()
+
+        return _to_checkpoint_run(row) if row else None
+
+    def last_round(self, run_id: str, phase: int) -> int:
+        """The number of the last round of the phase, or 0 before the first."""
+
+        row = self._connection.execute(
+            "SELECT MAX(round) FROM checkpoint_runs WHERE run_id = ? AND phase = ?",
+            (run_id, phase),
+        ).fetchone()
+
+        return int(row[0] or 0)
+
+    def list_round(self, run_id: str, phase: int, round_number: int) -> list[CheckpointRun]:
+        rows = self._connection.execute(
+            "SELECT * FROM checkpoint_runs WHERE run_id = ? AND phase = ? AND round = ? "
+            "ORDER BY rowid",
+            (run_id, phase, round_number),
+        )
+
+        return [_to_checkpoint_run(row) for row in rows]
+
+    def latest(self, run_id: str) -> dict[str, CheckpointRun]:
+        """The last finished run of each checkpoint of the run."""
+
+        rows = self._connection.execute(
+            "SELECT * FROM checkpoint_runs WHERE run_id = ? AND status = 'DONE' ORDER BY rowid",
+            (run_id,),
+        )
+
+        return {row["name"]: _to_checkpoint_run(row) for row in rows}
+
+    def set_terminal(self, checkpoint_run_id: str, terminal: str) -> None:
+        self._connection.execute(
+            "UPDATE checkpoint_runs SET terminal = ? WHERE id = ?", (terminal, checkpoint_run_id)
+        )
+
+    def finish(self, checkpoint_run_id: str, verdict: str, detail: str | None) -> None:
+        self._connection.execute(
+            "UPDATE checkpoint_runs SET status = 'DONE', verdict = ?, detail = ?, finished_at = ? "
+            "WHERE id = ?",
+            (verdict, detail, _to_text(utc_now()), checkpoint_run_id),
         )
 
 
@@ -504,6 +629,29 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         error_message=row["error_message"],
         retry_of=row["retry_of"],
         status_changed_at=_to_datetime(row["status_changed_at"]),
+        phase=row["phase"],
+        fix_requested_at=_to_datetime(row["fix_requested_at"]),
+        checks_requested_at=_to_datetime(row["checks_requested_at"]),
+    )
+
+
+def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:
+    return CheckpointRun(
+        id=row["id"],
+        run_id=row["run_id"],
+        phase=row["phase"],
+        round=row["round"],
+        name=row["name"],
+        inputs=row["inputs"],
+        base=row["base"],
+        head=row["head"],
+        output_file=Path(row["output_file"]),
+        terminal=row["terminal"],
+        status=row["status"],
+        verdict=row["verdict"],
+        detail=row["detail"],
+        started_at=datetime.fromisoformat(row["started_at"]),
+        finished_at=_to_datetime(row["finished_at"]),
     )
 
 

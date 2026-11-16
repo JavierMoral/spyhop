@@ -253,6 +253,39 @@ class OrcaClient:
             preserved_branch=(result.get("preservedBranch") or {}).get("branchName")
         )
 
+    async def create_terminal(self, orca_worktree_id: str, title: str, command: str) -> str | None:
+        """Opens a terminal tab in the worktree that runs ``command``.
+        Returns its handle when Orca gives one. Orca has no retry id for
+        this command, so the command itself must be safe to start twice."""
+
+        result = await self._call(
+            [
+                "terminal",
+                "create",
+                "--worktree",
+                f"id:{orca_worktree_id}",
+                "--title",
+                title,
+                "--command",
+                command,
+            ],
+            self._operation_timeout,
+            uncertain=True,
+        )
+        terminal = result.get("terminal")
+        handle = (terminal if isinstance(terminal, dict) else result).get("handle")
+
+        return handle if isinstance(handle, str) else None
+
+    async def send_prompt(self, terminal: str, prompt: str) -> None:
+        """Types ``prompt`` into the agent of the terminal and submits it."""
+
+        await self._call(
+            ["terminal", "send", "--terminal", terminal, "--text", prompt, "--enter"],
+            self._operation_timeout,
+            uncertain=True,
+        )
+
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None:
         """Comments on the worktree's card and marks it unread."""
 

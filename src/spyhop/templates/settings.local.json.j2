@@ -2,12 +2,9 @@
     Orca starts Claude with --dangerously-skip-permissions, so "allow" only
     matters if that changes; "deny" is enforced either way. -#}
 {%- set allow = [] -%}
-{#- git rev-parse, git merge-base, git restore and spyhop checkpoints are for
-    /checkpoints. -#}
 {%- for command in [
     "git status", "git diff", "git log", "git show", "git add", "git commit",
-    "git rev-parse", "git merge-base", "git restore --source=",
-    "spyhop checkpoints plan", "spyhop checkpoints check"] -%}
+    "spyhop checkpoints check"] -%}
 {%- do allow.append("Bash(" ~ command ~ "*)") -%}
 {%- endfor -%}
 {%- for command in build_commands -%}

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 
@@ -35,6 +36,66 @@ class JiraIssue:
     status_changes: tuple[StatusChange, ...] = ()
 
 
+# The agent steps of a pipeline. Spyhop knows what each one does.
+STEPS = ("plan", "plan_review", "implement")
+
+
+@dataclass(frozen=True)
+class ChecksPhase:
+    """Checkpoints that Spyhop runs at one point of the pipeline. When one
+    fails, the run waits for a person (``human``), or the implementation
+    agent fixes the findings, at most ``rounds`` times (``fix``)."""
+
+    checkpoints: tuple[str, ...]
+    on_fail: Literal["human", "fix"] = "human"
+    rounds: int = 3
+
+
+Phase = ChecksPhase | str
+
+
+def validate_pipeline(phases: tuple[Phase, ...]) -> None:
+    """Raises ValueError when the pipeline is not one that Spyhop can run."""
+
+    steps = [phase for phase in phases if isinstance(phase, str)]
+
+    for step in steps:
+        if step not in STEPS:
+            raise ValueError(f"unknown step {step!r}; use checks or one of {', '.join(STEPS)}")
+
+    for step in STEPS:
+        if steps.count(step) > 1:
+            raise ValueError(f"{step} is in the pipeline more than once")
+
+    if "implement" not in steps:
+        raise ValueError("the pipeline has no implement step")
+
+    if ("plan" in steps) != ("plan_review" in steps):
+        raise ValueError("plan and plan_review go together")
+
+    if [step for step in STEPS if step in steps] != steps:
+        raise ValueError("the steps must be in the order plan, plan_review, implement")
+
+    if "plan" in steps and phases.index("plan_review") != phases.index("plan") + 1:
+        raise ValueError("checks between plan and plan_review are not supported")
+
+    implement = phases.index("implement")
+    names: list[str] = []
+
+    for index, phase in enumerate(phases):
+        if isinstance(phase, str):
+            continue
+
+        if phase.on_fail == "fix" and index < implement:
+            raise ValueError("on_fail: fix needs checks after the implement step")
+
+        names.extend(phase.checkpoints)
+
+    for name in names:
+        if names.count(name) > 1:
+            raise ValueError(f"checkpoint {name!r} is in the pipeline more than once")
+
+
 @dataclass(frozen=True)
 class ResolvedWorkflow:
     name: str
@@ -48,7 +109,48 @@ class ResolvedWorkflow:
     build_commands: tuple[str, ...] = ()
     worktree_script: Path | None = None
     worktree_script_timeout: float = 600
-    checkpoints: tuple[str, ...] = ()
+    # Empty: the default pipeline, which plan_review gives.
+    pipeline: tuple[Phase, ...] = ()
+
+    @property
+    def phases(self) -> tuple[Phase, ...]:
+        if self.pipeline:
+            return self.pipeline
+
+        return ("plan", "plan_review", "implement") if self.plan_review else ("implement",)
+
+    @property
+    def checkpoints(self) -> tuple[str, ...]:
+        """All the checkpoints of the pipeline, in its order."""
+
+        return tuple(
+            name
+            for phase in self.phases
+            if isinstance(phase, ChecksPhase)
+            for name in phase.checkpoints
+        )
+
+    def checkpoints_around_implement(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """The checkpoints before the implement step, and after it."""
+
+        implement = self.phases.index("implement")
+        before = self.phases[:implement]
+        after = self.phases[implement + 1 :]
+
+        return (
+            tuple(
+                name
+                for phase in before
+                if isinstance(phase, ChecksPhase)
+                for name in phase.checkpoints
+            ),
+            tuple(
+                name
+                for phase in after
+                if isinstance(phase, ChecksPhase)
+                for name in phase.checkpoints
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -79,6 +181,13 @@ class AutomationRun:
     error_message: str | None
     retry_of: str | None
     status_changed_at: datetime | None = None
+    # The index of the pipeline phase that runs now.
+    phase: int = 0
+    # When Spyhop last asked the agent to fix failed checkpoints. Set while
+    # the agent fixes them.
+    fix_requested_at: datetime | None = None
+    # When a person last asked to run the checkpoints of the phase again.
+    checks_requested_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +240,28 @@ class AgentSession:
     started_at: datetime | None
     finished_at: datetime | None
     pane_key: str | None = None
+
+
+@dataclass(frozen=True)
+class CheckpointRun:
+    """One checkpoint that Spyhop started in an Orca terminal. The terminal
+    writes the result of the agent to ``output_file``."""
+
+    id: str
+    run_id: str
+    phase: int
+    round: int
+    name: str
+    inputs: str  # the fingerprint that the verdict is for
+    base: str
+    head: str
+    output_file: Path
+    terminal: str | None
+    status: Literal["RUNNING", "DONE"]
+    verdict: Literal["PASS", "FAIL"] | None
+    detail: str | None
+    started_at: datetime
+    finished_at: datetime | None
 
 
 @dataclass(frozen=True)

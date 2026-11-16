@@ -7,6 +7,7 @@ from the package.
 
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -142,6 +143,17 @@ class ContextBuilder:
             issue_key=issue_key,
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,
+            plan_approved_status=self._plan_approved_status,
+        )
+
+        return oneline(text)
+
+    def fix_prompt(self, issue_key: str, failed: Sequence[str]) -> str:
+        text = self._render(
+            "fix.md",
+            issue_key=issue_key,
+            failed=list(failed),
+            orca=str(self._orca_executable),
             plan_approved_status=self._plan_approved_status,
         )
 

@@ -125,6 +125,17 @@ class CheckpointPlanner:
         if not isinstance(after, list) or not all(isinstance(before, str) for before in after):
             raise ConfigurationError(f"{agent_file}: after must be a list of checkpoint names")
 
+        tools = frontmatter.get("tools")
+        tool_names = (
+            [tool.strip() for tool in tools.split(",")] if isinstance(tools, str) else tools
+        )
+
+        if isinstance(tool_names, list) and "StructuredOutput" not in tool_names:
+            # claude -p --json-schema answers through this tool. Without it,
+            # the result has no JSON object.
+
+            raise ConfigurationError(f"{agent_file}: tools must include StructuredOutput")
+
         inputs = frontmatter.get("inputs", ["head"])
 
         if (

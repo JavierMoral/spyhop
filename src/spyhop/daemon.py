@@ -8,6 +8,8 @@ from contextlib import AsyncExitStack, suppress
 from datetime import timedelta
 from pathlib import Path
 
+from spyhop.application.checkpoint_planner import CheckpointPlanner
+from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.context_builder import ContextBuilder, template_environment
 from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.launcher import AgentLauncher
@@ -17,7 +19,13 @@ from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.transition_detector import TransitionDetector
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import credentials_from_environment
-from spyhop.config.paths import database_file, state_dir, user_templates_dir
+from spyhop.config.paths import (
+    claude_agents_dir,
+    database_file,
+    spyhop_executable,
+    state_dir,
+    user_templates_dir,
+)
 from spyhop.config.settings import Settings
 from spyhop.domain.exceptions import (
     JiraAuthenticationError,
@@ -30,6 +38,7 @@ from spyhop.infrastructure.orca.client import OrcaClient
 from spyhop.infrastructure.orca.discovery import find_orca_executable
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
+    CheckpointRunRepository,
     ObservationRepository,
     PollerStateRepository,
     RunRepository,
@@ -172,6 +181,16 @@ def _agents(
         agents=settings.agents,
         plan_review_status=settings.orca.plan_review_status,
         plan_approved_status=settings.orca.plan_approved_status,
+        resolver=resolver,
+        check_runner=CheckRunner(
+            checkpoint_runs=CheckpointRunRepository(connection),
+            orca=orca,
+            planner=CheckpointPlanner(claude_agents_dir()),
+            tickets=jira,
+            spyhop=spyhop_executable(),
+            results_dir=state_dir() / "checkpoints",
+            timeout=timedelta(minutes=settings.agents.checkpoint_timeout_minutes),
+        ),
     )
     launcher = AgentLauncher(
         runs=runs,

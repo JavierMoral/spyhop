@@ -49,6 +49,7 @@ class WorkflowResolver:
 
     def _resolved(self, workflow: WorkflowSettings) -> ResolvedWorkflow:
         repository = self._settings.repositories[workflow.repository]
+        pipeline = self._settings.pipeline(workflow.pipeline) if workflow.pipeline else ()
 
         return ResolvedWorkflow(
             name=workflow.name,
@@ -57,10 +58,10 @@ class WorkflowResolver:
             repository_path=repository.path,
             base_branch=workflow.base_branch or repository.default_base_branch,
             prompt=workflow.prompt,
-            plan_review=workflow.plan_review,
+            plan_review="plan_review" in pipeline if pipeline else workflow.plan_review,
             setup=repository.setup,
             build_commands=tuple(repository.build_commands),
             worktree_script=repository.worktree_script,
             worktree_script_timeout=repository.worktree_script_timeout,
-            checkpoints=tuple(workflow.checkpoints),
+            pipeline=pipeline,
         )

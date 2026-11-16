@@ -9,7 +9,14 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -18,6 +25,7 @@ from pydantic_settings import (
 
 from spyhop.config.paths import default_env_file, expand_path
 from spyhop.domain.exceptions import ConfigurationError
+from spyhop.domain.models import ChecksPhase, Phase, validate_pipeline
 
 
 def _expand(value: Any) -> Any:
@@ -63,16 +71,46 @@ class RepositorySettings(BaseModel):
     worktree_cleanup_script_timeout: float = Field(default=600, gt=0)
 
 
+class ChecksPhaseSettings(BaseModel):
+    """A pipeline phase that runs checkpoints. Each checkpoint is a Claude
+    Code subagent in checkpoint-<name>.md."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    checks: list[str] = Field(min_length=1)
+    on_fail: Literal["human", "fix"] = "human"
+    rounds: int = Field(default=3, ge=1)
+
+
+PipelineItem = Literal["plan", "plan_review", "implement"] | ChecksPhaseSettings
+
+
 class WorkflowSettings(BaseModel):
     name: str
     trigger_statuses: list[str] = Field(min_length=1)
     repository: str
     base_branch: str | None = None
     prompt: str
+    # Without a pipeline: plan, plan_review and implement, or only
+    # implement. With a pipeline, the pipeline decides.
     plan_review: bool = True
-    # Names of the checkpoints that /checkpoints runs after the implementation.
-    # Each one is a Claude Code subagent in checkpoint-<name>.md.
-    checkpoints: list[str] = Field(default_factory=list)
+    # The name of a pipeline in the top-level pipelines.
+    pipeline: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_checkpoints_key(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "checkpoints" in data:
+            raise ValueError("checkpoints is replaced by pipeline; see pipelines in the README")
+
+        return data
+
+    @model_validator(mode="after")
+    def _plan_review_or_pipeline(self) -> "WorkflowSettings":
+        if self.pipeline is not None and "plan_review" in self.model_fields_set:
+            raise ValueError("plan_review comes from the pipeline; remove it")
+
+        return self
 
 
 class ProjectSettings(BaseModel):
@@ -114,6 +152,8 @@ class AgentSettings(BaseModel):
     # A command, usually a slash command, the agent runs over its commits once
     # the implementation is done, before writing CLAUDE-RESULT.md.
     review_command: str | None = None
+    # A checkpoint that runs longer than this counts as a FAIL.
+    checkpoint_timeout_minutes: float = Field(default=180, gt=0)
 
     @field_validator("review_command")
     @classmethod
@@ -141,6 +181,7 @@ class Settings(BaseSettings):
     jira: JiraSettings
     repositories: dict[str, RepositorySettings] = Field(default_factory=dict)
     projects: dict[str, ProjectSettings] = Field(default_factory=dict)
+    pipelines: dict[str, list[PipelineItem]] = Field(default_factory=dict)
     orca: OrcaSettings = Field(default_factory=OrcaSettings)
     agents: AgentSettings = Field(default_factory=AgentSettings)
     cleanup: CleanupSettings = Field(default_factory=CleanupSettings)
@@ -169,7 +210,31 @@ class Settings(BaseSettings):
                         f"refers to unknown repository alias {workflow.repository!r}"
                     )
 
+                if workflow.pipeline is not None and workflow.pipeline not in self.pipelines:
+                    raise ValueError(
+                        f"projects.{project_key}.workflows.{issue_type}.pipeline "
+                        f"refers to unknown pipeline {workflow.pipeline!r}"
+                    )
+
         return self
+
+    @model_validator(mode="after")
+    def _check_pipelines(self) -> "Settings":
+        for name in self.pipelines:
+            try:
+                validate_pipeline(self.pipeline(name))
+            except ValueError as error:
+                raise ValueError(f"pipelines.{name}: {error}") from None
+
+        return self
+
+    def pipeline(self, name: str) -> tuple[Phase, ...]:
+        return tuple(
+            item
+            if isinstance(item, str)
+            else ChecksPhase(tuple(item.checks), item.on_fail, item.rounds)
+            for item in self.pipelines[name]
+        )
 
     def enabled_projects(self) -> dict[str, ProjectSettings]:
         return {key: project for key, project in self.projects.items() if project.enabled}

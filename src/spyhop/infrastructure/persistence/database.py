@@ -113,6 +113,37 @@ _MIGRATIONS = [
 
     ALTER TABLE agent_sessions ADD COLUMN pane_key TEXT;
     """,
+    # Pipelines: the phase of the run's pipeline that runs now, when Spyhop
+    # last asked the agent to fix the findings of failed checkpoints, when a
+    # person last asked to run the checkpoints again, and each checkpoint
+    # that Spyhop started.
+    """
+    ALTER TABLE automation_runs ADD COLUMN phase INTEGER NOT NULL DEFAULT 0;
+
+    ALTER TABLE automation_runs ADD COLUMN fix_requested_at TEXT;
+
+    ALTER TABLE automation_runs ADD COLUMN checks_requested_at TEXT;
+
+    CREATE TABLE checkpoint_runs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES automation_runs(id),
+        phase INTEGER NOT NULL,
+        round INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        inputs TEXT NOT NULL,
+        base TEXT NOT NULL,
+        head TEXT NOT NULL,
+        output_file TEXT NOT NULL,
+        terminal TEXT,
+        status TEXT NOT NULL,
+        verdict TEXT,
+        detail TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+    );
+
+    CREATE INDEX idx_checkpoint_runs_run ON checkpoint_runs(run_id, phase, round);
+    """,
 ]
 
 

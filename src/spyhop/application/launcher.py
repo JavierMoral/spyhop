@@ -36,6 +36,7 @@ from spyhop.domain.exceptions import (
 from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
+    ChecksPhase,
     OrcaWorktree,
     ResolvedWorkflow,
     TicketDetails,
@@ -268,6 +269,20 @@ class AgentLauncher:
     async def _launch(self, run: AutomationRun, prepared: _Prepared) -> bool:
         # The implementation of a plan comes later, from a new agent on
         # agents.model (see AgentSupervisor).
+
+        if isinstance(prepared.workflow.phases[0], ChecksPhase):
+            # The supervisor runs the checks, and then starts the agent.
+
+            self._runs.mark_running(run.id)
+
+            _log.info(
+                "%s: checkpoints start in %s (branch %s)",
+                run.issue_key,
+                prepared.worktree.path,
+                prepared.worktree.branch_name,
+            )
+
+            return True
 
         model = self._agents.plan_model if prepared.workflow.plan_review else self._agents.model
         session = self._sessions.find_launching(run.id)

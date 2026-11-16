@@ -43,9 +43,8 @@ projects:
                                   # the bundled ones; copy one there to customize it
                                   # (`spyhop doctor` lists the directory)
         plan_review: true
-        # checkpoints: [regressions, mutation]   # subagents in
-                                  # ~/.claude/agents/checkpoint-<name>.md, run
-                                  # after the implementation; see the README
+        # pipeline: bug           # instead of plan_review: the phases in
+                                  # pipelines below; see the README
       Story:
         name: feature
         trigger_statuses: ["In Development"]
@@ -58,6 +57,16 @@ projects:
         repository: main
         prompt: technical_task.md
         plan_review: false
+
+# pipelines:                      # checkpoints are subagents in
+#   bug:                          # ~/.claude/agents/checkpoint-<name>.md
+#     - checks: [ticket-info]
+#     - plan
+#     - plan_review
+#     - implement
+#     - checks: [regressions, mutation, security]
+#       on_fail: fix              # the agent fixes the findings; or human
+#       rounds: 3
 
 orca:
   # executable: ~/.local/bin/orca-ide   # autodetected when omitted

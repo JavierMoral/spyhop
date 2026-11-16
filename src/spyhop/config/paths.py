@@ -1,6 +1,8 @@
 """Machine-specific locations, resolved from XDG so nothing depends on one host."""
 
 import os
+import shutil
+import sys
 from pathlib import Path
 
 from platformdirs import user_config_path, user_state_path
@@ -64,3 +66,15 @@ def systemd_user_unit_file() -> Path:
 
 def expand_path(value: str | Path) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(str(value))))
+
+
+def spyhop_executable() -> Path:
+    """The installed spyhop command, for the service and the checkpoint
+    terminals."""
+
+    found = shutil.which("spyhop")
+
+    if found:
+        return Path(found).resolve()
+
+    return Path(sys.argv[0]).resolve()

@@ -1,9 +1,9 @@
 import asyncio
+import fcntl
 import json
 import logging
 import os
-import shutil
-import sys
+import subprocess
 from importlib.resources import files
 from pathlib import Path
 from typing import Annotated
@@ -11,9 +11,10 @@ from typing import Annotated
 import typer
 
 from spyhop import __version__
+from spyhop.application.checkpoint_inputs import input_values
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner
+from spyhop.application.checkpoint_runner import RESULT_SCHEMA, checkpoint_prompt
 from spyhop.application.checkpoint_verdicts import (
-    INPUT_VALUE,
     VERDICTS_FILE,
     check_verdicts,
     fingerprint,
@@ -30,6 +31,7 @@ from spyhop.config.paths import (
     claude_agents_dir,
     database_file,
     default_config_file,
+    spyhop_executable,
     systemd_user_unit_file,
 )
 from spyhop.config.settings import Settings, load_settings
@@ -37,8 +39,8 @@ from spyhop.daemon import orca_client, run_daemon
 from spyhop.doctor import Level, run_checks
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import ConfigurationError, SpyhopError
-from spyhop.domain.models import ResolvedWorkflow
-from spyhop.infrastructure.git import head, merge_base, top_level
+from spyhop.domain.models import ChecksPhase, ResolvedWorkflow
+from spyhop.infrastructure.git import top_level
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
@@ -304,10 +306,6 @@ def version() -> None:
 
 @checkpoints_app.command("plan")
 def checkpoints_plan(
-    names: Annotated[list[str] | None, typer.Argument(help="Only these checkpoints")] = None,
-    start: Annotated[
-        str | None, typer.Option("--from", help="This checkpoint and the ones after it")
-    ] = None,
     workflow: Annotated[
         str | None,
         typer.Option(help="Workflow name, instead of the run of the current worktree"),
@@ -317,58 +315,154 @@ def checkpoints_plan(
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
     ] = None,
 ) -> None:
-    """Print as JSON the stages in which /checkpoints runs the checkpoints.
+    """Print as JSON the checks phases of the pipeline and their stages.
 
     Without --workflow, the workflow is the one of the run whose worktree holds
     the current directory. A stage holds read checkpoints that run in
-    parallel, or one exclusive checkpoint. Each checkpoint has the
-    fingerprint of its inputs, which /checkpoints records with its verdict."""
+    parallel, or one exclusive checkpoint. Each checkpoint has the current
+    fingerprint of its inputs, or null when it reads the ticket and there is
+    no run."""
 
     settings = _load(config)
 
     try:
         resolved, root, issue_key = _workflow(settings, workflow, config, dry_run)
         planner = CheckpointPlanner(claude_agents_dir())
-        stages = planner.plan(resolved.checkpoints, names or (), start)
-        inputs = {name: planner.read(name).inputs for stage in stages for name in stage.checkpoints}
-        values = (
-            _input_values(
-                settings,
-                resolved,
-                root,
-                issue_key,
-                {"base", "head"}.union(*inputs.values()),
-            )
-            if stages
-            else {}
-        )
+        phases = [
+            (index, phase, planner.plan(phase.checkpoints))
+            for index, phase in enumerate(resolved.phases)
+            if isinstance(phase, ChecksPhase)
+        ]
+        inputs = {name: planner.read(name).inputs for name in resolved.checkpoints}
+        wanted = {"base", "head"}.union(*inputs.values())
+
+        if issue_key is None:
+            wanted.discard("ticket")
+
+        values = _input_values(settings, resolved, root, issue_key, wanted) if phases else {}
     except SpyhopError as error:
         typer.echo(str(error), err=True)
 
         raise typer.Exit(1) from None
+
+    def checkpoint_inputs(name: str) -> str | None:
+        if not set(inputs[name]) <= values.keys():
+            return None
+
+        return fingerprint({key: values[key] for key in inputs[name]})
 
     plan = {
         "workflow": resolved.name,
         "base_branch": resolved.base_branch,
         "base": values.get("base"),
         "head": values.get("head"),
-        "stages": [
+        "phases": [
             {
-                "mode": stage.mode,
-                "checkpoints": [
+                "phase": index,
+                "on_fail": phase.on_fail,
+                "rounds": phase.rounds,
+                "stages": [
                     {
-                        "name": name,
-                        "agent": f"{AGENT_PREFIX}{name}",
-                        "inputs": fingerprint({key: values[key] for key in inputs[name]}),
+                        "mode": stage.mode,
+                        "checkpoints": [
+                            {
+                                "name": name,
+                                "agent": f"{AGENT_PREFIX}{name}",
+                                "inputs": checkpoint_inputs(name),
+                            }
+                            for name in stage.checkpoints
+                        ],
                     }
-                    for name in stage.checkpoints
+                    for stage in stages
                 ],
             }
-            for stage in stages
+            for index, phase, stages in phases
         ],
     }
 
     typer.echo(json.dumps(plan, indent=2))
+
+
+@checkpoints_app.command("rerun")
+def checkpoints_rerun(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose checkpoints run again")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Run the checkpoints of the current phase again.
+
+    For a run that waits with checkpoints_failed when the inputs did not
+    change: for example, after you repaired the bundle of the worktree. The
+    running daemon starts the new round on its next cycle."""
+
+    settings = _load(config)
+    runs = RunRepository(connect(_existing_database(config, dry_run, settings)))
+    active = runs.list(issue_key=issue_key.upper())
+
+    if not active:
+        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
+
+        raise typer.Exit(1)
+
+    automation_run = active[0]
+    project_key = automation_run.issue_key.rsplit("-", 1)[0]
+    resolved = WorkflowResolver(settings).resolve_by_name(project_key, automation_run.workflow_name)
+
+    if (
+        resolved is None
+        or automation_run.phase >= len(resolved.phases)
+        or not isinstance(resolved.phases[automation_run.phase], ChecksPhase)
+    ):
+        typer.echo(f"{automation_run.issue_key} does not run checkpoints now.", err=True)
+
+        raise typer.Exit(1)
+
+    runs.request_checks(automation_run.id)
+
+    typer.echo(f"{automation_run.issue_key}: the checkpoints run again on the next cycle.")
+
+
+@checkpoints_app.command("exec", hidden=True)
+def checkpoints_exec(
+    name: Annotated[str, typer.Argument(help="The checkpoint")],
+    base: Annotated[str, typer.Option(help="The SHA where the branch starts")],
+    head_sha: Annotated[str, typer.Option("--head", help="The SHA to check")],
+    root: Annotated[Path, typer.Option(help="The root of the worktree")],
+    output: Annotated[Path, typer.Option(help="The file for the result")],
+) -> None:
+    """Run one checkpoint and write its result to --output. Spyhop starts this
+    command in an Orca terminal. It does nothing when the result exists or
+    another instance runs for the same file."""
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    with (output.parent / f"{output.name}.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            typer.echo(f"Checkpoint {name} already runs for {output}.")
+
+            return
+
+        if output.exists():
+            typer.echo(f"Checkpoint {name} already has a result in {output}.")
+
+            return
+
+        typer.echo(f"Checkpoint {name} on {head_sha[:12]} in {root}")
+
+        exit_code, result = _run_checkpoint(name, base, head_sha, root)
+        partial = output.parent / f"{output.name}.partial"
+
+        partial.write_text(json.dumps({"exit_code": exit_code, "output": result}))
+        partial.replace(output)
+
+    data = (result or {}).get("structured_output")
+    verdict = data.get("verdict") if isinstance(data, dict) else None
+
+    typer.echo(f"Checkpoint {name}: {verdict or 'no verdict'}. Spyhop reads {output}.")
 
 
 @checkpoints_app.command("check")
@@ -475,7 +569,7 @@ def service_install(
     settings = _load(config_file)
     unit_file = systemd_user_unit_file()
 
-    install_unit(unit_file, render_unit(_spyhop_executable(), config_file, settings.service), start)
+    install_unit(unit_file, render_unit(spyhop_executable(), config_file, settings.service), start)
 
     typer.echo(f"Installed {unit_file}{' and started it' if start else ''}.")
 
@@ -495,6 +589,59 @@ def service_uninstall() -> None:
     uninstall_unit(unit_file)
 
     typer.echo(f"Removed {unit_file}.")
+
+
+def _run_checkpoint(
+    name: str, base: str, head_sha: str, root: Path
+) -> tuple[int, dict[str, object] | None]:
+    """Runs the subagent and shows its steps. Returns the exit code of claude
+    and its result event."""
+
+    command = [
+        "claude",
+        "-p",
+        checkpoint_prompt(base, head_sha, root),
+        "--agent",
+        f"{AGENT_PREFIX}{name}",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--json-schema",
+        json.dumps(RESULT_SCHEMA),
+        "--dangerously-skip-permissions",
+    ]
+    result: dict[str, object] | None = None
+
+    try:
+        process = subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, text=True)
+    except OSError as error:
+        typer.echo(f"Cannot run claude: {error}", err=True)
+
+        return 127, None
+
+    assert process.stdout is not None
+
+    for line in process.stdout:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+
+        if not isinstance(event, dict):
+            continue
+
+        if event.get("type") == "result":
+            result = event
+        elif event.get("type") == "assistant":
+            for content in (event.get("message") or {}).get("content") or []:
+                if content.get("type") == "tool_use" and content.get("name") != "StructuredOutput":
+                    detail = json.dumps(content.get("input"))[:200]
+
+                    typer.echo(f"> {content.get('name')}: {detail}")
+                elif content.get("type") == "text":
+                    typer.echo(content.get("text", ""))
+
+    return process.wait(), result
 
 
 def _existing_database(
@@ -554,59 +701,25 @@ def _input_values(
     issue_key: str | None,
     names: set[str],
 ) -> dict[str, str]:
-    """The current values of the checkpoint inputs in ``names``."""
+    """The current values of the checkpoint inputs in ``names``. The JIRA
+    credentials come from the environment, or from the env file of the
+    service when the environment does not have them."""
 
-    values = {}
+    async def values() -> dict[str, str]:
+        if "ticket" not in names or issue_key is None:
+            return await input_values(names, root, resolved.base_branch, issue_key, None)
 
-    if "head" in names:
-        current_head = head(root)
+        env_file = settings.service.env_file
+        environment = {**(read_env_file(env_file) if env_file.is_file() else {}), **os.environ}
 
-        if current_head is None:
-            raise ConfigurationError(f"Cannot read the HEAD of {root}")
+        async with JiraClient(
+            settings.jira.base_url,
+            credentials_from_environment(settings.jira, environment),
+            settings.jira.request_timeout,
+        ) as jira:
+            return await input_values(names, root, resolved.base_branch, issue_key, jira)
 
-        values["head"] = current_head
-
-    if "base" in names:
-        base = merge_base(root, resolved.base_branch)
-
-        if base is None:
-            raise ConfigurationError(
-                f"Cannot find where HEAD leaves {resolved.base_branch} in {root}"
-            )
-
-        values["base"] = base
-
-    if "ticket" in names:
-        if issue_key is None:
-            raise ConfigurationError(
-                "A checkpoint reads the ticket, so it needs the run of the current "
-                "worktree, not --workflow"
-            )
-
-        values["ticket"] = asyncio.run(_ticket_updated(settings, issue_key))
-
-    return values
-
-
-async def _ticket_updated(settings: Settings, issue_key: str) -> str:
-    """The ``updated`` field of the issue. The credentials come from the
-    environment, or from the env file of the service when it is not set."""
-
-    env_file = settings.service.env_file
-    environment = {**(read_env_file(env_file) if env_file.is_file() else {}), **os.environ}
-    credentials = credentials_from_environment(settings.jira, environment)
-
-    async with JiraClient(
-        settings.jira.base_url, credentials, settings.jira.request_timeout
-    ) as jira:
-        issue = await jira.issue(issue_key, ["updated"])
-
-    updated = issue.get("fields", {}).get("updated")
-
-    if not isinstance(updated, str) or not INPUT_VALUE.fullmatch(updated):
-        raise ConfigurationError(f"{issue_key} has no valid updated field in JIRA")
-
-    return updated
+    return asyncio.run(values())
 
 
 def _current_workflow(
@@ -666,15 +779,6 @@ def _load(config: Path | None) -> Settings:
         typer.echo(str(error), err=True)
 
         raise typer.Exit(1) from None
-
-
-def _spyhop_executable() -> Path:
-    found = shutil.which("spyhop")
-
-    if found:
-        return Path(found).resolve()
-
-    return Path(sys.argv[0]).resolve()
 
 
 def _setup_logging(verbose: bool) -> None:
