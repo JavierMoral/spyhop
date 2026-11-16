@@ -20,6 +20,11 @@ class WaitingReason(StrEnum):
     PLAN_REVIEW = "plan_review"
     AGENT_QUESTION = "agent_question"
     UNKNOWN_STATE = "unknown_state"
+    # The checkpoints of the workflow do not all pass on the current HEAD:
+    # a verdict is missing, is FAIL, or is for an older HEAD.
+    CHECKPOINTS_MISSING = "checkpoints_missing"
+    CHECKPOINTS_FAILED = "checkpoints_failed"
+    CHECKPOINTS_STALE = "checkpoints_stale"
     # Not a WAITING_FOR_HUMAN reason: a pending run waiting for free disk
     # space to create its worktree. It resumes by itself.
     DISK_SPACE = "disk_space"

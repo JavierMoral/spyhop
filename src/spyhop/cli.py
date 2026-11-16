@@ -12,6 +12,7 @@ import typer
 
 from spyhop import __version__
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner
+from spyhop.application.checkpoint_verdicts import VERDICTS_FILE, check_verdicts, run_reason
 from spyhop.application.janitor import Cleanup, WorktreeRemover
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import write_env_file
@@ -27,6 +28,7 @@ from spyhop.doctor import Level, run_checks
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import ConfigurationError, SpyhopError
 from spyhop.domain.models import ResolvedWorkflow
+from spyhop.infrastructure.git import head, top_level
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     PollerStateRepository,
@@ -316,7 +318,7 @@ def checkpoints_plan(
         resolved = (
             _named_workflow(settings, workflow)
             if workflow
-            else _current_workflow(settings, config, dry_run)
+            else _current_workflow(settings, config, dry_run)[0]
         )
         stages = CheckpointPlanner(claude_agents_dir()).plan(
             resolved.checkpoints, names or (), start
@@ -340,6 +342,64 @@ def checkpoints_plan(
     }
 
     typer.echo(json.dumps(plan, indent=2))
+
+
+@checkpoints_app.command("check")
+def checkpoints_check(
+    workflow: Annotated[
+        str | None,
+        typer.Option(help="Workflow name, instead of the run of the current worktree"),
+    ] = None,
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
+    ] = None,
+) -> None:
+    """Print as JSON whether all the checkpoints pass on the current HEAD.
+
+    Reads CLAUDE-CHECKPOINTS.md at the root of the worktree. Exits with 1 when
+    a verdict is missing, is FAIL, or is for an older HEAD."""
+
+    settings = _load(config)
+
+    try:
+        if workflow:
+            resolved = _named_workflow(settings, workflow)
+            root = top_level(Path.cwd())
+        else:
+            resolved, root = _current_workflow(settings, config, dry_run)
+
+        current_head = head(root) if root else None
+
+        if root is None or current_head is None:
+            raise ConfigurationError(f"Cannot read the HEAD of {root or Path.cwd()}")
+    except SpyhopError as error:
+        typer.echo(str(error), err=True)
+
+        raise typer.Exit(1) from None
+
+    verdicts_file = root / VERDICTS_FILE
+    problems = check_verdicts(
+        verdicts_file.read_text() if verdicts_file.is_file() else None,
+        resolved.checkpoints,
+        current_head,
+    )
+    reason = run_reason(problems)
+    outcome = {
+        "workflow": resolved.name,
+        "head": current_head,
+        "accepted": reason is None,
+        "reason": reason,
+        "problems": [
+            {"checkpoint": problem.checkpoint, "reason": problem.reason, "detail": problem.detail}
+            for problem in problems
+        ],
+    }
+
+    typer.echo(json.dumps(outcome, indent=2))
+
+    if reason is not None:
+        raise typer.Exit(1)
 
 
 @config_app.command("init")
@@ -448,7 +508,10 @@ def _named_workflow(settings: Settings, name: str) -> ResolvedWorkflow:
 
 def _current_workflow(
     settings: Settings, config: Path | None, dry_run: bool | None
-) -> ResolvedWorkflow:
+) -> tuple[ResolvedWorkflow, Path]:
+    """The workflow of the run whose worktree holds the current directory,
+    and the root of that worktree."""
+
     connection = connect(_existing_database(config, dry_run, settings))
     current = Path.cwd().resolve()
     worktree = next(
@@ -490,7 +553,7 @@ def _current_workflow(
             f"is not in the configuration of project {project_key}"
         )
 
-    return resolved
+    return resolved, worktree.path
 
 
 def _load(config: Path | None) -> Settings:

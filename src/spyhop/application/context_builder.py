@@ -34,7 +34,15 @@ SETTINGS_FILE = Path(".claude") / "settings.local.json"
 # Anchored to the worktree root. info/exclude is shared by every worktree of a
 # repository, which is fine: the patterns only name Spyhop's own files.
 
-EXCLUDED_PATHS = (f"/{TASK_FILE}", f"/{PLAN_FILE}", f"/{RESULT_FILE}", f"/{SETTINGS_FILE}")
+EXCLUDED_PATHS = (
+    f"/{TASK_FILE}",
+    f"/{PLAN_FILE}",
+    f"/{RESULT_FILE}",
+    f"/{SETTINGS_FILE}",
+    # Written by /checkpoints: the verdicts and one report per checkpoint.
+    "/CLAUDE-CHECKPOINTS.md",
+    "/CLAUDE-CHECKPOINT-*.md",
+)
 
 Phase = Literal["plan", "implement", "full"]
 
