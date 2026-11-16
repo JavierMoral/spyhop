@@ -330,6 +330,7 @@ def checkpoints_plan(
 
     plan = {
         "workflow": resolved.name,
+        "base_branch": resolved.base_branch,
         "stages": [
             {
                 "mode": stage.mode,
