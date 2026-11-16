@@ -146,6 +146,7 @@ def test_the_workflow_comes_from_the_run_of_the_current_worktree(
     assert exit_code == 0
     assert json.loads(output) == {
         "workflow": "bug_fix",
+        "base_branch": "master",
         "stages": [
             {"mode": "read", "checkpoints": [{"name": "security", "agent": "checkpoint-security"}]},
             {
@@ -184,7 +185,7 @@ def test_a_workflow_without_checkpoints_prints_no_stages(config_file: Path) -> N
     exit_code, output = plan(config_file, "--workflow", "subtask")
 
     assert exit_code == 0
-    assert json.loads(output) == {"workflow": "subtask", "stages": []}
+    assert json.loads(output) == {"workflow": "subtask", "base_branch": "master", "stages": []}
 
 
 def test_an_unknown_workflow_is_an_error(config_file: Path) -> None:
