@@ -123,9 +123,10 @@ What you do is in **bold**; the rest happens on its own.
    commits locally. The plan agent stays open with no work. Workflows with
    `plan_review: false` keep one agent on `agents.model` for all the work. With
    `agents.review_command` set, it then runs that review over its commits and
-   applies the most important findings. With [checkpoints](#checkpoints) in the
-   workflow, it then runs `/checkpoints`. It writes `CLAUDE-RESULT.md` and leaves
-   its card in *In progress*, with an unread dot. **Review the commits, then
+   applies the most important findings. It writes `CLAUDE-RESULT.md` and leaves
+   its card in *In progress*, with an unread dot. If the workflow's
+   [pipeline](#pipelines-and-checkpoints) has checkpoints after the
+   implementation, Spyhop runs them now, and the agent fixes what they find. **Review the commits, then
    push and open the pull request**, yourself or by running `/pr` in the agent's
    terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
@@ -135,6 +136,9 @@ What you do is in **bold**; the rest happens on its own.
 the reason tells you what to do:
 
 - `plan_review`: review the plan (step 2).
+- `checkpoints_failed`: a checkpoint failed, and its phase does not fix or has
+  no rounds left. Read `CLAUDE-CHECKPOINTS.md` and the report; see
+  [Pipelines and checkpoints](#pipelines-and-checkpoints).
 - `agent_question`: the agent asked something or needs a permission; answer it
   in its terminal.
 - `unknown_state`: the agent stopped without finishing. Tell it to go on in its
@@ -290,14 +294,16 @@ projects:
 | `….repository` | — | Repository alias. |
 | `….base_branch` | repository default | Overrides the repository's base branch. |
 | `….prompt` | — | Template with this workflow's guidance, added to `CLAUDE-TASK.md`. Looked up first in `~/.config/spyhop/templates/`, then among the bundled ones; see [Customizing templates](#customizing-templates). |
-| `….plan_review` | `true` | Ask for your approval of the plan before implementing. |
-| `….checkpoints` | `[]` | Names of the checkpoints of this workflow; see [Checkpoints](#checkpoints). |
+| `….plan_review` | `true` | Ask for your approval of the plan before implementing. Not allowed with `pipeline`, which decides it. |
+| `….pipeline` | — | Name of a pipeline in `pipelines`; see [Pipelines and checkpoints](#pipelines-and-checkpoints). |
+| `pipelines.<name>` | — | The phases of a workflow, in order: `plan`, `plan_review`, `implement`, and checks phases. |
 | `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
 | `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
 | `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
 | `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there launches a new agent with the implementation `/goal`. The card stays there when the work is finished. |
 | `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. `model` implements: after an approved plan, or all the work with `plan_review: false`. |
 | `agents.plan_model` | `opus` | Model of the agent that writes `CLAUDE-PLAN.md` when the workflow has `plan_review: true`. |
+| `agents.checkpoint_timeout_minutes` | `180` | A checkpoint without a result after this time is a `FAIL`. |
 | `agents.review_command` | — | Command, usually a slash command such as `/code-review-loop --rounds 2`, that the agent runs over its commits once the implementation is done and its tests pass, letting it apply the most important findings before it writes `CLAUDE-RESULT.md`. Nothing is pushed. Unset, there is no review step. |
 | `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
 | `cleanup.close_status_categories` | `["done"]` | JIRA status categories that count as closed. |
@@ -427,7 +433,7 @@ Before launching, Spyhop writes three things into the worktree:
 | File | Content |
 | --- | --- |
 | `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; how to check the plan against similar cases in the code, tests included, so it follows their patterns instead of creating new ones; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
-| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. It also allows the commands of `/checkpoints`: `spyhop checkpoints plan` and `check`, `git rev-parse`, `git merge-base` and `git restore --source=`. |
+| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. It also allows `spyhop checkpoints check`. |
 | `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md`, the permission profile, `CLAUDE-CHECKPOINTS.md` and `CLAUDE-CHECKPOINT-*.md`, so they never end up in a commit. |
 
 The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
@@ -510,31 +516,84 @@ name a new template, such as `my_workflow.md`, as long as it exists in either
 directory. `spyhop doctor` checks that every template exists and lists the ones
 you customized.
 
-### Checkpoints
+### Pipelines and checkpoints
 
-A checkpoint is a check that runs after the implementation, such as a
-mutation test or a security review. Each checkpoint is a Claude Code subagent in
+A pipeline gives the phases of a workflow, in order. Without a pipeline, a
+workflow has the phases `plan`, `plan_review` and `implement`, or only
+`implement` with `plan_review: false`.
+
+```yaml
+pipelines:
+  bug:
+    - checks: [ticket-info, repro-steps, reproduce]
+      on_fail: human
+    - plan
+    - plan_review
+    - implement
+    - checks: [regressions, mutation, security]
+      on_fail: fix
+      rounds: 3
+
+projects:
+  LPD:
+    workflows:
+      Bug:
+        name: bug_fix
+        pipeline: bug
+        # trigger_statuses, repository and prompt as usual
+```
+
+| Phase | What happens |
+| --- | --- |
+| `plan` | An agent on `agents.plan_model` writes `CLAUDE-PLAN.md`. |
+| `plan_review` | You approve the plan (step 2 of [A ticket, step by step](#a-ticket-step-by-step)). |
+| `implement` | An agent on `agents.model` implements and writes `CLAUDE-RESULT.md`. |
+| `checks` | Spyhop runs checkpoints, without an agent. |
+
+Spyhop refuses a pipeline without `implement`, with `plan` but without
+`plan_review` (or the reverse), with the steps in another order, with checks
+between `plan` and `plan_review`, or with a checkpoint in two phases.
+
+When a checks phase fails:
+
+- `on_fail: human` (the default): the run waits with `checkpoints_failed`.
+- `on_fail: fix`: only after `implement`. Spyhop sends the reports to the
+  implementation agent, which fixes the findings with commits and writes
+  `CLAUDE-RESULT.md` again. Then the checks run again. After `rounds` rounds
+  (default 3), the run waits with `checkpoints_failed`.
+
+A failed round starts again by itself when the inputs of a failed checkpoint
+change and no agent works in the worktree: for example, when you complete the
+ticket in JIRA or commit a fix. `spyhop checkpoints rerun KEY` starts it again
+without a change, for example after you repair the bundle.
+
+#### Checkpoints
+
+A checkpoint is a Claude Code subagent in
 `~/.claude/agents/checkpoint-<name>.md` (`$CLAUDE_CONFIG_DIR/agents` when that
-variable is set). Its frontmatter gives the subagent's `model` and three keys
-for Spyhop:
+variable is set). Its frontmatter gives the subagent's `model` and `tools`, and
+three keys for Spyhop:
 
 ```markdown
 ---
 name: checkpoint-mutation
 description: Revert the production change and confirm that the new tests fail.
 model: sonnet
+tools: Bash, Read, Glob, Grep, StructuredOutput
 mode: exclusive
 after: [regressions]
 inputs: [head]
 ---
 ```
 
+- `tools`: when the frontmatter has it, it must include `StructuredOutput`.
+  Without it, the subagent cannot give its result.
 - `mode`: `read` for a checkpoint that only reads the code, `exclusive` for one
   that changes files or runs a build or tests. Read checkpoints of a stage run
   in parallel. An exclusive checkpoint runs alone in the worktree. The default
   is `exclusive`.
 - `after`: the checkpoints that run before this one. It only sets the order.
-  The order also goes through a checkpoint that the workflow does not have.
+  The order also goes through a checkpoint that the phase does not have.
 - `inputs`: what the verdict depends on. When one of them changes, the verdict
   is stale. The default is `[head]`.
 
@@ -544,47 +603,61 @@ inputs: [head]
   | `base` | The SHA where HEAD leaves the base branch: the merge base with the first of `upstream/<branch>`, `origin/<branch>` and `<branch>` that exists. |
   | `head` | The SHA of HEAD. |
 
-  A checkpoint with `ticket` needs the run of the current worktree. Spyhop
-  reads the JIRA credentials from the environment, or from `service.env_file`
-  when the environment does not have them.
+Spyhop gives each checkpoint this prompt, and nothing from the other
+checkpoints:
 
-A workflow lists its checkpoints in `checkpoints`, for example
-`checkpoints: [regressions, mutation, security]`. A workflow without the key
-has no checkpoints.
+```
+BASE=<sha>
+HEAD=<sha>
+Worktree root: <path>
+Run the checkpoint.
+```
 
-In a run, the agent runs the `/checkpoints` skill after the implementation and
-after `agents.review_command`, because a later commit makes the verdicts
-stale. The skill must be installed in `~/.claude/skills/checkpoints/`, and
-`spyhop` must be in the `PATH` of the agent's terminal.
+The checkpoint gives one JSON object: `verdict` (`PASS` or `FAIL`), `head`
+(the HEAD at its start), `commands` (each with `command` and `result`) and
+`findings` (each with `severity` `high`, `medium` or `low`, `file`, `line`,
+`summary` and `evidence`). A result that breaks these rules is a `FAIL`: no
+object, a `head` that is not the HEAD of the stage, a `PASS` without
+`commands`, or a `PASS` with a `high` or `medium` finding.
 
-`spyhop checkpoints plan` reads the checkpoints of the current worktree's run
-and prints the stages in which they run. It also prints the base branch of the
-workflow, `base` and `head`, and for each checkpoint the fingerprint of its
-inputs. Spyhop finds the run from the directory, so run the command inside the
-worktree. It stops with an error for a missing file, a `name` that is not
-`checkpoint-<name>`, an unknown `mode` or `inputs`, or a cycle in `after`.
+#### How Spyhop runs them
 
-`/checkpoints` writes the last verdict of each checkpoint in
-`CLAUDE-CHECKPOINTS.md` at the root of the worktree, and one report per
-checkpoint in `CLAUDE-CHECKPOINT-<name>.md`. Spyhop reads the first table of
-`CLAUDE-CHECKPOINTS.md`:
+For each stage, Spyhop opens one Orca terminal per checkpoint in the worktree.
+The terminal runs `spyhop checkpoints exec`, which runs
+`claude -p --agent checkpoint-<name> --json-schema …`, shows its steps, and
+writes the result to `~/.local/state/spyhop/checkpoints/`. You can watch each
+checkpoint in its tab.
+
+- A stage starts only when the worktree has no uncommitted change.
+- After an exclusive checkpoint, HEAD must be the same and the worktree must
+  have no uncommitted change. If not, the verdict is `FAIL`.
+- A checkpoint that comes after a failed one in the same round is skipped.
+- A checkpoint without a result after `agents.checkpoint_timeout_minutes` is a
+  `FAIL`.
+
+Spyhop adds a section for each result to `CLAUDE-CHECKPOINT-<name>.md`, and
+writes the last verdict of each checkpoint to `CLAUDE-CHECKPOINTS.md`:
 
 ```markdown
-| Checkpoint | Verdict | Inputs | Rounds | Report |
+| Checkpoint | Verdict | Inputs | Round | Report |
 | --- | --- | --- | --- | --- |
 | regressions | PASS | head=3265e17c3f0a9d2b4e8f1a6c7d5b9e0f2a4c6e8d | 1 | CLAUDE-CHECKPOINT-regressions.md |
 ```
 
-- Spyhop finds the columns `Checkpoint`, `Verdict` and `Inputs` by their names.
-  Other columns are for people.
-- `Verdict` is `PASS` or `FAIL`. `Inputs` is the fingerprint that the verdict
-  is for, as `spyhop checkpoints plan` prints it: `name=value` for each input,
-  in the order `ticket`, `base`, `head`, separated by spaces. SHAs are full.
-- Spyhop ignores the rows of checkpoints that the workflow does not have.
+`Inputs` is the fingerprint that the verdict is for: `name=value` for each
+input, in the order `ticket`, `base`, `head`, separated by spaces.
+`CLAUDE-TASK.md` tells the agents which checkpoints ran before their work, so
+that they read the reports, and which ones run after it.
 
-`spyhop checkpoints check` compares the table with the checkpoints of the
-workflow and with the current fingerprint of each one. It prints the result as JSON and exits with
-1 when a checkpoint has one of these problems:
+`spyhop checkpoints plan` prints the checks phases of the current worktree's
+run, their stages, and the current fingerprint of each checkpoint. It stops
+with an error for a missing file, a `name` that is not `checkpoint-<name>`, an
+unknown `mode` or `inputs`, `tools` without `StructuredOutput`, or a cycle in
+`after`.
+
+`spyhop checkpoints check` compares `CLAUDE-CHECKPOINTS.md` with all the
+checkpoints of the pipeline and with their current fingerprints. It prints the
+result as JSON and exits with 1 when a checkpoint has one of these problems:
 
 | Reason | Problem |
 | --- | --- |
@@ -636,8 +709,9 @@ spyhop service uninstall
 | `spyhop retry RUN\|KEY` | Start a finished run again as a new run (same ticket and worktree). Takes the run id from `status` (its first characters are enough) or a ticket key for its latest run. |
 | `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
-| `spyhop checkpoints plan [NAME...]` | Print as JSON the stages of the checkpoints of the current worktree's run. `NAME...` selects only those checkpoints, `--from NAME` that checkpoint and the ones after it, `--workflow NAME` a workflow outside a run. See [Checkpoints](#checkpoints). |
-| `spyhop checkpoints check` | Print as JSON whether all the checkpoints of the current worktree's run pass on their current inputs; exits with 1 when not. `--workflow NAME` checks the current repository against a workflow outside a run. See [Checkpoints](#checkpoints). |
+| `spyhop checkpoints plan` | Print as JSON the checks phases of the current worktree's run and their stages. `--workflow NAME` plans a workflow outside a run. See [Pipelines and checkpoints](#pipelines-and-checkpoints). |
+| `spyhop checkpoints check` | Print as JSON whether all the checkpoints of the current worktree's run pass on their current inputs; exits with 1 when not. `--workflow NAME` checks the current repository against a workflow outside a run. |
+| `spyhop checkpoints rerun KEY` | Run the checkpoints of the ticket's current checks phase again, on the next cycle. |
 | `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca, its board columns and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
 | `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
