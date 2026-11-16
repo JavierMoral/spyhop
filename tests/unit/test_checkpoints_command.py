@@ -3,7 +3,9 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
 import yaml
 from typer.testing import CliRunner
 
@@ -18,6 +20,9 @@ from spyhop.infrastructure.persistence.repositories import RunRepository, Worktr
 from tests.factories import issue
 from tests.unit.test_checkpoint_planner import checkpoint
 
+UPDATED = "2026-11-16T10:21:33.123+0100"
+ISSUE_URL = "https://example.atlassian.net/rest/api/3/issue/LPD-1"
+
 
 @pytest.fixture
 def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -31,6 +36,7 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config = {
         "application": {"dry_run": False},
         "jira": {"base_url": "https://example.atlassian.net"},
+        "service": {"env_file": str(tmp_path / "env")},
         "repositories": {"portal": {"path": str(tmp_path / "portal")}},
         "projects": {
             "LPD": {
@@ -87,6 +93,15 @@ def git(path: Path, *arguments: str) -> str:
     ).stdout.strip()
 
 
+def repository(path: Path) -> str:
+    """A Git repository with one commit on master. Returns its SHA."""
+
+    path.mkdir(parents=True, exist_ok=True)
+    git(path, "init", "--quiet", "--initial-branch", "master")
+
+    return commit(path, "First")
+
+
 def commit(path: Path, message: str) -> str:
     git(path, "commit", "--allow-empty", "--quiet", "-m", message)
 
@@ -124,34 +139,72 @@ def run_worktree(config_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     RunRepository(connection).mark_ready(automation_run.id, worktree.id)
     (path / "modules").mkdir(parents=True)
-    git(path, "init", "--quiet")
-    commit(path, "First")
+    repository(path)
     monkeypatch.chdir(path / "modules")
+
+    return path
+
+
+@pytest.fixture
+def other_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A Git repository that is not the worktree of a run, as the current
+    directory."""
+
+    path = tmp_path / "repository"
+
+    repository(path)
+    monkeypatch.chdir(path)
 
     return path
 
 
 def verdicts(path: Path, *rows: tuple[str, str, str]) -> None:
     (path / "CLAUDE-CHECKPOINTS.md").write_text(
-        "| Checkpoint | Verdict | HEAD |\n| --- | --- | --- |\n"
-        + "".join(f"| {name} | {verdict} | {head} |\n" for name, verdict, head in rows)
+        "| Checkpoint | Verdict | Inputs |\n| --- | --- | --- |\n"
+        + "".join(f"| {name} | {verdict} | {inputs} |\n" for name, verdict, inputs in rows)
     )
+
+
+def ticket_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Makes security read the ticket, with JIRA credentials in the environment."""
+
+    checkpoint(tmp_path / "claude" / "agents", "security", mode="read", inputs=["ticket", "head"])
+    monkeypatch.setenv("JIRA_API_USER", "me@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "secret")
 
 
 def test_the_workflow_comes_from_the_run_of_the_current_worktree(
     config_file: Path, run_worktree: Path
 ) -> None:
+    first = git(run_worktree, "rev-parse", "HEAD")
+
+    git(run_worktree, "checkout", "--quiet", "-b", "LPD-1")
+    head = commit(run_worktree, "Fix")
+
     exit_code, output = plan(config_file)
 
     assert exit_code == 0
     assert json.loads(output) == {
         "workflow": "bug_fix",
         "base_branch": "master",
+        "base": first,
+        "head": head,
         "stages": [
-            {"mode": "read", "checkpoints": [{"name": "security", "agent": "checkpoint-security"}]},
+            {
+                "mode": "read",
+                "checkpoints": [
+                    {"name": "security", "agent": "checkpoint-security", "inputs": f"head={head}"}
+                ],
+            },
             {
                 "mode": "exclusive",
-                "checkpoints": [{"name": "regressions", "agent": "checkpoint-regressions"}],
+                "checkpoints": [
+                    {
+                        "name": "regressions",
+                        "agent": "checkpoint-regressions",
+                        "inputs": f"head={head}",
+                    }
+                ],
             },
         ],
     }
@@ -169,23 +222,94 @@ def test_outside_a_worktree_the_workflow_must_be_given(
     assert "give the workflow with --workflow" in output
 
 
-def test_the_workflow_option_selects_a_workflow_by_name(config_file: Path) -> None:
+def test_the_workflow_option_selects_a_workflow_by_name(
+    config_file: Path, other_repository: Path
+) -> None:
+    head = git(other_repository, "rev-parse", "HEAD")
+
     exit_code, output = plan(config_file, "--workflow", "bug_fix", "--from", "regressions")
 
     assert exit_code == 0
     assert json.loads(output)["stages"] == [
         {
             "mode": "exclusive",
-            "checkpoints": [{"name": "regressions", "agent": "checkpoint-regressions"}],
+            "checkpoints": [
+                {"name": "regressions", "agent": "checkpoint-regressions", "inputs": f"head={head}"}
+            ],
         }
     ]
 
 
-def test_a_workflow_without_checkpoints_prints_no_stages(config_file: Path) -> None:
+def test_a_workflow_without_checkpoints_prints_no_stages(
+    config_file: Path, other_repository: Path
+) -> None:
     exit_code, output = plan(config_file, "--workflow", "subtask")
 
     assert exit_code == 0
-    assert json.loads(output) == {"workflow": "subtask", "base_branch": "master", "stages": []}
+    assert json.loads(output) == {
+        "workflow": "subtask",
+        "base_branch": "master",
+        "base": None,
+        "head": None,
+        "stages": [],
+    }
+
+
+def test_plan_fails_without_the_base_branch(config_file: Path, other_repository: Path) -> None:
+    git(other_repository, "branch", "--quiet", "--move", "master", "main")
+
+    exit_code, output = plan(config_file, "--workflow", "bug_fix")
+
+    assert exit_code == 1
+    assert "Cannot find where HEAD leaves master" in output
+
+
+@respx.mock
+def test_the_ticket_input_is_the_updated_field_of_the_issue(
+    config_file: Path, run_worktree: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket_checkpoint(tmp_path, monkeypatch)
+    route = respx.get(ISSUE_URL).mock(
+        return_value=httpx.Response(200, json={"fields": {"updated": UPDATED}})
+    )
+    head = git(run_worktree, "rev-parse", "HEAD")
+
+    exit_code, output = plan(config_file, "security")
+
+    assert exit_code == 0
+    assert json.loads(output)["stages"][0]["checkpoints"][0]["inputs"] == (
+        f"ticket={UPDATED} head={head}"
+    )
+    assert route.calls.last.request.url.params["fields"] == "updated"
+
+
+@respx.mock
+def test_the_credentials_can_come_from_the_env_file_of_the_service(
+    config_file: Path, run_worktree: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket_checkpoint(tmp_path, monkeypatch)
+    monkeypatch.delenv("JIRA_API_USER")
+    monkeypatch.delenv("JIRA_API_TOKEN")
+    (tmp_path / "env").write_text('JIRA_API_USER="me@example.com"\nJIRA_API_TOKEN="secret"\n')
+    route = respx.get(ISSUE_URL).mock(
+        return_value=httpx.Response(200, json={"fields": {"updated": UPDATED}})
+    )
+
+    exit_code, _ = plan(config_file, "security")
+
+    assert exit_code == 0
+    assert route.calls.last.request.headers["Authorization"].startswith("Basic ")
+
+
+def test_the_ticket_input_needs_the_run_of_the_worktree(
+    config_file: Path, other_repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket_checkpoint(tmp_path, monkeypatch)
+
+    exit_code, output = plan(config_file, "--workflow", "bug_fix")
+
+    assert exit_code == 1
+    assert "needs the run of the current worktree, not --workflow" in output
 
 
 def test_an_unknown_workflow_is_an_error(config_file: Path) -> None:
@@ -198,7 +322,9 @@ def test_an_unknown_workflow_is_an_error(config_file: Path) -> None:
 def test_check_accepts_verdicts_that_pass_on_head(config_file: Path, run_worktree: Path) -> None:
     head = git(run_worktree, "rev-parse", "HEAD")
 
-    verdicts(run_worktree, ("regressions", "PASS", head), ("security", "PASS", head))
+    verdicts(
+        run_worktree, ("regressions", "PASS", f"head={head}"), ("security", "PASS", f"head={head}")
+    )
 
     exit_code, outcome = check(config_file)
 
@@ -216,7 +342,9 @@ def test_check_rejects_a_verdict_of_an_older_head(config_file: Path, run_worktre
     old = git(run_worktree, "rev-parse", "HEAD")
     head = commit(run_worktree, "Fix")
 
-    verdicts(run_worktree, ("regressions", "PASS", head), ("security", "PASS", old))
+    verdicts(
+        run_worktree, ("regressions", "PASS", f"head={head}"), ("security", "PASS", f"head={old}")
+    )
 
     exit_code, outcome = check(config_file)
 
@@ -226,7 +354,7 @@ def test_check_rejects_a_verdict_of_an_older_head(config_file: Path, run_worktre
         {
             "checkpoint": "security",
             "reason": "checkpoints_stale",
-            "detail": f"PASS on {old[:12]}, HEAD is {head[:12]}",
+            "detail": f"PASS on head={old[:12]}, now head={head[:12]}",
         }
     ]
 
@@ -241,17 +369,49 @@ def test_check_without_the_file_reports_missing_verdicts(
 
 
 def test_check_with_the_workflow_option_reads_the_current_repository(
-    config_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_file: Path, other_repository: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    repository = tmp_path / "repository"
+    head = git(other_repository, "rev-parse", "HEAD")
 
-    (repository / "modules").mkdir(parents=True)
-    git(repository, "init", "--quiet")
-    head = commit(repository, "First")
-    verdicts(repository, ("regressions", "PASS", head), ("security", "FAIL", head))
-    monkeypatch.chdir(repository / "modules")
+    (other_repository / "modules").mkdir()
+    verdicts(
+        other_repository,
+        ("regressions", "PASS", f"head={head}"),
+        ("security", "FAIL", f"head={head}"),
+    )
+    monkeypatch.chdir(other_repository / "modules")
 
     exit_code, outcome = check(config_file, "--workflow", "bug_fix")
 
     assert exit_code == 1
     assert outcome["reason"] == "checkpoints_failed"
+
+
+@respx.mock
+def test_check_rejects_a_verdict_of_an_older_ticket(
+    config_file: Path, run_worktree: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket_checkpoint(tmp_path, monkeypatch)
+    respx.get(ISSUE_URL).mock(
+        return_value=httpx.Response(
+            200, json={"fields": {"updated": "2026-11-17T08:00:00.000+0100"}}
+        )
+    )
+    head = git(run_worktree, "rev-parse", "HEAD")
+
+    verdicts(
+        run_worktree,
+        ("regressions", "PASS", f"head={head}"),
+        ("security", "PASS", f"ticket={UPDATED} head={head}"),
+    )
+
+    exit_code, outcome = check(config_file)
+
+    assert exit_code == 1
+    assert outcome["problems"] == [
+        {
+            "checkpoint": "security",
+            "reason": "checkpoints_stale",
+            "detail": f"PASS on ticket={UPDATED}, now ticket=2026-11-17T08:00:00.000+0100",
+        }
+    ]

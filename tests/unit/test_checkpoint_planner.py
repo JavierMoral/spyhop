@@ -2,17 +2,22 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.application.checkpoint_planner import CheckpointPlanner, Stage
+from spyhop.application.checkpoint_planner import Checkpoint, CheckpointPlanner, Stage
 from spyhop.domain.exceptions import ConfigurationError
 
 
 def checkpoint(
-    agents_dir: Path, name: str, mode: str = "exclusive", after: list[str] | None = None
+    agents_dir: Path,
+    name: str,
+    mode: str = "exclusive",
+    after: list[str] | None = None,
+    inputs: list[str] | None = None,
 ) -> None:
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / f"checkpoint-{name}.md").write_text(
         f"---\nname: checkpoint-{name}\nmodel: sonnet\nmode: {mode}\nafter: {after or []}\n"
-        f"---\nCheck {name}.\n"
+        + (f"inputs: {inputs}\n" if inputs is not None else "")
+        + f"---\nCheck {name}.\n"
     )
 
 
@@ -132,3 +137,23 @@ def test_without_mode_a_checkpoint_is_exclusive(agents_dir: Path) -> None:
     (agents_dir / "checkpoint-bare.md").write_text("---\nname: checkpoint-bare\n---\n")
 
     assert CheckpointPlanner(agents_dir).plan(["bare"]) == [Stage("exclusive", ("bare",))]
+
+
+def test_without_inputs_a_verdict_depends_on_head(agents_dir: Path) -> None:
+    assert CheckpointPlanner(agents_dir).read("regressions") == Checkpoint(
+        "regressions", "exclusive", (), ("head",)
+    )
+
+
+def test_inputs_are_kept_in_the_order_of_the_fingerprint(agents_dir: Path) -> None:
+    checkpoint(agents_dir, "reproduce", inputs=["head", "ticket", "base"])
+
+    assert CheckpointPlanner(agents_dir).read("reproduce").inputs == ("ticket", "base", "head")
+
+
+@pytest.mark.parametrize("inputs", [[], ["plan"], ["head", "head"]])
+def test_wrong_inputs_are_rejected(agents_dir: Path, inputs: list[str]) -> None:
+    checkpoint(agents_dir, "odd", inputs=inputs)
+
+    with pytest.raises(ConfigurationError, match="inputs must be a list of different values"):
+        CheckpointPlanner(agents_dir).plan(["odd"])
