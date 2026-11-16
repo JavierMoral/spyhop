@@ -515,8 +515,8 @@ you customized.
 A checkpoint is a check that runs after the implementation, such as a
 mutation test or a security review. Each checkpoint is a Claude Code subagent in
 `~/.claude/agents/checkpoint-<name>.md` (`$CLAUDE_CONFIG_DIR/agents` when that
-variable is set). Its frontmatter gives the subagent's `model` and two keys for
-Spyhop:
+variable is set). Its frontmatter gives the subagent's `model` and three keys
+for Spyhop:
 
 ```markdown
 ---
@@ -525,6 +525,7 @@ description: Revert the production change and confirm that the new tests fail.
 model: sonnet
 mode: exclusive
 after: [regressions]
+inputs: [head]
 ---
 ```
 
@@ -534,6 +535,18 @@ after: [regressions]
   is `exclusive`.
 - `after`: the checkpoints that run before this one. It only sets the order.
   The order also goes through a checkpoint that the workflow does not have.
+- `inputs`: what the verdict depends on. When one of them changes, the verdict
+  is stale. The default is `[head]`.
+
+  | Input | Value |
+  | --- | --- |
+  | `ticket` | The `updated` field of the run's JIRA issue. |
+  | `base` | The SHA where HEAD leaves the base branch: the merge base with the first of `upstream/<branch>`, `origin/<branch>` and `<branch>` that exists. |
+  | `head` | The SHA of HEAD. |
+
+  A checkpoint with `ticket` needs the run of the current worktree. Spyhop
+  reads the JIRA credentials from the environment, or from `service.env_file`
+  when the environment does not have them.
 
 A workflow lists its checkpoints in `checkpoints`, for example
 `checkpoints: [regressions, mutation, security]`. A workflow without the key
@@ -545,10 +558,11 @@ stale. The skill must be installed in `~/.claude/skills/checkpoints/`, and
 `spyhop` must be in the `PATH` of the agent's terminal.
 
 `spyhop checkpoints plan` reads the checkpoints of the current worktree's run
-and prints the stages in which they run, with the base branch of the workflow. Spyhop finds the run from the
-directory, so run the command inside the worktree. It stops with an error for a
-missing file, a `name` that is not `checkpoint-<name>`, an unknown `mode` or a
-cycle in `after`.
+and prints the stages in which they run. It also prints the base branch of the
+workflow, `base` and `head`, and for each checkpoint the fingerprint of its
+inputs. Spyhop finds the run from the directory, so run the command inside the
+worktree. It stops with an error for a missing file, a `name` that is not
+`checkpoint-<name>`, an unknown `mode` or `inputs`, or a cycle in `after`.
 
 `/checkpoints` writes the last verdict of each checkpoint in
 `CLAUDE-CHECKPOINTS.md` at the root of the worktree, and one report per
@@ -556,26 +570,27 @@ checkpoint in `CLAUDE-CHECKPOINT-<name>.md`. Spyhop reads the first table of
 `CLAUDE-CHECKPOINTS.md`:
 
 ```markdown
-| Checkpoint | Verdict | HEAD | Rounds | Report |
+| Checkpoint | Verdict | Inputs | Rounds | Report |
 | --- | --- | --- | --- | --- |
-| regressions | PASS | 3265e17c3f0a9d2b4e8f1a6c7d5b9e0f2a4c6e8d | 1 | CLAUDE-CHECKPOINT-regressions.md |
+| regressions | PASS | head=3265e17c3f0a9d2b4e8f1a6c7d5b9e0f2a4c6e8d | 1 | CLAUDE-CHECKPOINT-regressions.md |
 ```
 
-- Spyhop finds the columns `Checkpoint`, `Verdict` and `HEAD` by their names.
+- Spyhop finds the columns `Checkpoint`, `Verdict` and `Inputs` by their names.
   Other columns are for people.
-- `Verdict` is `PASS` or `FAIL`. `HEAD` is the full SHA of the commit that the
-  verdict is for.
+- `Verdict` is `PASS` or `FAIL`. `Inputs` is the fingerprint that the verdict
+  is for, as `spyhop checkpoints plan` prints it: `name=value` for each input,
+  in the order `ticket`, `base`, `head`, separated by spaces. SHAs are full.
 - Spyhop ignores the rows of checkpoints that the workflow does not have.
 
 `spyhop checkpoints check` compares the table with the checkpoints of the
-workflow and with the current HEAD. It prints the result as JSON and exits with
+workflow and with the current fingerprint of each one. It prints the result as JSON and exits with
 1 when a checkpoint has one of these problems:
 
 | Reason | Problem |
 | --- | --- |
 | `checkpoints_missing` | The checkpoint has no verdict, or the file or its table is not valid. |
 | `checkpoints_failed` | The verdict is `FAIL`. |
-| `checkpoints_stale` | The verdict is `PASS`, but for a HEAD that is not the current one. |
+| `checkpoints_stale` | The verdict is `PASS`, but for a fingerprint that is not the current one. |
 
 When there are problems of more than one type, the reason of the result is the
 first one in this table.
@@ -622,7 +637,7 @@ spyhop service uninstall
 | `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
 | `spyhop checkpoints plan [NAME...]` | Print as JSON the stages of the checkpoints of the current worktree's run. `NAME...` selects only those checkpoints, `--from NAME` that checkpoint and the ones after it, `--workflow NAME` a workflow outside a run. See [Checkpoints](#checkpoints). |
-| `spyhop checkpoints check` | Print as JSON whether all the checkpoints of the current worktree's run pass on its HEAD; exits with 1 when not. `--workflow NAME` checks the current repository against a workflow outside a run. See [Checkpoints](#checkpoints). |
+| `spyhop checkpoints check` | Print as JSON whether all the checkpoints of the current worktree's run pass on their current inputs; exits with 1 when not. `--workflow NAME` checks the current repository against a workflow outside a run. See [Checkpoints](#checkpoints). |
 | `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca, its board columns and the service. Exits with 1 if anything is wrong. |
 | `spyhop config init` | Create the configuration and the credentials file if they are missing. |
 | `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
