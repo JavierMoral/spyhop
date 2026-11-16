@@ -70,6 +70,9 @@ class WorkflowSettings(BaseModel):
     base_branch: str | None = None
     prompt: str
     plan_review: bool = True
+    # Names of the checkpoints that /checkpoints runs after the implementation.
+    # Each one is a Claude Code subagent in checkpoint-<name>.md.
+    checkpoints: list[str] = Field(default_factory=list)
 
 
 class ProjectSettings(BaseModel):

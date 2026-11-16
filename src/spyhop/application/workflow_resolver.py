@@ -62,4 +62,5 @@ class WorkflowResolver:
             build_commands=tuple(repository.build_commands),
             worktree_script=repository.worktree_script,
             worktree_script_timeout=repository.worktree_script_timeout,
+            checkpoints=tuple(workflow.checkpoints),
         )

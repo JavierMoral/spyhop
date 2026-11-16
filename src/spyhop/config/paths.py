@@ -35,6 +35,13 @@ def default_env_file() -> Path:
     return config_dir() / "env"
 
 
+def claude_agents_dir() -> Path:
+    # Claude Code reads the user's subagents from here; CLAUDE_CONFIG_DIR
+    # moves the whole ~/.claude directory.
+
+    return expand_path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude") / "agents"
+
+
 def database_file(dry_run: bool) -> Path:
     # A dry run keeps its own database so turning it off never launches the
     # entries it only pretended to process.

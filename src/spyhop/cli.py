@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -10,13 +11,22 @@ from typing import Annotated
 import typer
 
 from spyhop import __version__
+from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner
 from spyhop.application.janitor import Cleanup, WorktreeRemover
+from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import write_env_file
-from spyhop.config.paths import database_file, default_config_file, systemd_user_unit_file
+from spyhop.config.paths import (
+    claude_agents_dir,
+    database_file,
+    default_config_file,
+    systemd_user_unit_file,
+)
 from spyhop.config.settings import Settings, load_settings
 from spyhop.daemon import orca_client, run_daemon
 from spyhop.doctor import Level, run_checks
-from spyhop.domain.exceptions import SpyhopError
+from spyhop.domain.enums import WorktreeStatus
+from spyhop.domain.exceptions import ConfigurationError, SpyhopError
+from spyhop.domain.models import ResolvedWorkflow
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     PollerStateRepository,
@@ -34,9 +44,11 @@ app = typer.Typer(
     help="Watches JIRA and feeds tickets to Claude Code agents running in Orca.",
     no_args_is_help=True,
 )
+checkpoints_app = typer.Typer(help="Plan the checkpoints of a workflow.", no_args_is_help=True)
 config_app = typer.Typer(help="Manage the configuration.", no_args_is_help=True)
 service_app = typer.Typer(help="Manage the systemd user service.", no_args_is_help=True)
 
+app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(config_app, name="config")
 app.add_typer(service_app, name="service")
 
@@ -277,6 +289,59 @@ def version() -> None:
     typer.echo(__version__)
 
 
+@checkpoints_app.command("plan")
+def checkpoints_plan(
+    names: Annotated[list[str] | None, typer.Argument(help="Only these checkpoints")] = None,
+    start: Annotated[
+        str | None, typer.Option("--from", help="This checkpoint and the ones after it")
+    ] = None,
+    workflow: Annotated[
+        str | None,
+        typer.Option(help="Workflow name, instead of the run of the current worktree"),
+    ] = None,
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
+    ] = None,
+) -> None:
+    """Print as JSON the stages in which /checkpoints runs the checkpoints.
+
+    Without --workflow, the workflow is the one of the run whose worktree holds
+    the current directory. A stage holds read checkpoints that run in
+    parallel, or one exclusive checkpoint."""
+
+    settings = _load(config)
+
+    try:
+        resolved = (
+            _named_workflow(settings, workflow)
+            if workflow
+            else _current_workflow(settings, config, dry_run)
+        )
+        stages = CheckpointPlanner(claude_agents_dir()).plan(
+            resolved.checkpoints, names or (), start
+        )
+    except SpyhopError as error:
+        typer.echo(str(error), err=True)
+
+        raise typer.Exit(1) from None
+
+    plan = {
+        "workflow": resolved.name,
+        "stages": [
+            {
+                "mode": stage.mode,
+                "checkpoints": [
+                    {"name": name, "agent": f"{AGENT_PREFIX}{name}"} for name in stage.checkpoints
+                ],
+            }
+            for stage in stages
+        ],
+    }
+
+    typer.echo(json.dumps(plan, indent=2))
+
+
 @config_app.command("init")
 def config_init(config: ConfigOption = None) -> None:
     """Create the configuration file and the credentials file if they are missing."""
@@ -362,6 +427,70 @@ def _existing_database(
         raise typer.Exit(1)
 
     return database
+
+
+def _named_workflow(settings: Settings, name: str) -> ResolvedWorkflow:
+    resolver = WorkflowResolver(settings)
+    matches = [
+        resolved
+        for project_key in resolver.project_keys()
+        if (resolved := resolver.resolve_by_name(project_key, name))
+    ]
+
+    if not matches:
+        raise ConfigurationError(f"No enabled project has a workflow named {name!r}")
+
+    if len({resolved.checkpoints for resolved in matches}) > 1:
+        raise ConfigurationError(f"Workflows named {name!r} have different checkpoints")
+
+    return matches[0]
+
+
+def _current_workflow(
+    settings: Settings, config: Path | None, dry_run: bool | None
+) -> ResolvedWorkflow:
+    connection = connect(_existing_database(config, dry_run, settings))
+    current = Path.cwd().resolve()
+    worktree = next(
+        (
+            worktree
+            for worktree in WorktreeRepository(connection).list_by_status(
+                WorktreeStatus.ACTIVE, WorktreeStatus.REMOVING, WorktreeStatus.CLEANUP_BLOCKED
+            )
+            if current.is_relative_to(worktree.path.resolve())
+        ),
+        None,
+    )
+
+    if worktree is None:
+        raise ConfigurationError(
+            f"{current} is not in the worktree of a run; give the workflow with --workflow"
+        )
+
+    automation_run = next(
+        (
+            automation_run
+            for automation_run in RunRepository(connection).list(
+                issue_key=worktree.issue_key, include_terminal=True
+            )
+            if automation_run.worktree_id == worktree.id
+        ),
+        None,
+    )
+
+    if automation_run is None:
+        raise ConfigurationError(f"{worktree.issue_key} has no run in {worktree.path}")
+
+    project_key = automation_run.issue_key.rsplit("-", 1)[0]
+    resolved = WorkflowResolver(settings).resolve_by_name(project_key, automation_run.workflow_name)
+
+    if resolved is None:
+        raise ConfigurationError(
+            f"Workflow {automation_run.workflow_name!r} of {automation_run.issue_key} "
+            f"is not in the configuration of project {project_key}"
+        )
+
+    return resolved
 
 
 def _load(config: Path | None) -> Settings:

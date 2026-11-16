@@ -43,6 +43,9 @@ projects:
                                   # the bundled ones; copy one there to customize it
                                   # (`spyhop doctor` lists the directory)
         plan_review: true
+        # checkpoints: [regressions, mutation]   # subagents in
+                                  # ~/.claude/agents/checkpoint-<name>.md, run
+                                  # after the implementation; see the README
       Story:
         name: feature
         trigger_statuses: ["In Development"]

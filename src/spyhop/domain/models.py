@@ -48,6 +48,7 @@ class ResolvedWorkflow:
     build_commands: tuple[str, ...] = ()
     worktree_script: Path | None = None
     worktree_script_timeout: float = 600
+    checkpoints: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
