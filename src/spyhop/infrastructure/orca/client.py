@@ -372,7 +372,12 @@ class OrcaClient:
                 raise failure(f"`orca {name}` returned no result")
 
             for warning in result.get("warnings", []) or []:
-                _log.warning("orca %s: %s", name, warning.get("message", warning))
+                # Orca sends a warning as an object with a message or as a string.
+
+                if isinstance(warning, dict):
+                    warning = warning.get("message", warning)
+
+                _log.warning("orca %s: %s", name, warning)
 
             return result
 
