@@ -9,247 +9,182 @@
   <img src="https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white" alt="Python 3.12+"/>
   <img src="https://img.shields.io/badge/managed%20with-uv-DE5FE9" alt="Managed with uv"/>
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20systemd-informational" alt="Linux and systemd"/>
-  <img src="https://img.shields.io/badge/status-MVP%20complete-brightgreen" alt="MVP complete"/>
 </p>
 
 ---
 
 *Spyhopping* is when an orca lifts its head out of the water to look around.
-Spyhop does the same with JIRA: it keeps an eye on your tickets and, when one of
-them moves to a "start" status such as **In Progress**, it sets up the work for
-a Claude Code agent in [Orca](https://www.onorca.dev).
+Spyhop does the same with JIRA. When you move one of your tickets to a start
+status, such as **In Progress**, Spyhop creates a worktree for it in
+[Orca](https://www.onorca.dev) and starts a Claude Code agent there.
 
-You stay in control of what gets worked on: you assign tickets by hand and you
-move them to *In Progress* yourself. Spyhop only takes over from there.
+You decide what gets worked on: you assign the tickets and you move them.
+Spyhop never pushes, opens pull requests or changes tickets. The agent pushes
+and opens a pull request only when you run `/pr` in its terminal.
 
 ## Table of contents
 
-- [Features](#features)
-- [How it works](#how-it-works)
 - [A ticket, step by step](#a-ticket-step-by-step)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
-- [Running as a service](#running-as-a-service)
 - [Usage](#usage)
 - [Troubleshooting](#troubleshooting)
 - [Security](#security)
-- [Development](#development)
-- [Project layout](#project-layout)
-
-## Features
-
-- **Transition-based triggers.** A ticket starts an automation when it *enters*
-  a start status, not every time it is seen there. Leaving and re-entering
-  starts a new one.
-- **Exact and idempotent detection.** JQL finds the candidates; the JIRA
-  changelog gives the exact transition time and a stable id, so a transition is
-  never processed twice.
-- **Nothing lost while offline.** Transitions that happen while your laptop is
-  off are picked up on the next successful poll.
-- **Per-project, per-issue-type workflows.** Each issue type has its own start
-  statuses, repository, base branch, prompt and plan-review setting.
-- **Portable.** Nothing machine-specific in the code or the repository:
-  configuration follows XDG, repositories are aliases, credential variable names
-  are configurable.
-- **One worktree per ticket**, linked to the ticket in Orca and reused by later
-  runs, with the agent's context (`CLAUDE-TASK.md`, permission profile) written before
-  the agent starts.
-- **Launches that are never duplicated.** Every launch carries an operation id
-  stored beforehand, so a lost answer, a timeout or a restart replays the same
-  launch instead of starting a second agent. Prompts typed into a running agent
-  work the same way.
-- **Plan review from the Orca board.** The agent stops after writing `CLAUDE-PLAN.md`;
-  dragging its card to *In progress* approves the plan and starts the
-  implementation.
-- **Worktrees removed when tickets close**, never forced: a worktree with
-  uncommitted changes is left for you, flagged on its Orca card. A reopened
-  ticket continues from its unmerged branch.
-- **Completion is declared, never guessed.** A run is `COMPLETED` only when the
-  agent leaves its card in *In progress* with a `CLAUDE-RESULT.md`. Anything
-  Spyhop cannot determine is handed to you, not assumed.
-- **Safe dry-run mode**, with its own database, to see what *would* be
-  automated before anything is.
-- **Runs in the background** as a systemd user service that starts when you
-  log in.
-- **`spyhop doctor`** checks credentials, JIRA projects, issue types and
-  statuses, repositories, Orca and its board columns, and the service, so a typo never fails silently.
-
-## How it works
-
-Spyhop runs in the background between JIRA and Orca: it polls JIRA's REST API,
-drives Orca through its CLI (`orca-ide`) and keeps its own state in SQLite.
-
-1. Every polling interval, Spyhop asks JIRA for **your** tickets that changed
-   into a configured start status since the last successful poll.
-2. For each one it reads the changelog to find the exact transition, resolves
-   the workflow for that project and issue type, and records an automation run.
-3. It reuses the ticket's Orca worktree or creates one linked to the ticket,
-   named after its key and title (`LPD-1234-fix-the-import`). It writes
-   `CLAUDE-TASK.md` with the ticket and its parents, and launches Claude Code with a
-   verifiable `/goal`: first a `CLAUDE-PLAN.md` for you to approve, then the implementation, ending
-   with local commits and a `CLAUDE-RESULT.md`. The plan comes from an agent on
-   `agents.plan_model` and the implementation from an agent on `agents.model`.
-   The agent marks its Orca card when each step is done.
-4. Every cycle it follows each agent through Orca: working, asking you
-   something, waiting for its plan to be approved, or done. When you approve the
-   plan, it launches a new agent on `agents.model` with the implementation `/goal`.
-5. When the ticket is closed, it cancels the ticket's run, stops its agents and
-   removes the worktree. Orca deletes the branch only if it is already merged;
-   if the ticket is reopened, the new worktree continues from that branch.
-
-Spyhop never pushes, opens pull requests or changes tickets: that stays with you.
-The agent pushes and opens the pull request only when you run `/pr` in its
-terminal.
 
 ## A ticket, step by step
 
-What you do is in **bold**; the rest happens on its own.
+What you do is in **bold**. The rest happens by itself.
 
-1. **Move a ticket assigned to you to a start status in JIRA** (its workflow's
-   `trigger_statuses`). Spyhop creates a worktree for it in Orca and starts an
-   agent there.
-2. The agent, on `agents.plan_model`, writes `CLAUDE-PLAN.md` and moves its card to *In review*
-   (`orca.plan_review_status`). **Read `CLAUDE-PLAN.md`**, then either:
-   - **drag the card to *In progress*** (`orca.plan_approved_status`) to
-     approve it, run `spyhop approve KEY`, which moves the card for you, or
-     tell the [supervisor session](#the-supervisor-session) that you approve
-     it, or
-   - **answer the agent in its terminal** to change it.
+1. **Move a ticket assigned to you to a start status in JIRA.** Spyhop creates
+   a worktree for the ticket and starts an agent on `agents.plan_model`. The
+   agent gets the ticket and its parents in `CLAUDE-TASK.md`.
+2. The agent writes `CLAUDE-PLAN.md` and moves its Orca card to *In review*.
+   **Read the plan**, then do one of these:
+   - **Approve it.** Drag the card to *In progress*, run `spyhop approve KEY`,
+     or tell the [supervisor session](#the-supervisor-session) that you
+     approve it.
+   - **Change it.** Answer the agent in its terminal.
 
-   The implementation agent does not see this conversation. It reads only
-   `CLAUDE-PLAN.md`, so make sure that the plan agent writes each change into
-   that file. You can close the tab of the plan agent: the run stays in
-   `plan_review`, and the approval still starts the implementation. To change
-   the plan after that, start an agent in the worktree yourself and tell it to
-   edit `CLAUDE-PLAN.md`. Workflows with `plan_review: false` skip this step.
-3. Spyhop launches a new agent on `agents.model`, which implements the plan and
-   commits locally. The plan agent stays open with no work. Workflows with
-   `plan_review: false` keep one agent on `agents.model` for all the work. With
-   `agents.review_command` set, it then runs that review over its commits and
-   applies the most important findings. It writes `CLAUDE-RESULT.md` and leaves
-   its card in *In progress*, with an unread dot. If the workflow's
-   [pipeline](#pipelines-and-checkpoints) has checkpoints after the
-   implementation, Spyhop runs them now, and the agent fixes what they find. **Review the commits, then
-   push and open the pull request**, yourself or by running `/pr` in the agent's
-   terminal.
-4. **Close the ticket in JIRA.** Spyhop removes the worktree, keeping the branch
-   if it is not merged. See [When the ticket closes](#when-the-ticket-closes).
+   The implementation agent reads only `CLAUDE-PLAN.md`, so make sure that
+   each change goes into that file. You can close the tab of the plan agent:
+   the approval still starts the implementation. To change the plan after
+   that, start an agent in the worktree and tell it to edit `CLAUDE-PLAN.md`.
+3. Spyhop starts a new agent on `agents.model`. It implements the plan, makes
+   local commits, writes `CLAUDE-RESULT.md` and leaves its card in
+   *In progress*. If the workflow has [checkpoints](#pipelines-and-checkpoints)
+   after the implementation, Spyhop runs them, and the agent fixes what they
+   find. **Review the commits, then push and open the pull request**, yourself
+   or with `/pr` in the agent's terminal.
+4. **Close the ticket in JIRA.** Spyhop removes the worktree. See
+   [When the ticket closes](#when-the-ticket-closes).
 
-`spyhop status` shows where each ticket is. When it says `WAITING_FOR_HUMAN`,
-the reason tells you what to do:
+`spyhop status` shows where each ticket is. When a run is
+`WAITING_FOR_HUMAN`, the reason tells you what to do:
 
-- `plan_review`: review the plan (step 2).
-- `checkpoints_failed`: a checkpoint failed, and its phase does not fix or has
-  no rounds left. Read `CLAUDE-CHECKPOINTS.md` and the report; see
-  [Pipelines and checkpoints](#pipelines-and-checkpoints).
-- `agent_question`: the agent asked something or needs a permission; answer it
-  in its terminal.
-- `unknown_state`: the agent stopped without finishing. Tell it to go on in its
-  terminal, or give up with `spyhop fail KEY`.
+| Reason | What to do |
+| --- | --- |
+| `plan_review` | Review the plan (step 2). |
+| `checkpoints_failed` | Read `CLAUDE-CHECKPOINTS.md` and the reports. Fix the cause, then run `spyhop checkpoints rerun KEY`. |
+| `agent_question` | Answer the agent in its terminal. |
+| `unknown_state` | Tell the agent to go on in its terminal, or stop the run with `spyhop fail KEY`. |
 
-Moving a card yourself does not finish a run: *In progress* counts only once the
-agent has written `CLAUDE-RESULT.md`. To start a finished run again, use
-`spyhop retry KEY`; to remove a worktree before the ticket closes,
-`spyhop cleanup KEY`.
+To start a run again, stop it with `spyhop fail KEY`, then run
+`spyhop retry KEY`. `retry` accepts only a finished run.
+
+### The supervisor session
+
+Each worktree gets one Claude session in an Orca tab named `spyhop`. Spyhop
+sends it a message that starts with `[spyhop]` for each event: the start of an
+agent or a checkpoint, each verdict, the end of the run, and each reason why
+the run waits for you.
+
+When the run waits, the session tells you what happened and gives the options
+with their commands. When a plan waits for its review, the session gives a
+summary of the plan and asks if you approve it. The session cannot edit
+files, and it runs a command only when you ask it to.
+
+### When the ticket closes
+
+When a ticket with a worktree closes, Spyhop stops the run and its agents and
+removes the worktree. It never forces the removal:
+
+- A merged branch is deleted with the worktree.
+- An unmerged branch is kept. If you reopen the ticket, the new worktree
+  continues from that branch.
+- A worktree with uncommitted changes stays, as `CLEANUP_BLOCKED`, with a
+  comment on its Orca card. Commit or discard the changes, and the next cycle
+  removes it.
+
+`CLAUDE-TASK.md`, `CLAUDE-PLAN.md` and `CLAUDE-RESULT.md` are excluded from
+Git, so they are lost with the worktree.
 
 ## Requirements
 
-| Requirement | Notes |
-| --- | --- |
-| Linux with systemd | The service runs as a systemd **user** unit. |
-| Python 3.12+ | uv can provide it if your system does not. |
-| [uv](https://docs.astral.sh/uv/) | Dependency management and installation. |
-| [Orca](https://www.onorca.dev) with its CLI | Install the CLI from Orca's settings; on Linux it is called `orca-ide`. |
-| JIRA Cloud account and API token | Create one at <https://id.atlassian.com/manage-profile/security/api-tokens>. |
+- Linux with systemd.
+- Python 3.12 or later, and [uv](https://docs.astral.sh/uv/).
+- [Orca](https://www.onorca.dev) with its CLI. Install the CLI from the
+  settings of Orca. On Linux, its name is `orca-ide`.
+- A JIRA Cloud account and an
+  [API token](https://id.atlassian.com/manage-profile/security/api-tokens).
 
 > [!WARNING]
-> On many Linux desktops `orca` is the **GNOME screen reader**. Spyhop never
-> runs a command called `orca`: it looks for `orca-ide` and refuses any Python
-> script it is pointed at.
+> On many Linux desktops, `orca` is the **GNOME screen reader**. Spyhop uses
+> only `orca-ide`.
 
 ## Installation
 
-Install uv if you do not have it:
-
 ```sh
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Install Spyhop as a command-line tool (it lands in `~/.local/bin`):
-
-```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh    # if you do not have uv
 uv tool install git+https://github.com/JavierMoral/spyhop.git
 spyhop version
 ```
 
+To upgrade:
+
+```sh
+uv tool upgrade spyhop
+systemctl --user restart spyhop
+```
+
 ## Quick start
 
-**1. Make your JIRA credentials available in the session.** By default Spyhop
-reads `JIRA_API_USER` (your Atlassian email) and `JIRA_API_TOKEN`, for example
-from `~/.profile`:
+1. **Export your JIRA credentials**, for example in `~/.profile`:
 
-```sh
-export JIRA_API_USER="you@example.com"
-export JIRA_API_TOKEN="your-api-token"
-```
+   ```sh
+   export JIRA_API_USER="you@example.com"
+   export JIRA_API_TOKEN="your-api-token"
+   ```
 
-**2. Create the configuration.** This writes `~/.config/spyhop/config.yaml` from
-the example and copies the credentials into `~/.config/spyhop/env` (mode 600) for
-the background service. Neither file is ever overwritten.
+2. **Create the configuration.** This writes `~/.config/spyhop/config.yaml`,
+   and copies the credentials into `~/.config/spyhop/env` for the service. It
+   never overwrites a file.
 
-```sh
-spyhop config init
-```
+   ```sh
+   spyhop config init
+   ```
 
-**3. Edit the configuration** with your JIRA site, repositories, projects and
-start statuses (see [Configuration](#configuration)):
+3. **Edit `~/.config/spyhop/config.yaml`** with your JIRA site, repositories,
+   projects and start statuses. See [Configuration](#configuration).
 
-```sh
-$EDITOR ~/.config/spyhop/config.yaml
-```
+4. **Check everything**, and fix each ✗:
 
-**4. Check everything.** Fix every ✗ before going further.
+   ```sh
+   spyhop doctor
+   ```
 
-```sh
-spyhop doctor
-```
+5. **Try it in dry-run mode**, which is the default. The first poll only sets
+   the starting point: Spyhop ignores tickets that you moved before it.
 
-```text
-✓ configuration: /home/you/.config/spyhop/config.yaml
-✓ session credentials: JIRA_API_USER, JIRA_API_TOKEN are set
-✓ credentials file: /home/you/.config/spyhop/env
-✓ jira: https://your-site.atlassian.net as Your Name (Europe/Madrid)
-✓ project PROJ: 3 workflows match JIRA
-✓ repository main: /home/you/git/your-repository
-✓ orca: /home/you/.local/bin/orca-ide (version 1.4.245), runtime ready
-! service: not installed; run `spyhop service install`
-```
+   ```sh
+   spyhop run --once -v
+   ```
 
-**5. Try it in the foreground,** in dry-run mode (the default):
+6. **Install the service.** It starts when you log in.
 
-```sh
-spyhop run --once -v     # one poll; the first one only sets the starting point
-spyhop run               # keep watching; Ctrl+C to stop
-```
+   ```sh
+   spyhop service install
+   ```
 
-**6. Install the background service** (see [Running as a service](#running-as-a-service)):
+7. **Go live.** Compare `spyhop status --all` with the tickets that you moved.
+   When they agree, set `dry_run: false` and run
+   `systemctl --user restart spyhop`.
 
-```sh
-spyhop service install
-```
+Add Orca to the startup applications of your session. Until Orca answers,
+the tickets that Spyhop finds wait.
 
 ## Configuration
 
-Spyhop reads `~/.config/spyhop/config.yaml` (or the file given with `--config`
-or `SPYHOP_CONFIG`). A complete, commented example is in
-[`src/spyhop/templates/config.example.yaml`](src/spyhop/templates/config.example.yaml).
+Spyhop reads `~/.config/spyhop/config.yaml`. The complete example, with a
+comment for each key, is
+[`config.example.yaml`](src/spyhop/templates/config.example.yaml).
 
 ```yaml
 application:
   polling_interval: 45            # seconds between polls
-  dry_run: true                   # only log what would be done
+  max_concurrent_agents: 1
+  dry_run: true                   # only log what Spyhop would do
 
 jira:
   base_url: https://your-site.atlassian.net
@@ -260,6 +195,11 @@ repositories:                     # alias -> path on this machine
   main:
     path: ~/git/your-repository
     default_base_branch: master
+    build_commands: ["./gradlew"] # commands that the agent can run
+
+agents:
+  plan_model: opus                # writes the plan
+  model: sonnet                   # implements the plan
 
 projects:
   PROJ:
@@ -269,118 +209,33 @@ projects:
         trigger_statuses: ["In Progress"]
         repository: main
         prompt: bug_fix.md
-        plan_review: true
+        plan_review: true         # false: one agent plans and implements
 ```
 
-### Reference
+You can override each value with an environment variable, for example
+`SPYHOP_APPLICATION__DRY_RUN=false`.
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `application.polling_interval` | `45` | Seconds between polls (minimum 10). |
-| `application.max_concurrent_agents` | `1` | Agents running at the same time. |
-| `application.min_free_disk_gb` | `20` | No new worktree is created while the disk that would hold it (Orca's worktree directory for the repository, else the repository's) has less free space. Runs wait in `DISCOVERED` with `disk_space` and resume by themselves. `0` disables it. |
-| `application.dry_run` | `true` | Detect and record only; uses a separate database. |
-| `application.timezone` | system | Time zone for display. |
-| `jira.base_url` | — | Your JIRA Cloud site. **Required.** |
-| `jira.user_env` / `jira.token_env` | `JIRA_API_USER` / `JIRA_API_TOKEN` | Names of the credential variables. |
-| `jira.request_timeout` | `20` | Seconds per JIRA request. |
-| `jira.transition_margin_minutes` | `5` | Overlap between polls, because JQL dates work to the minute. |
-| `repositories.<alias>.path` | — | Local checkout. Accepts `~` and `${VAR}`. |
-| `repositories.<alias>.default_base_branch` | `master` | Base branch for new worktrees. |
-| `repositories.<alias>.setup` | `inherit` | Orca setup hooks for new worktrees: `inherit` (the repository's policy in Orca), `run` or `skip`. |
-| `repositories.<alias>.build_commands` | `[]` | Commands added to the agent's allow list, such as `./gradlew`. |
-| `repositories.<alias>.worktree_script` | — | Executable that creates new worktrees instead of Orca; see [Creating worktrees with a script](#creating-worktrees-with-a-script). Accepts `~` and `${VAR}`. |
-| `repositories.<alias>.worktree_script_timeout` | `600` | Seconds the script may take before the run fails. |
-| `repositories.<alias>.worktree_cleanup_script` | — | Executable run once Orca has removed a worktree, to remove what lives next to it; see [Creating worktrees with a script](#creating-worktrees-with-a-script). |
-| `repositories.<alias>.worktree_cleanup_script_timeout` | `600` | Seconds the cleanup script may take before the removal is retried. |
-| `projects.<KEY>.enabled` | `true` | Ignore a project without deleting its workflows. |
-| `projects.<KEY>.workflows.<IssueType>.name` | — | Workflow name, shown in logs and `status`. |
-| `….trigger_statuses` | — | Statuses that start an automation for this issue type. |
-| `….repository` | — | Repository alias. |
-| `….base_branch` | repository default | Overrides the repository's base branch. |
-| `….prompt` | — | Template with this workflow's guidance, added to `CLAUDE-TASK.md`. Looked up first in `~/.config/spyhop/templates/`, then among the bundled ones; see [Customizing templates](#customizing-templates). |
-| `….plan_review` | `true` | Ask for your approval of the plan before implementing. Not allowed with `pipeline`, which decides it. |
-| `….pipeline` | — | Name of a pipeline in `pipelines`; see [Pipelines and checkpoints](#pipelines-and-checkpoints). |
-| `pipelines.<name>` | — | The phases of a workflow, in order: `plan`, `plan_review`, `implement`, and checks phases. |
-| `orca.executable` | autodetected | Path to the Orca CLI; `orca-ide` is found in `PATH` when omitted. |
-| `orca.startup_timeout` / `orca.operation_timeout` | `30` / `120` | Seconds. |
-| `orca.plan_review_status` | `in-review` | Board column the agent moves its card to when its plan is ready; see [Orca board columns](#orca-board-columns). |
-| `orca.plan_approved_status` | `in-progress` | Board column that approves a plan: moving the card there launches a new agent with the implementation `/goal`. The card stays there when the work is finished. |
-| `agents.provider` / `model` / `effort` | `claude` / `sonnet` / `high` | Agent launched in Orca. `model` implements: after an approved plan, or all the work with `plan_review: false`. |
-| `agents.plan_model` | `opus` | Model of the agent that writes `CLAUDE-PLAN.md` when the workflow has `plan_review: true`. |
-| `agents.checkpoint_timeout_minutes` | `180` | A checkpoint without a result after this time is a `FAIL`. |
-| `agents.review_command` | — | Command, usually a slash command such as `/code-review-loop --rounds 2`, that the agent runs over its commits once the implementation is done and its tests pass, letting it apply the most important findings before it writes `CLAUDE-RESULT.md`. Nothing is pushed. Unset, there is no review step. |
-| `cleanup.enabled` | `true` | Remove a ticket's worktree when the ticket closes. |
-| `cleanup.close_status_categories` | `["done"]` | JIRA status categories that count as closed. |
-| `cleanup.close_statuses` | `[]` | Extra closed statuses outside those categories. |
-| `service.env_source` | `env_file` | How the service gets credentials: `env_file` or `login_shell`. |
-| `service.env_file` | `~/.config/spyhop/env` | Credentials file for `env_file`. |
-
-### Overriding values
-
-Precedence, lowest first: defaults → `config.yaml` → environment variables →
-command-line options. Environment variables use the `SPYHOP_` prefix and `__`
-between levels:
-
-```sh
-SPYHOP_APPLICATION__DRY_RUN=false spyhop run
-SPYHOP_APPLICATION__POLLING_INTERVAL=120 spyhop run
-```
-
-### Files Spyhop uses
-
-| What | Where |
-| --- | --- |
-| Configuration | `~/.config/spyhop/config.yaml` |
-| Credentials for the service | `~/.config/spyhop/env` (`KEY="value"`, mode 600) |
-| State | `~/.local/state/spyhop/spyhop.db` |
-| State in dry-run mode | `~/.local/state/spyhop/spyhop-dry-run.db` |
-| Service unit | `~/.config/systemd/user/spyhop.service` |
-| Custom templates (optional) | `~/.config/spyhop/templates/` |
-
-All of them follow `XDG_CONFIG_HOME` and `XDG_STATE_HOME`.
+Spyhop keeps its state in `~/.local/state/spyhop/`. The dry-run mode uses a
+separate database, so Spyhop never acts on the tickets of a trial.
 
 ### Creating worktrees with a script
 
-By default Orca creates each worktree in its worktree directory for the
-repository. To choose the layout yourself, for example one folder per ticket
-holding the worktree and a Liferay bundle of its own, set
-`repositories.<alias>.worktree_script` to an executable. Spyhop then runs it
-instead of `orca worktree create`, links the worktree it prints to the ticket
-with `orca reference add`, and goes on as usual: same context files, same agent,
-same cleanup with `orca worktree rm`.
+By default, Orca creates the worktrees. To use your own layout, set
+`repositories.<alias>.worktree_script` to an executable. Spyhop runs it from
+the repository with these variables: `SPYHOP_ISSUE_KEY`,
+`SPYHOP_WORKTREE_NAME`, `SPYHOP_BRANCH`, `SPYHOP_BASE_BRANCH` and
+`SPYHOP_REPOSITORY_PATH`. The script must:
 
-The script runs from the repository with these variables:
-
-| Variable | Content |
-| --- | --- |
-| `SPYHOP_ISSUE_KEY` | The ticket, `LPD-1234`. |
-| `SPYHOP_WORKTREE_NAME` | The ticket and its title as a slug, `LPD-1234-fix-the-import`. |
-| `SPYHOP_BRANCH` | The branch to check out. When it exists (a reopened ticket whose branch was kept), check it out; otherwise create it. |
-| `SPYHOP_BASE_BRANCH` | Where to create `SPYHOP_BRANCH` from: the workflow's base branch. |
-| `SPYHOP_REPOSITORY_PATH` | The repository's `path`. |
-
-Its contract:
-
-- **Print the worktree's absolute path as the last line of standard output.**
-  Send everything else, such as Git's progress, to standard error.
-- **Exit with 75 to try again later** (`EX_TEMPFAIL`), for a problem that
-  goes away by itself, such as a fetch that fails while the SSH agent is
-  locked. The run stays in `PREPARING` with `waiting: worktree_script` and the
-  end of standard error in `spyhop status`, and the script runs again every
-  cycle until it succeeds or exits with another code.
-- **Exit with any other non-zero code to refuse.** The run fails with the end
-  of standard error as its message; `spyhop retry` starts it again.
-- **Be idempotent.** When the worktree already exists, print its path again.
-  Orca lists a worktree created outside it once it has seen it in Git; until
-  then the run waits in `PREPARING`, and the next cycle runs the script again.
-- **Do the setup yourself.** Orca's setup hooks and the repository's `setup`
-  value do not apply to worktrees the script creates. `git worktree add` copies
-  only tracked files, so copy the ignored files that a build needs, for
-  example liferay-portal's `build.<user>.properties`.
-
-For example, a worktree in `agents/<name>/portal`, next to a bundle in
-`agents/<name>/bundles`:
+- Check out `SPYHOP_BRANCH` when it exists. Otherwise, create it from
+  `SPYHOP_BASE_BRANCH`.
+- Write the absolute path of the worktree as the last line of standard
+  output, and all other output to standard error.
+- Print the same path again when the worktree already exists.
+- Exit with 75 to try again on the next cycle, for example when a fetch
+  fails. Any other non-zero code stops the run.
+- Do the setup. Orca's setup hooks do not run, and `git worktree add` copies
+  only tracked files. Copy the ignored files that a build needs, such as
+  `build.<user>.properties`.
 
 ```bash
 #!/usr/bin/env bash
@@ -390,7 +245,7 @@ worktree="$HOME/git/liferay-portal/agents/$SPYHOP_WORKTREE_NAME/portal"
 
 if [[ ! -e "$worktree/.git" ]]; then
 	mkdir -p "$(dirname "$worktree")"
-	git fetch --quiet upstream >&2 || exit 75  # try again next cycle
+	git fetch --quiet upstream >&2 || exit 75
 
 	if git rev-parse --verify --quiet "refs/heads/$SPYHOP_BRANCH" >/dev/null; then
 		git worktree add "$worktree" "$SPYHOP_BRANCH" >&2
@@ -402,225 +257,48 @@ fi
 echo "$worktree"
 ```
 
-What the script creates next to the worktree, such as the bundle above, is
-not removed by `orca worktree rm`. Set
-`repositories.<alias>.worktree_cleanup_script` to an executable that removes
-it. Spyhop runs it, from the repository, only after Orca has removed the
-worktree, so a worktree kept for its uncommitted changes
-(`CLEANUP_BLOCKED`) keeps its bundle too. It gets `SPYHOP_ISSUE_KEY`,
-`SPYHOP_WORKTREE_PATH` (the removed worktree), `SPYHOP_BRANCH` and
-`SPYHOP_REPOSITORY_PATH`. It runs for every worktree of the repository,
-including ones Orca created before the creation script was set, so it must
-check that the path is one of its own. A non-zero exit leaves the worktree in
-`REMOVING` and the next cycle runs it again, so it must also succeed when
-there is nothing left to remove:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-agents="$HOME/git/liferay-portal/agents"
-folder="$(dirname "$SPYHOP_WORKTREE_PATH")"
-
-if [[ "$(dirname "$folder")" != "$agents" || "$(basename "$SPYHOP_WORKTREE_PATH")" != "portal" ]]; then
-	exit 0
-fi
-
-pkill -f -- "$folder/" || true  # Tomcat, sidecar and Gradle daemon running from it
-rm -rf -- "$folder"
-git -C "$SPYHOP_REPOSITORY_PATH" worktree prune >&2
-```
-
-`spyhop doctor` checks that both scripts exist and are executable.
-
-### What the agent gets
-
-Before launching, Spyhop writes three things into the worktree:
-
-| File | Content |
-| --- | --- |
-| `CLAUDE-TASK.md` | The ticket's key, title and parents up to the root, with the instruction to read their current content from JIRA; the workflow's guidance; rules; how to check the plan against similar cases in the code, tests included, so it follows their patterns instead of creating new ones; the deliverables for `CLAUDE-RESULT.md`; and, with plan review, the `/goal` for the implementation phase. |
-| `.claude/settings.local.json` | The permission profile: what the agent may do without asking, and what it may never do (force-push, merge or close pull requests, change JIRA, remove worktrees, `wget`). Pushing and opening a pull request are left to `/pr`. It also allows `spyhop checkpoints check`. |
-| `.git/info/exclude` | Entries for `CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md`, the permission profile, `CLAUDE-CHECKPOINTS.md` and `CLAUDE-CHECKPOINT-*.md`, so they never end up in a commit. |
-
-The launch prompt is a `/goal`. With `plan_review: true`, the agent writes
-`CLAUDE-PLAN.md`, changes nothing else, and moves its Orca card to `orca.plan_review_status`
-with an unread dot. With `plan_review: false`, one `/goal` covers plan and
-implementation. Either way the agent ends by writing `CLAUDE-RESULT.md` and putting its
-card in `orca.plan_approved_status`.
-
-### Orca board columns
-
-`orca.plan_review_status` and `orca.plan_approved_status` are columns of Orca's
-board, not JIRA statuses. The defaults, *In review* and *In progress*, come with
-Orca, so nothing has to be created.
-
-Plans wait in *In review*. Approved and finished work share *In progress*;
-Spyhop tells them apart by `CLAUDE-RESULT.md`. Avoid custom columns: Orca gives
-each one a `status-N` id that differs from machine to machine, so a
-configuration using it only works on yours.
-
-### Following a run
-
-The everyday flow is in [A ticket, step by step](#a-ticket-step-by-step).
-
-A run that needs a new worktree while the disk is below
-`application.min_free_disk_gb` waits before it starts: it stays `DISCOVERED`
-with `waiting: disk_space` and the free space in `spyhop status`, holds no agent
-slot and makes no JIRA requests. Each cycle measures again, oldest run first, so
-it starts as soon as space is freed, for example when the worktree of a closed
-ticket is removed. Runs that reuse an existing worktree are not held back, and a
-waiting run is cancelled if its ticket closes.
-
-A run waiting for you keeps its agent slot. One in `unknown_state` stays there
-until the agent works again or you give up on it with `spyhop fail <KEY>`. Only
-files written after the run's launch count, so a `CLAUDE-PLAN.md` or `CLAUDE-RESULT.md` left
-by an earlier run of the ticket is never taken as a signal.
-
-### The supervisor session
-
-Each worktree gets one interactive Claude session in an Orca tab named
-`spyhop`. Spyhop starts it the first time it has something to tell about a run:
-usually the first round of checkpoints, or the launch of the first agent. The
-session uses `agents.model`, and it cannot use `Edit`, `Write` or
-`NotebookEdit`.
-
-Spyhop sends it a message that starts with `[spyhop]` for each event:
-
-- The start of a round of checkpoints, the start of each checkpoint with its
-  log file, and each verdict.
-- The launch of an agent, a request to fix findings, and the end of the run.
-- Each reason why the run waits for a person, as `[spyhop] KEY: ESPERA: …`.
-  Spyhop also comments on the card with the reason and marks it unread.
-
-For a wait, the session reads `CLAUDE-CHECKPOINTS.md` and the reports, and
-tells you what happened. It says if the code or the ticket has a problem, or
-if the checkpoint itself failed. It also gives the options with their commands.
-Ask it in the tab to run one, for example `spyhop checkpoints rerun KEY`.
-
-For a plan that waits for its review, the session reads `CLAUDE-PLAN.md`,
-gives a summary and asks if you approve it. When you approve it, the session
-runs `spyhop approve KEY`. Changes to the plan go to the plan agent in its
-own tab. If you close that tab while the plan waits for its review, the
-session gets one message that tells you to approve the plan or to start an
-agent in the worktree to edit `CLAUDE-PLAN.md`.
-
-The worktree row keeps the terminal and the pane of the session. The
-supervisor never takes that pane for an agent of the run, so the session does
-not block a round of checkpoints. If you close the tab, the next message
-starts a new session. If Orca gives no handle or no pane for the session,
-Spyhop closes it, and that worktree gets no session. An error of Orca with
-the session only goes to the log.
-
-### When the ticket closes
-
-Every cycle, Spyhop asks JIRA which tickets with a worktree are closed (status
-category in `cleanup.close_status_categories`, or status in
-`cleanup.close_statuses`), whoever they are assigned to now. For each one it
-cancels the active run, stops the worktree's agents, terminals and checkpoints,
-and removes
-the worktree with `orca worktree rm`, never forced:
-
-- **Merged branch**: Orca deletes it with the worktree.
-- **Unmerged branch**: Orca keeps it. If the ticket is reopened, its new
-  worktree is created from that branch, so the work continues where it was.
-- **Uncommitted changes**: nothing is removed. The worktree is marked
-  `CLEANUP_BLOCKED` and its Orca card gets a comment and the unread dot. Commit
-  or discard the changes and the next cycle removes it; reopening the ticket
-  instead reuses it.
-
-Once the worktree is gone, the repository's `worktree_cleanup_script`, when
-set, removes what lived next to it, such as its bundle; see
-[Creating worktrees with a script](#creating-worktrees-with-a-script).
-
-`CLAUDE-TASK.md`, `CLAUDE-PLAN.md` and `CLAUDE-RESULT.md` are excluded from Git, so they do not
-block the removal and are lost with the worktree: what matters stays in the
-commits and in JIRA. Their `CLAUDE-` prefix keeps them alive through
-liferay-portal's `ant all` and `ant clean`, whose `git clean -X` removes ignored
-files except those matching `**/CLAUDE*.md`. A removal interrupted by Orca or a restart is resumed on
-the next cycle.
+To remove what the script creates next to the worktree, such as a bundle,
+set `repositories.<alias>.worktree_cleanup_script`. Spyhop runs it after Orca
+removes a worktree, with `SPYHOP_WORKTREE_PATH`. It runs for each worktree of
+the repository, so it must ignore paths that are not its own. It must also
+succeed when there is nothing to remove.
 
 ### Customizing templates
 
-Everything Spyhop writes for the agent comes from Jinja2 templates, looked up
-first in `~/.config/spyhop/templates/` and then among the bundled ones in
-[`src/spyhop/templates/`](src/spyhop/templates/):
-
-| Template | Used for |
-| --- | --- |
-| `task.md` | `CLAUDE-TASK.md`, the ticket's context. |
-| `goal.md` | The `/goal` the agent is launched with. |
-| `settings.local.json.j2` | The agent's permissions in the worktree. |
-| `bug_fix.md`, `feature.md`, `technical_task.md` | Workflow guidance, chosen by a workflow's `prompt`. |
-| `fix.md` | The prompt that asks the implementation agent to fix the findings of failed checkpoints. |
-| `supervisor.md` | The first prompt of the [supervisor session](#the-supervisor-session). |
-
-To change one, copy it to `~/.config/spyhop/templates/` with the same name and
-edit the copy; the bundled one is then ignored. A workflow's `prompt` can also
-name a new template, such as `my_workflow.md`, as long as it exists in either
-directory. `spyhop doctor` checks that every template exists and lists the ones
-you customized.
+Spyhop writes the instructions for the agents from templates. To change one,
+copy it from [`src/spyhop/templates/`](src/spyhop/templates/) to
+`~/.config/spyhop/templates/` with the same name, and edit the copy. A
+workflow's `prompt` can also name a new template. `spyhop doctor` lists the
+templates that you changed.
 
 ### Pipelines and checkpoints
 
-A pipeline gives the phases of a workflow, in order. Without a pipeline, a
-workflow has the phases `plan`, `plan_review` and `implement`, or only
-`implement` with `plan_review: false`.
+A pipeline sets the phases of a workflow, in order. A checks phase runs
+checkpoints, which are Claude Code subagents that verify the work.
 
 ```yaml
 pipelines:
   bug:
     - checks: [ticket-info, repro-steps, reproduce]
-      on_fail: human
+      on_fail: human              # the run waits for you
     - plan
     - plan_review
     - implement
     - checks: [regressions, mutation, security]
-      on_fail: fix
+      on_fail: fix                # the agent fixes the findings
       rounds: 3
 
 projects:
-  LPD:
+  PROJ:
     workflows:
       Bug:
-        name: bug_fix
-        pipeline: bug
-        # trigger_statuses, repository and prompt as usual
+        pipeline: bug             # instead of plan_review
 ```
 
-| Phase | What happens |
-| --- | --- |
-| `plan` | An agent on `agents.plan_model` writes `CLAUDE-PLAN.md`. |
-| `plan_review` | You approve the plan (step 2 of [A ticket, step by step](#a-ticket-step-by-step)). |
-| `implement` | An agent on `agents.model` implements and writes `CLAUDE-RESULT.md`. |
-| `checks` | Spyhop runs checkpoints, without an agent. |
+After a fix, or a change of the ticket, the failed checks run again. To run
+them again yourself, use `spyhop checkpoints rerun KEY`.
 
-Spyhop refuses a pipeline without `implement`, with `plan` but without
-`plan_review` (or the reverse), with the steps in another order, with checks
-between `plan` and `plan_review`, or with a checkpoint in two phases.
-
-When a checks phase fails:
-
-- `on_fail: human` (the default): the run waits with `checkpoints_failed`.
-- `on_fail: fix`: only after `implement`. Spyhop sends the reports to the
-  implementation agent, which fixes the findings with commits and writes
-  `CLAUDE-RESULT.md` again. Then the checks run again. `rounds` (default 3)
-  is the most rounds of the phase, and each round counts, also one that a
-  person or a change of the inputs starts. The agent fixes after each failed
-  round except the last one. After the last one, the run waits with
-  `checkpoints_failed`.
-
-A failed round starts again by itself when the inputs of a failed checkpoint
-change and no agent works in the worktree: for example, when you complete the
-ticket in JIRA or commit a fix. `spyhop checkpoints rerun KEY` starts it again
-without a change, for example after you repair the bundle.
-
-#### Checkpoints
-
-A checkpoint is a Claude Code subagent in
-`~/.claude/agents/checkpoint-<name>.md` (`$CLAUDE_CONFIG_DIR/agents` when that
-variable is set). Its frontmatter gives the subagent's `model` and `tools`, and
-three keys for Spyhop:
+Each checkpoint is a file `~/.claude/agents/checkpoint-<name>.md`:
 
 ```markdown
 ---
@@ -628,222 +306,64 @@ name: checkpoint-mutation
 description: Revert the production change and confirm that the new tests fail.
 model: sonnet
 tools: Bash, Read, Glob, Grep, StructuredOutput
-mode: exclusive
-after: [regressions]
-inputs: [head]
+mode: exclusive          # read: only reads the code, and runs in parallel
+after: [regressions]     # checkpoints that run before this one
+inputs: [head]           # ticket, base, head: a change makes the verdict stale
 ---
 ```
 
-- `tools`: when the frontmatter has it, it must include `StructuredOutput`.
-  Without it, the subagent cannot give its result.
-- `mode`: `read` for a checkpoint that only reads the code, `exclusive` for one
-  that changes files or runs a build or tests. Read checkpoints of a stage run
-  in parallel. An exclusive checkpoint runs alone in the worktree. The default
-  is `exclusive`.
-- `after`: the checkpoints that run before this one. It only sets the order.
-  The order also goes through a checkpoint that the phase does not have.
-- `inputs`: what the verdict depends on. When one of them changes, the verdict
-  is stale. The default is `[head]`.
-
-  | Input | Value |
-  | --- | --- |
-  | `ticket` | The `updated` field of the run's JIRA issue. |
-  | `base` | The SHA where HEAD leaves the base branch: the merge base with the first of `upstream/<branch>`, `origin/<branch>` and `<branch>` that exists. |
-  | `head` | The SHA of HEAD. |
-
-Spyhop gives each checkpoint this prompt, and nothing from the other
-checkpoints:
-
-```
-BASE=<sha>
-HEAD=<sha>
-Worktree root: <path>
-Run the checkpoint.
-```
-
-The checkpoint gives one JSON object: `verdict` (`PASS` or `FAIL`), `head`
-(the HEAD at its start), `commands` (each with `command` and `result`) and
-`findings` (each with `severity` `high`, `medium` or `low`, `file`, `line`,
-`summary` and `evidence`). A result that breaks these rules is a `FAIL`: no
-object, a `head` that is not the HEAD of the stage, a `PASS` without
-`commands`, or a `PASS` with a `high` or `medium` finding.
-
-#### How Spyhop runs them
-
-For each stage, Spyhop starts one systemd user unit per checkpoint, named
-`spyhop-checkpoint-<run>-<row>`, with `systemd-run --user`. The unit runs
-`spyhop checkpoints exec` in the worktree, which runs
-`claude -p --agent checkpoint-<name> --json-schema …` and writes the result to
-`~/.local/state/spyhop/checkpoints/<run>/<row>.json`. The steps go to
-`<row>.log` in the same directory. Orca shows no tab for a checkpoint: the
-[supervisor session](#the-supervisor-session) tells you when each one starts
-and ends.
-
-A unit is outside the Spyhop service, so a restart of the service does not
-stop a checkpoint. The unit gets the environment of the systemd user manager
-(`systemctl --user show-environment`), not the one of your shell. To stop a
-checkpoint, run `systemctl --user stop spyhop-checkpoint-<run>-<row>`.
-
-- A stage starts only when the worktree has no uncommitted change.
-- After an exclusive checkpoint, HEAD must be the same and the worktree must
-  have no uncommitted change. If not, the verdict is `FAIL`.
-- A checkpoint that comes after a failed one in the same round is skipped.
-- A checkpoint without a result after `agents.checkpoint_timeout_minutes` is a
-  `FAIL`. Spyhop stops its unit first. While its process still runs, the
-  run waits, so that the process cannot change the worktree under the next
-  stage.
-
-Spyhop adds a section for each result to `CLAUDE-CHECKPOINT-<name>.md`, and
-writes the last verdict of each checkpoint to `CLAUDE-CHECKPOINTS.md`:
-
-```markdown
-| Checkpoint | Verdict | Inputs | Round | Report |
-| --- | --- | --- | --- | --- |
-| regressions | PASS | head=3265e17c3f0a9d2b4e8f1a6c7d5b9e0f2a4c6e8d | 1 | CLAUDE-CHECKPOINT-regressions.md |
-```
-
-`Inputs` is the fingerprint that the verdict is for: `name=value` for each
-input, in the order `ticket`, `base`, `head`, separated by spaces.
-`CLAUDE-TASK.md` tells the agents which checkpoints ran before their work, so
-that they read the reports, and which ones run after it.
-
-`spyhop checkpoints plan` prints the checks phases of the current worktree's
-run, their stages, and the current fingerprint of each checkpoint. It stops
-with an error for a missing file, a `name` that is not `checkpoint-<name>`, an
-unknown `mode` or `inputs`, `tools` without `StructuredOutput`, or a cycle in
-`after`.
-
-`spyhop checkpoints check` compares `CLAUDE-CHECKPOINTS.md` with all the
-checkpoints of the pipeline and with their current fingerprints. It prints the
-result as JSON and exits with 1 when a checkpoint has one of these problems:
-
-| Reason | Problem |
-| --- | --- |
-| `checkpoints_missing` | The checkpoint has no verdict, or the file or its table is not valid. |
-| `checkpoints_failed` | The verdict is `FAIL`. |
-| `checkpoints_stale` | The verdict is `PASS`, but for a fingerprint that is not the current one. |
-
-When there are problems of more than one type, the reason of the result is the
-first one in this table.
-
-## Running as a service
-
-```sh
-spyhop service install   # writes the unit with this machine's paths and starts it
-spyhop doctor            # should now report the service as active
-```
-
-The service starts when you log in and stops when you log out. It restarts
-Spyhop 30 seconds after a failure and gives up after 5 failures in 10 minutes,
-for example with an invalid token; the reason is in the logs.
-
-Orca is a desktop app, so add it to your session's startup applications. Until
-it answers, detected tickets wait.
-
-To keep watching JIRA while you are logged out, start the service at boot
-instead with `loginctl enable-linger "$USER"` (undo it with
-`loginctl disable-linger "$USER"`). Tickets are still launched only once Orca
-is running.
-
-**Credentials.** By default the service loads `~/.config/spyhop/env`, which
-`spyhop config init` creates from your session. Spyhop does not read
-`~/.profile` itself. If you rotate the token, update both places; `spyhop doctor`
-warns when they differ, without printing either value. To use your login shell's
-environment instead, set `service.env_source: login_shell` and run
-`spyhop service install` again.
-
-To remove the service:
-
-```sh
-spyhop service uninstall
-```
+The checkpoint gets the base and head SHAs and the worktree root. It must
+give a `verdict` (`PASS` or `FAIL`), the `head`, the `commands` that it ran
+and its `findings`. A `PASS` with a high or medium finding is a `FAIL`.
+Spyhop writes the verdicts to `CLAUDE-CHECKPOINTS.md`, and each report to
+`CLAUDE-CHECKPOINT-<name>.md`. `spyhop checkpoints plan` validates the
+checkpoints of a workflow.
 
 ## Usage
 
 | Command | Description |
 | --- | --- |
-| `spyhop run` | Run the daemon in the foreground. `--once` polls once; `--dry-run/--no-dry-run` overrides the configuration; `-v` for debug logs. |
-| `spyhop status [KEY]` | Last poll, watermark, last error and active runs. `--all` includes finished runs. |
-| `spyhop approve KEY` | Approve the plan of a run in `plan_review`: moves its card to `orca.plan_approved_status`. The daemon starts the next phase on its next cycle. |
-| `spyhop retry RUN\|KEY` | Start a finished run again as a new run (same ticket and worktree). Takes the run id from `status` (its first characters are enough) or a ticket key for its latest run. |
-| `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
-| `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
-| `spyhop checkpoints plan` | Print as JSON the checks phases of the current worktree's run and their stages. `--workflow NAME` plans a workflow outside a run. See [Pipelines and checkpoints](#pipelines-and-checkpoints). |
-| `spyhop checkpoints check` | Print as JSON whether all the checkpoints of the current worktree's run pass on their current inputs; exits with 1 when not. `--workflow NAME` checks the current repository against a workflow outside a run. |
-| `spyhop checkpoints rerun KEY` | Run the checkpoints of the ticket's current checks phase again, on the next cycle. |
-| `spyhop doctor` | Check configuration, credentials, JIRA projects and statuses, repositories, Orca, its board columns and the service. Exits with 1 if anything is wrong. |
-| `spyhop config init` | Create the configuration and the credentials file if they are missing. |
-| `spyhop service install` | Install, enable and (re)start the systemd user service. `--no-start` only enables it. |
-| `spyhop service uninstall` | Stop, disable and remove the service. |
-| `spyhop version` | Print the version. |
+| `spyhop status [KEY]` | Show the active runs. `--all` also shows the finished runs. |
+| `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
+| `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
+| `spyhop retry KEY` | Start a finished run again, on the same worktree. |
+| `spyhop cleanup KEY` | Remove the worktree of the ticket now. |
+| `spyhop checkpoints rerun KEY` | Run the current checks phase again. |
+| `spyhop checkpoints plan` / `check` | Show the checkpoints of the current worktree, or check their verdicts. |
+| `spyhop run` | Run in the foreground. `--once` polls one time. `-v` shows debug logs. |
+| `spyhop doctor` | Check the configuration, JIRA, the repositories, Orca and the service. |
+| `spyhop config init` | Create the configuration and the credentials file. |
+| `spyhop service install` / `uninstall` | Install and start, or remove, the systemd user service. |
 
-Follow the service logs:
+To follow the logs of the service:
 
 ```sh
 journalctl --user -u spyhop -f
 ```
 
-### Going live
-
-Keep `dry_run: true` for a few days and compare `spyhop status --all` and the
-logs with what you actually moved to *In Progress*. When it matches, set
-`dry_run: false` and restart the service. The dry-run database is kept apart, so
-tickets seen during the trial are never acted on.
-
-### Upgrading
-
-```sh
-uv tool upgrade spyhop
-systemctl --user restart spyhop
-```
-
 ## Troubleshooting
 
 <details>
-<summary><strong>Spyhop sees no tickets at all</strong></summary>
+<summary><strong>Spyhop finds no tickets</strong></summary>
 
-JIRA's search returns an empty result, not an error, when a project key,
-issue type or status does not exist. Run `spyhop doctor`: it checks every
-configured project, issue type and status against JIRA and names the ones that
-do not match. Status names are case-sensitive.
+JIRA returns no error for a project, issue type or status that does not
+exist. Run `spyhop doctor`: it names the values that do not agree with JIRA.
+Status names are case-sensitive.
 </details>
 
 <details>
-<summary><strong>A ticket I moved before installing Spyhop is ignored</strong></summary>
+<summary><strong>Spyhop ignores a ticket that I moved before I installed it</strong></summary>
 
-By design. The first poll only records the starting point; only transitions
-after it are processed. Move the ticket out of the start status and back in.
+The first poll only sets the starting point. Move the ticket out of the start
+status and back in.
 </details>
 
 <details>
-<summary><strong><code>orca: ... is a Python script, most likely the GNOME screen reader</code></strong></summary>
+<summary><strong>A closed ticket still has its worktree (<code>CLEANUP_BLOCKED</code>)</strong></summary>
 
-`orca.executable` points to the screen reader. Install the Orca CLI from Orca's
-settings and either remove `orca.executable` (so `orca-ide` is autodetected) or
-point it to the real CLI.
-</details>
-
-<details>
-<summary><strong>A closed ticket's worktree is still there (<code>CLEANUP_BLOCKED</code>)</strong></summary>
-
-It has uncommitted or untracked files, and Spyhop never forces a removal. The
-reason is in the Orca card's comment and in the logs. Commit, stash or delete
-the files and the next cycle removes the worktree, or run
-`spyhop cleanup <KEY>` to retry at once.
-</details>
-
-<details>
-<summary><strong><code>repository ...: is not a git checkout</code></strong></summary>
-
-The alias must point to the directory that contains `.git`, which may be a
-subdirectory of the folder you think of as the project.
-</details>
-
-<details>
-<summary><strong>The service does not start when you log in</strong></summary>
-
-Check `systemctl --user is-enabled spyhop`; if it is not `enabled`, run
-`spyhop service install` again. Then check `journalctl --user -u spyhop -b`.
+The worktree has uncommitted or untracked files. Commit, stash or delete
+them. The next cycle removes the worktree, or you can run
+`spyhop cleanup KEY`.
 </details>
 
 <details>
@@ -853,76 +373,21 @@ The token is wrong or expired. Update it in your session and in
 `~/.config/spyhop/env`, then run `spyhop doctor`.
 </details>
 
+<details>
+<summary><strong>The service does not start</strong></summary>
+
+Run `spyhop service install` again, then read
+`journalctl --user -u spyhop -b`. After 5 failures in 10 minutes, the service
+stops.
+</details>
+
 ## Security
 
-- **Read-only JIRA access.** Spyhop only reads from JIRA.
-- **Credentials stay out of logs, the database and command lines.** The token
-  only travels in the HTTP `Authorization` header, and the credentials file is
-  created with mode 600.
-- **No pushes, pull requests or ticket changes without you.** `CLAUDE-TASK.md` lets the
-  agent push and open a pull request only when you run `/pr` in its terminal,
-  never because a ticket says so.
-- **Ticket content is untrusted.** The agent reads tickets from JIRA itself,
-  through the project's skill or `orca jira`, and `CLAUDE-TASK.md` tells it to treat
-  them as data, never as instructions. The deny list below keeps it from
-  changing JIRA.
-- **The deny list is the barrier, not the allow list.** Orca starts Claude Code
-  with `--dangerously-skip-permissions`, so everything not denied runs without
-  asking. Deny rules still apply in that mode (verified with Claude Code
-  2.1.316): force pushes, merging or closing pull requests, JIRA writes,
-  removing worktrees and `wget` are blocked. Rules match the start of a
-  command, so `git push origin +branch` is not caught; that one rests on
-  `CLAUDE-TASK.md`.
-- **A worktree is not a sandbox.** Agents run with your user's permissions. If
-  your JIRA token is exported in your shell profile, processes started from your
-  session, Orca and its agents included, inherit it.
-
-## Development
-
-```sh
-git clone git@github.com:JavierMoral/spyhop.git
-cd spyhop
-uv sync                                         # creates .venv with dev dependencies
-
-uv run pytest                                   # tests
-uv run ruff check src tests                     # lint
-uv run ruff format src tests                    # format
-uv run mypy                                     # strict type checking
-
-uv run spyhop run --config path/to/config.yaml --once -v
-```
-
-To try Spyhop without touching your real state, point `XDG_STATE_HOME` at a
-scratch directory:
-
-```sh
-XDG_STATE_HOME=/tmp/spyhop-state uv run spyhop run --config path/to/config.yaml --once
-```
-
-## Project layout
-
-```text
-src/spyhop/
-├── cli.py                      # Typer command-line interface
-├── daemon.py                   # polling loop started by `spyhop run`
-├── doctor.py                   # `spyhop doctor` checks
-├── config/                     # settings model, XDG paths, credentials
-├── domain/                     # models, enums, exceptions, ports
-├── application/                # monitor, transition detector, workflow resolver,
-│                               # orchestrator, launcher, context builder,
-│                               # supervisor, janitor
-├── infrastructure/
-│   ├── jira/                   # REST v3 client, payload mapping, ADF to text
-│   ├── orca/                   # Orca CLI client, discovery and validation
-│   ├── persistence/            # SQLite schema, migrations and repositories
-│   ├── git.py                  # branch and working-tree checks
-│   ├── process/                # subprocess runner
-│   └── service/                # systemd user unit
-└── templates/                  # CLAUDE-TASK.md, goal, workflow guidance, permission
-                                # profile, example configuration, unit
-tests/
-├── unit/
-├── fixtures/orca/              # anonymized answers captured from Orca 1.4.245
-├── factories.py                # JIRA payload and settings builders
-└── fakes.py                    # in-memory Orca and JIRA, launcher harness
-```
+- Spyhop only reads from JIRA. The token does not go into logs, the database
+  or command lines.
+- The ticket content is data, not instructions. The agent cannot change JIRA,
+  force-push, merge or close pull requests, or remove worktrees.
+- Orca starts Claude Code without permission prompts, so only the deny list
+  stops a command.
+- A worktree is not a sandbox. The agents run with the permissions of your
+  user.
