@@ -559,8 +559,11 @@ When a checks phase fails:
 - `on_fail: human` (the default): the run waits with `checkpoints_failed`.
 - `on_fail: fix`: only after `implement`. Spyhop sends the reports to the
   implementation agent, which fixes the findings with commits and writes
-  `CLAUDE-RESULT.md` again. Then the checks run again. After `rounds` rounds
-  (default 3), the run waits with `checkpoints_failed`.
+  `CLAUDE-RESULT.md` again. Then the checks run again. `rounds` (default 3)
+  is the most rounds of the phase, and each round counts, also one that a
+  person or a change of the inputs starts. The agent fixes after each failed
+  round except the last one. After the last one, the run waits with
+  `checkpoints_failed`.
 
 A failed round starts again by itself when the inputs of a failed checkpoint
 change and no agent works in the worktree: for example, when you complete the
@@ -633,7 +636,9 @@ checkpoint in its tab.
   have no uncommitted change. If not, the verdict is `FAIL`.
 - A checkpoint that comes after a failed one in the same round is skipped.
 - A checkpoint without a result after `agents.checkpoint_timeout_minutes` is a
-  `FAIL`.
+  `FAIL`. Spyhop closes its terminal first. While its process still runs, the
+  run waits, so that the process cannot change the worktree under the next
+  stage.
 
 Spyhop adds a section for each result to `CLAUDE-CHECKPOINT-<name>.md`, and
 writes the last verdict of each checkpoint to `CLAUDE-CHECKPOINTS.md`:
