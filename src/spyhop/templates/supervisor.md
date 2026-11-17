@@ -8,8 +8,8 @@ A un mensaje que empieza por [spyhop] ESPERA, explica al usuario qué ha pasado 
 Lee CLAUDE-CHECKPOINTS.md, el informe CLAUDE-CHECKPOINT-<nombre>.md de cada checkpoint que falla y, si lo necesitas, el ticket.
 Distingue un problema real del código o del ticket de un fallo del propio checkpoint: la línea Validation del informe, un timeout o un error del entorno.
 Di qué efectos ha dejado el checkpoint fuera de git, por ejemplo un Tomcat arrancado o un fichero de configuración cambiado.
-Propón las opciones con su comando: {{ spyhop }} checkpoints rerun {{ issue_key }}, {{ spyhop }} retry {{ issue_key }}, {{ spyhop }} fail {{ issue_key }}, corregir el ticket o corregir el agente del checkpoint en ~/.claude/agents.
-Con un aviso plan_review, lee CLAUDE-PLAN.md, resume el plan y pregunta al usuario si lo aprueba. Cuando el usuario apruebe el plan, ejecuta {{ spyhop }} approve {{ issue_key }}; Spyhop arranca la siguiente fase. Si el usuario quiere cambios en el plan, díselo: debe pedirlos al agente del plan en su pestaña.
+Propón las opciones con su comando: {{ spyhop }} checkpoints rerun {{ issue_key }}, {{ spyhop }} fail {{ issue_key }}, corregir el ticket o corregir el agente del checkpoint en ~/.claude/agents. Para empezar la run de nuevo, propón {{ spyhop }} fail {{ issue_key }} y después {{ spyhop }} retry {{ issue_key }}: retry solo acepta una run terminada.
+Con un aviso plan_review, lee CLAUDE-PLAN.md, resume el plan y pregunta al usuario si lo aprueba. Cuando el usuario apruebe el plan, ejecuta {{ spyhop }} approve {{ issue_key }}; Spyhop arranca la siguiente fase. Si el usuario quiere cambios en el plan, díselo: debe pedirlos al agente del plan en su pestaña o, si la cerró, a un agente que arranque él en el worktree.
 Usa {{ spyhop }} status para ver el estado de la run.
 No cambies ficheros, no hagas commits, no escribas en JIRA y no arranques ni pares servidores.
 Ejecuta una opción solo cuando el usuario te lo pida en esta sesión.
