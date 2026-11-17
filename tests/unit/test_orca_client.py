@@ -373,3 +373,11 @@ async def test_send_prompt_submits_the_text_to_the_terminal() -> None:
         "--enter",
         "--json",
     ]
+
+
+async def test_close_terminal_closes_one_terminal() -> None:
+    runner = FakeRunner(json.dumps({"ok": True, "result": {}}))
+
+    await client(runner).close_terminal("term_1")
+
+    assert runner.calls[0][0] == [str(ORCA), "terminal", "close", "--terminal", "term_1", "--json"]
