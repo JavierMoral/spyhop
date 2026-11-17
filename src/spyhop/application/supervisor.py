@@ -112,8 +112,20 @@ def observe(
         return Signal.COMPLETED
 
     agent = seen.agent
+    approved = (
+        run.waiting_reason is WaitingReason.PLAN_REVIEW and seen.card_status == plan_approved_status
+    )
+
+    # The implementation agent needs only CLAUDE-PLAN.md, not the plan agent:
+    # a person can close the plan agent before or after the approval.
 
     if agent is None:
+        if approved:
+            return Signal.PLAN_APPROVED
+
+        if run.waiting_reason is WaitingReason.PLAN_REVIEW:
+            return Signal.NONE
+
         return Signal.MISSING
 
     if agent.state == "working":
@@ -125,7 +137,7 @@ def observe(
     if seen.card_status == plan_review_status and seen.plan_written and not seen.result_written:
         return Signal.PLAN_READY
 
-    if run.waiting_reason is WaitingReason.PLAN_REVIEW and seen.card_status == plan_approved_status:
+    if approved:
         return Signal.PLAN_APPROVED
 
     # A state older than the run's last transition was already accounted for:
@@ -169,6 +181,7 @@ class AgentSupervisor:
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
         self._missing: dict[str, int] = {}
+        self._plan_agent_closed: set[str] = set()
         self._reconciled = False
 
     async def supervise(self) -> None:
@@ -265,6 +278,13 @@ class AgentSupervisor:
 
         self._missing.pop(run.id, None)
 
+        if signal is Signal.NONE and seen.agent is None:
+            await self._on_plan_agent_closed(run, worktree)
+
+            return
+
+        self._plan_agent_closed.discard(run.id)
+
         if signal is Signal.COMPLETED:
             if run.fix_requested_at is not None:
                 # A request, not an argument: it stays when the next round
@@ -323,6 +343,23 @@ class AgentSupervisor:
 
         self._missing.pop(run.id, None)
         await self._wait(run, WaitingReason.UNKNOWN_STATE, f"no agent running in {worktree.path}")
+
+    async def _on_plan_agent_closed(self, run: AutomationRun, worktree: Worktree) -> None:
+        """Tells the person once that only an agent that they start can now
+        revise the plan."""
+
+        if run.id in self._plan_agent_closed:
+            return
+
+        self._plan_agent_closed.add(run.id)
+
+        _log.info("%s: plan agent closed while the plan waits for its review", run.issue_key)
+
+        await self._tell(
+            run,
+            f"el agente del plan está cerrado; aprueba el plan con `spyhop approve "
+            f"{run.issue_key}`, o abre un agente en {worktree.path} para revisar {PLAN_FILE}",
+        )
 
     async def _enter(
         self,
