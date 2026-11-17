@@ -385,9 +385,9 @@ class CheckpointRunRepository:
         head: str,
         results_dir: Path,
     ) -> CheckpointRun:
-        """Stored before the terminal starts, so a lost answer from Orca does
-        not start the checkpoint twice. The result goes to a file named after
-        the row in ``results_dir``."""
+        """Stored before the unit starts, so a restart of Spyhop does not start
+        the checkpoint twice. The result goes to a file named after the row in
+        ``results_dir``."""
 
         checkpoint_run_id = str(uuid.uuid4())
         output_file = results_dir / f"{checkpoint_run_id}.json"
@@ -455,9 +455,9 @@ class CheckpointRunRepository:
 
         return {row["name"]: _to_checkpoint_run(row) for row in rows}
 
-    def set_terminal(self, checkpoint_run_id: str, terminal: str) -> None:
+    def set_unit(self, checkpoint_run_id: str, unit: str) -> None:
         self._connection.execute(
-            "UPDATE checkpoint_runs SET terminal = ? WHERE id = ?", (terminal, checkpoint_run_id)
+            "UPDATE checkpoint_runs SET unit = ? WHERE id = ?", (unit, checkpoint_run_id)
         )
 
     def finish(self, checkpoint_run_id: str, verdict: str, detail: str | None) -> None:
@@ -652,7 +652,7 @@ def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:
         base=row["base"],
         head=row["head"],
         output_file=Path(row["output_file"]),
-        terminal=row["terminal"],
+        unit=row["unit"],
         status=row["status"],
         verdict=row["verdict"],
         detail=row["detail"],

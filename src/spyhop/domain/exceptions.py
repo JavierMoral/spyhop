@@ -46,3 +46,7 @@ class OrcaCommandError(OrcaError):
         self.code = code
         self.message = message
         self.data = data
+
+
+class UnitError(SpyhopError):
+    """A systemd user unit did not start or stop."""

@@ -286,13 +286,6 @@ class OrcaClient:
             pane_key if isinstance(pane_key, str) else None,
         )
 
-    async def close_terminal(self, terminal: str) -> None:
-        """Closes one terminal, which stops its process."""
-
-        await self._call(
-            ["terminal", "close", "--terminal", terminal], self._operation_timeout, uncertain=True
-        )
-
     async def send_prompt(self, terminal: str, prompt: str) -> None:
         """Types ``prompt`` into the agent of the terminal and submits it."""
 

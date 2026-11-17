@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -71,4 +72,11 @@ class OrcaGateway(Protocol):
 
     async def send_prompt(self, terminal: str, prompt: str) -> None: ...
 
-    async def close_terminal(self, terminal: str) -> None: ...
+
+class UnitGateway(Protocol):
+    """Runs commands outside the Spyhop service, so that a restart of the
+    service does not stop them."""
+
+    async def start(self, unit: str, command: Sequence[str], cwd: Path, log: Path) -> None: ...
+
+    async def stop(self, pattern: str) -> None: ...

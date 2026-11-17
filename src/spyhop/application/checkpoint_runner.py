@@ -1,9 +1,10 @@
 """Runs the checkpoints of a pipeline phase and records their verdicts.
 
-Each checkpoint runs in an Orca terminal of the run's worktree, with
-`spyhop checkpoints exec`. That command runs the subagent with
-``claude -p --agent checkpoint-<name>`` and writes its result to a file. The
-supervisor calls advance() every cycle:
+Each checkpoint runs in its own systemd user unit, outside the Spyhop
+service, with `spyhop checkpoints exec`. That command runs the subagent with
+``claude -p --agent checkpoint-<name>`` and writes its result to a file, and
+its steps to a log file next to it. The supervisor calls advance() every
+cycle:
 
 - A round runs the stages of the phase in order (see CheckpointPlanner). A
   stage starts only when the worktree has no uncommitted change. A
@@ -16,21 +17,21 @@ supervisor calls advance() every cycle:
   supervisor after a fix), or when the inputs of a failed checkpoint change
   while no agent works in the worktree.
 - The supervisor session of the worktree, when there is one, gets the start
-  of each round and each verdict.
-- A checkpoint without a result in time is a FAIL. Spyhop closes its terminal
+  of each round, the start of each checkpoint with its log, and each verdict.
+- A checkpoint without a result in time is a FAIL. Spyhop stops its unit
   first, and the phase stays blocked while its process still runs, so that
   it cannot change the worktree under the next stage.
 
 The rows of checkpoint_runs keep the state, so a restart of Spyhop continues
-the round. A row is stored before its terminal starts, and the command of the
-terminal does nothing when another one runs for the same row or its result
-exists, so a lost answer from Orca never runs a checkpoint twice.
+the round, and a restart does not stop the units. A row is stored before its
+unit starts. The unit has a fixed name, and its command does nothing when
+another one runs for the same row or its result exists, so a checkpoint never
+runs twice.
 """
 
 import fcntl
 import json
 import logging
-import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -42,7 +43,7 @@ from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanne
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE, fingerprint
 from spyhop.application.context_builder import EXCLUDED_PATHS, add_exclusions, git_exclude_file
 from spyhop.application.supervisor_session import SupervisorSession
-from spyhop.domain.exceptions import OrcaCommandError
+from spyhop.domain.exceptions import UnitError
 from spyhop.domain.models import (
     AutomationRun,
     CheckpointRun,
@@ -50,7 +51,7 @@ from spyhop.domain.models import (
     ResolvedWorkflow,
     Worktree,
 )
-from spyhop.domain.protocols import OrcaGateway, TicketGateway
+from spyhop.domain.protocols import TicketGateway, UnitGateway
 from spyhop.infrastructure.git import has_changes, head
 from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository, utc_now
 
@@ -58,8 +59,18 @@ _log = logging.getLogger(__name__)
 
 REPORT_FILE = "CLAUDE-CHECKPOINT-{name}.md"
 
-# The terminal of a checkpoint when Orca opened it without a handle.
-UNKNOWN_TERMINAL = "unknown"
+UNIT_PREFIX = "spyhop-checkpoint-"
+
+
+def unit_pattern(run_id: str) -> str:
+    """The units of the checkpoints of a run."""
+
+    return f"{UNIT_PREFIX}{run_id}-*"
+
+
+def log_file(row: CheckpointRun) -> Path:
+    return row.output_file.with_suffix(".log")
+
 
 _SEVERITIES = ("high", "medium", "low")
 
@@ -123,7 +134,7 @@ class CheckRunner:
     def __init__(
         self,
         checkpoint_runs: CheckpointRunRepository,
-        orca: OrcaGateway,
+        units: UnitGateway,
         planner: CheckpointPlanner,
         tickets: TicketGateway,
         spyhop: Path,
@@ -134,7 +145,7 @@ class CheckRunner:
     ) -> None:
         self._checkpoint_runs = checkpoint_runs
         self._supervisor_session = supervisor_session
-        self._orca = orca
+        self._units = units
         self._planner = planner
         self._tickets = tickets
         self._spyhop = spyhop
@@ -272,50 +283,52 @@ class CheckRunner:
                 self._results_dir / run.id,
             )
 
-            await self._open_terminal(row, run, worktree, workflow)
+            await self._start_unit(row, run, worktree, workflow)
 
         return PhaseOutcome("running", f"checkpoints running: {', '.join(names)}", number)
 
-    async def _open_terminal(
+    async def _start_unit(
         self,
         row: CheckpointRun,
         run: AutomationRun,
         worktree: Worktree,
         workflow: ResolvedWorkflow,
     ) -> None:
-        command = shlex.join(
-            [
-                str(self._spyhop),
-                "checkpoints",
-                "exec",
-                row.name,
-                "--base",
-                row.base,
-                "--head",
-                row.head,
-                "--root",
-                str(worktree.path),
-                "--output",
-                str(row.output_file),
-            ]
-        )
+        unit = f"{UNIT_PREFIX}{run.id}-{row.id}"
+        command = [
+            str(self._spyhop),
+            "checkpoints",
+            "exec",
+            row.name,
+            "--base",
+            row.base,
+            "--head",
+            row.head,
+            "--root",
+            str(worktree.path),
+            "--output",
+            str(row.output_file),
+        ]
 
         try:
-            terminal = await self._orca.create_terminal(
-                worktree.orca_worktree_id, f"checkpoint {row.name}", command
-            )
-        except OrcaCommandError as error:
+            await self._units.start(unit, command, worktree.path, log_file(row))
+        except UnitError as error:
             await self._record(
                 row,
                 run,
                 worktree,
                 workflow,
-                _Result("FAIL", f"Orca refused the terminal: {error}", None),
+                _Result("FAIL", f"the checkpoint did not start: {error}", None),
             )
 
             return
 
-        self._checkpoint_runs.set_terminal(row.id, terminal.handle or UNKNOWN_TERMINAL)
+        self._checkpoint_runs.set_unit(row.id, unit)
+
+        if self._supervisor_session is not None:
+            await self._supervisor_session.tell(
+                worktree, f"checkpoint {row.name} arrancado; log en {log_file(row)}"
+            )
 
     async def _poll(
         self, row: CheckpointRun, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
@@ -330,17 +343,16 @@ class CheckRunner:
 
             await self._record(row, run, worktree, workflow, result)
         elif self._now() - row.started_at > self._timeout:
-            if row.terminal not in (None, UNKNOWN_TERMINAL):
+            if row.unit is not None:
                 try:
-                    await self._orca.close_terminal(row.terminal)
-                except OrcaCommandError as error:
-                    if error.code != "selector_not_found":
-                        raise
+                    await self._units.stop(row.unit)
+                except UnitError as error:
+                    _log.warning("%s: %s", run.issue_key, error)
 
             if _still_runs(row.output_file):
                 return (
                     f"checkpoint {row.name} has no result after {self._timeout} and its "
-                    f"process still runs; stop it in its Orca terminal"
+                    f"process still runs; stop it with `systemctl --user stop {row.unit}`"
                 )
 
             await self._record(
@@ -350,11 +362,11 @@ class CheckRunner:
                 workflow,
                 _Result("FAIL", f"no result after {self._timeout}", None),
             )
-        elif row.terminal is None:
-            # The answer of Orca was lost. The command does nothing when the
-            # first terminal runs.
+        elif row.unit is None:
+            # Spyhop stopped between the row and the start of its unit. A
+            # second start of the unit does nothing.
 
-            await self._open_terminal(row, run, worktree, workflow)
+            await self._start_unit(row, run, worktree, workflow)
 
         return None
 

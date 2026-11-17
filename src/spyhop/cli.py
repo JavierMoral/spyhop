@@ -48,6 +48,7 @@ from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     WorktreeRepository,
 )
+from spyhop.infrastructure.process.units import SystemdUnits
 from spyhop.infrastructure.service.systemd import (
     install_unit,
     linger_enabled,
@@ -261,7 +262,11 @@ def cleanup(
 
     try:
         remover = WorktreeRemover(
-            RunRepository(connection), worktrees, orca_client(settings), settings.repositories
+            RunRepository(connection),
+            worktrees,
+            orca_client(settings),
+            SystemdUnits(),
+            settings.repositories,
         )
         outcome = asyncio.run(remover.clean_up(worktree, "cleaned up by a person"))
     except SpyhopError as error:
@@ -433,7 +438,7 @@ def checkpoints_exec(
     output: Annotated[Path, typer.Option(help="The file for the result")],
 ) -> None:
     """Run one checkpoint and write its result to --output. Spyhop starts this
-    command in an Orca terminal. It does nothing when the result exists or
+    command in a systemd user unit. It does nothing when the result exists or
     another instance runs for the same file."""
 
     output.parent.mkdir(parents=True, exist_ok=True)

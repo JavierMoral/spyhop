@@ -252,7 +252,7 @@ class AgentSession:
 
 @dataclass(frozen=True)
 class CheckpointRun:
-    """One checkpoint that Spyhop started in an Orca terminal. The terminal
+    """One checkpoint that Spyhop started in a systemd user unit. The unit
     writes the result of the agent to ``output_file``."""
 
     id: str
@@ -264,7 +264,7 @@ class CheckpointRun:
     base: str
     head: str
     output_file: Path
-    terminal: str | None
+    unit: str | None  # set once the unit started
     status: Literal["RUNNING", "DONE"]
     verdict: Literal["PASS", "FAIL"] | None
     detail: str | None

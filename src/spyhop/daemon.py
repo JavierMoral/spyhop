@@ -46,6 +46,7 @@ from spyhop.infrastructure.persistence.repositories import (
     SessionRepository,
     WorktreeRepository,
 )
+from spyhop.infrastructure.process.units import SystemdUnits
 
 _log = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ def _agents(
         resolver=resolver,
         check_runner=CheckRunner(
             checkpoint_runs=CheckpointRunRepository(connection),
-            orca=orca,
+            units=SystemdUnits(),
             planner=CheckpointPlanner(claude_agents_dir()),
             tickets=jira,
             spyhop=spyhop_executable(),
@@ -217,7 +218,7 @@ def _agents(
     )
 
     janitor = WorktreeJanitor(
-        remover=WorktreeRemover(runs, worktrees, orca, settings.repositories),
+        remover=WorktreeRemover(runs, worktrees, orca, SystemdUnits(), settings.repositories),
         runs=runs,
         worktrees=worktrees,
         jira=jira,

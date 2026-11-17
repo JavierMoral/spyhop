@@ -151,6 +151,10 @@ _MIGRATIONS = [
 
     ALTER TABLE worktrees ADD COLUMN supervisor_pane_key TEXT;
     """,
+    # Checkpoints run in systemd user units instead of Orca terminals.
+    """
+    ALTER TABLE checkpoint_runs RENAME COLUMN terminal TO unit;
+    """,
 ]
 
 

@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 
+from spyhop.application.checkpoint_runner import unit_pattern
 from spyhop.application.launcher import PENDING
 from spyhop.config.settings import CleanupSettings, RepositorySettings
 from spyhop.domain.enums import WorktreeStatus
@@ -25,9 +26,10 @@ from spyhop.domain.exceptions import (
     OrcaCommandError,
     OrcaError,
     OrcaUnavailableError,
+    UnitError,
 )
 from spyhop.domain.models import Worktree
-from spyhop.domain.protocols import JiraGateway, OrcaGateway
+from spyhop.domain.protocols import JiraGateway, OrcaGateway, UnitGateway
 from spyhop.infrastructure.git import has_changes
 from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
 from spyhop.infrastructure.worktree_script import WorktreeScriptError, run_cleanup_script
@@ -165,20 +167,22 @@ class WorktreeRemover:
         runs: RunRepository,
         worktrees: WorktreeRepository,
         orca: OrcaGateway,
+        units: UnitGateway,
         repositories: Mapping[str, RepositorySettings] | None = None,
         cleanup_script: Callable[[Path, Worktree, float], Awaitable[None]] = run_cleanup_script,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
         self._orca = orca
+        self._units = units
         self._repositories = {
             repository.path: repository for repository in (repositories or {}).values()
         }
         self._cleanup_script = cleanup_script
 
     async def clean_up(self, worktree: Worktree, reason: str) -> Cleanup:
-        """Cancels the ticket's active run, stops its agents, removes the
-        worktree and then runs the repository's cleanup script. Raises
+        """Cancels the ticket's active run, stops its agents and its
+        checkpoints, removes the worktree and then runs the repository's cleanup script. Raises
         OrcaUnavailableError or OrcaUncertainError when the outcome is
         unknown, and WorktreeScriptError when the cleanup script fails; the
         worktree then stays REMOVING, and the next attempt finds it gone from
@@ -190,6 +194,12 @@ class WorktreeRemover:
             self._runs.mark_cancelled(run.id, reason)
 
             _log.info("%s: run %s cancelled (%s)", run.issue_key, run.id, reason)
+
+        for run in self._runs.list(issue_key=worktree.issue_key, include_terminal=True):
+            try:
+                await self._units.stop(unit_pattern(run.id))
+            except UnitError as error:
+                _log.warning("%s: checkpoints not stopped: %s", run.issue_key, error)
 
         try:
             await self._orca.close_terminals(worktree.orca_worktree_id)
