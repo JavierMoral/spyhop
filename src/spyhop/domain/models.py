@@ -44,7 +44,12 @@ STEPS = ("plan", "plan_review", "implement")
 class ChecksPhase:
     """Checkpoints that Spyhop runs at one point of the pipeline. When one
     fails, the run waits for a person (``human``), or the implementation
-    agent fixes the findings, at most ``rounds`` times (``fix``)."""
+    agent fixes the findings and the checkpoints run again (``fix``).
+
+    ``rounds`` is the most rounds of the phase with ``fix``. Each round
+    counts, also a round that a person or a change of the inputs starts.
+    The agent fixes after each failed round except the last one, so
+    ``rounds: 3`` gives at most two fixes."""
 
     checkpoints: tuple[str, ...]
     on_fail: Literal["human", "fix"] = "human"

@@ -67,7 +67,7 @@ def fingerprint(values: Mapping[str, str]) -> str:
 
 
 def check_verdicts(text: str | None, fingerprints: Mapping[str, str]) -> list[Problem]:
-    """The problems that keep the checkpoints from passing. ``fingerprints``
+    """The reasons why the checkpoints do not pass. ``fingerprints``
     gives the current fingerprint of each checkpoint of the workflow, and
     ``text`` is the content of the file, or None when it does not exist."""
 

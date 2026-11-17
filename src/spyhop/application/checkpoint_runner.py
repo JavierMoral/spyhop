@@ -12,9 +12,12 @@ supervisor calls advance() every cycle:
   CLAUDE-CHECKPOINT-<name>.md and writes CLAUDE-CHECKPOINTS.md again.
 - After an exclusive checkpoint, HEAD must not change and the worktree must
   have no uncommitted change.
-- A failed round starts again when a person asks for it, when the caller
-  asks for it (after a fix), or when the inputs of a failed checkpoint
-  change while no agent works in the worktree.
+- A failed round starts again when someone asks for it (a person, or the
+  supervisor after a fix), or when the inputs of a failed checkpoint change
+  while no agent works in the worktree.
+- A checkpoint without a result in time is a FAIL. Spyhop closes its terminal
+  first, and the phase stays blocked while its process still runs, so that
+  it cannot change the worktree under the next stage.
 
 The rows of checkpoint_runs keep the state, so a restart of Spyhop continues
 the round. A row is stored before its terminal starts, and the command of the
@@ -22,6 +25,7 @@ terminal does nothing when another one runs for the same row or its result
 exists, so a lost answer from Orca never runs a checkpoint twice.
 """
 
+import fcntl
 import json
 import logging
 import shlex
@@ -34,6 +38,7 @@ from typing import Any, Literal
 from spyhop.application.checkpoint_inputs import input_values
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner, Stage
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE, fingerprint
+from spyhop.application.context_builder import EXCLUDED_PATHS, add_exclusions, git_exclude_file
 from spyhop.domain.exceptions import OrcaCommandError
 from spyhop.domain.models import (
     AutomationRun,
@@ -49,6 +54,9 @@ from spyhop.infrastructure.persistence.repositories import CheckpointRunReposito
 _log = logging.getLogger(__name__)
 
 REPORT_FILE = "CLAUDE-CHECKPOINT-{name}.md"
+
+# The terminal of a checkpoint when Orca opened it without a handle.
+UNKNOWN_TERMINAL = "unknown"
 
 _SEVERITIES = ("high", "medium", "low")
 
@@ -135,11 +143,9 @@ class CheckRunner:
         worktree: Worktree,
         workflow: ResolvedWorkflow,
         agent_busy: bool = False,
-        restart: bool = False,
     ) -> PhaseOutcome:
-        """Moves the checks phase of the run one step. ``agent_busy`` keeps a
-        failed round from starting again. ``restart`` starts a new round
-        after a failed one, for example after a fix."""
+        """Moves the checks phase of the run one step. While ``agent_busy`` is
+        true, a failed round does not start again."""
 
         phase = workflow.phases[run.phase]
 
@@ -152,9 +158,15 @@ class CheckRunner:
 
         rows = self._checkpoint_runs.list_round(run.id, run.phase, number)
 
-        for row in rows:
-            if row.status == "RUNNING":
-                await self._poll(row, run, worktree, workflow)
+        blocked = [
+            message
+            for row in rows
+            if row.status == "RUNNING"
+            and (message := await self._poll(row, run, worktree, workflow))
+        ]
+
+        if blocked:
+            return PhaseOutcome("blocked", "; ".join(blocked), number)
 
         rows = self._checkpoint_runs.list_round(run.id, run.phase, number)
         names = [row.name for row in rows if row.status == "RUNNING"]
@@ -173,12 +185,14 @@ class CheckRunner:
         ]
 
         if pending:
-            return await self._start_stage(run, worktree, workflow, number, pending[0], skipped)
+            return await self._start_stage(
+                run, worktree, workflow, number, pending[0], skipped | started
+            )
 
         if not failed:
             return PhaseOutcome("passed", "all checkpoints passed", number)
 
-        if restart or (not agent_busy and await self._restart(run, worktree, workflow, rows)):
+        if not agent_busy and await self._restart(run, worktree, workflow, rows):
             return await self._start_round(run, worktree, workflow, phase, number + 1)
 
         detail = f"failed: {', '.join(failed)}"
@@ -209,8 +223,16 @@ class CheckRunner:
         workflow: ResolvedWorkflow,
         number: int,
         stage: Stage,
-        skipped: set[str],
+        excluded: set[str],
     ) -> PhaseOutcome:
+        """Starts the checkpoints of the stage that are not in ``excluded``:
+        skipped, or started in an earlier cycle whose answer from Orca was
+        lost."""
+
+        # A worktree prepared by an older Spyhop does not exclude the reports.
+
+        add_exclusions(git_exclude_file(worktree.path), EXCLUDED_PATHS)
+
         if has_changes(worktree.path):
             return PhaseOutcome(
                 "blocked",
@@ -218,7 +240,7 @@ class CheckRunner:
                 number,
             )
 
-        names = [name for name in stage.checkpoints if name not in skipped]
+        names = [name for name in stage.checkpoints if name not in excluded]
         inputs = {name: self._planner.read(name).inputs for name in names}
         values = await input_values(
             {"base", "head"}.union(*inputs.values()),
@@ -240,11 +262,17 @@ class CheckRunner:
                 self._results_dir / run.id,
             )
 
-            await self._open_terminal(row, worktree)
+            await self._open_terminal(row, run, worktree, workflow)
 
         return PhaseOutcome("running", f"checkpoints running: {', '.join(names)}", number)
 
-    async def _open_terminal(self, row: CheckpointRun, worktree: Worktree) -> None:
+    async def _open_terminal(
+        self,
+        row: CheckpointRun,
+        run: AutomationRun,
+        worktree: Worktree,
+        workflow: ResolvedWorkflow,
+    ) -> None:
         command = shlex.join(
             [
                 str(self._spyhop),
@@ -267,15 +295,24 @@ class CheckRunner:
                 worktree.orca_worktree_id, f"checkpoint {row.name}", command
             )
         except OrcaCommandError as error:
-            self._checkpoint_runs.finish(row.id, "FAIL", f"Orca refused the terminal: {error}")
+            self._record(
+                row,
+                run,
+                worktree,
+                workflow,
+                _Result("FAIL", f"Orca refused the terminal: {error}", None),
+            )
 
             return
 
-        self._checkpoint_runs.set_terminal(row.id, terminal or "unknown")
+        self._checkpoint_runs.set_terminal(row.id, terminal or UNKNOWN_TERMINAL)
 
     async def _poll(
         self, row: CheckpointRun, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
-    ) -> None:
+    ) -> str | None:
+        """Records the result of a checkpoint that runs, when there is one.
+        Returns why the phase is blocked, or None."""
+
         if row.output_file.is_file():
             result = self._after_exclusive(
                 row, worktree, _validate(_read_output(row.output_file), row.head)
@@ -283,6 +320,19 @@ class CheckRunner:
 
             self._record(row, run, worktree, workflow, result)
         elif self._now() - row.started_at > self._timeout:
+            if row.terminal not in (None, UNKNOWN_TERMINAL):
+                try:
+                    await self._orca.close_terminal(row.terminal)
+                except OrcaCommandError as error:
+                    if error.code != "selector_not_found":
+                        raise
+
+            if _still_runs(row.output_file):
+                return (
+                    f"checkpoint {row.name} has no result after {self._timeout} and its "
+                    f"process still runs; stop it in its Orca terminal"
+                )
+
             self._record(
                 row,
                 run,
@@ -294,7 +344,9 @@ class CheckRunner:
             # The answer of Orca was lost. The command does nothing when the
             # first terminal runs.
 
-            await self._open_terminal(row, worktree)
+            await self._open_terminal(row, run, worktree, workflow)
+
+        return None
 
     def _after_exclusive(self, row: CheckpointRun, worktree: Worktree, result: _Result) -> _Result:
         if self._planner.read(row.name).mode != "exclusive":
@@ -368,6 +420,25 @@ class CheckRunner:
             row.inputs != fingerprint({key: values[key] for key in inputs[row.name]})
             for row in failed
         )
+
+
+def _still_runs(output_file: Path) -> bool:
+    """Whether `spyhop checkpoints exec` holds the lock of the result file."""
+
+    lock_file = output_file.parent / f"{output_file.name}.lock"
+
+    if not lock_file.is_file():
+        return False
+
+    with lock_file.open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+
+        fcntl.flock(lock, fcntl.LOCK_UN)
+
+    return False
 
 
 def _read_output(output_file: Path) -> dict[str, Any] | None:

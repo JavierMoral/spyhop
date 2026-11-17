@@ -256,11 +256,15 @@ class AgentSupervisor:
 
         if signal is Signal.COMPLETED:
             if run.fix_requested_at is not None:
+                # A request, not an argument: it stays when the next round
+                # cannot start yet, for example on uncommitted changes.
+
+                self._runs.request_checks(run.id)
                 self._runs.clear_fix_request(run.id)
 
                 _log.info("%s: fixes done; checkpoints run again", run.issue_key)
 
-                await self._checks(self._reload(run), worktree, workflow, session, restart=True)
+                await self._checks(self._reload(run), worktree, workflow, session)
             else:
                 # The declared end is the end of the implementation, also
                 # when the plan agent did it.
@@ -275,9 +279,18 @@ class AgentSupervisor:
         elif signal is Signal.PLAN_READY:
             self._wait(run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}")
         elif signal is Signal.PLAN_APPROVED:
-            await self._enter(
-                run, worktree, workflow, workflow.phases.index("plan_review") + 1, session
+            # Without plan_review in the pipeline, a person moved the card of
+            # a plan that the agent wrote by itself: as before, a new agent
+            # implements it.
+
+            phases = workflow.phases
+            after = (
+                phases.index("plan_review") + 1
+                if "plan_review" in phases
+                else phases.index("implement")
             )
+
+            await self._enter(run, worktree, workflow, after, session)
         elif signal is Signal.STOPPED:
             self._wait(
                 run,
@@ -420,7 +433,6 @@ class AgentSupervisor:
         workflow: ResolvedWorkflow,
         session: AgentSession | None,
         agent_busy: bool = False,
-        restart: bool = False,
     ) -> None:
         if self._check_runner is None:
             self._wait(run, WaitingReason.UNKNOWN_STATE, "checkpoints cannot run here")
@@ -428,7 +440,7 @@ class AgentSupervisor:
             return
 
         try:
-            outcome = await self._check_runner.advance(run, worktree, workflow, agent_busy, restart)
+            outcome = await self._check_runner.advance(run, worktree, workflow, agent_busy)
         except (OrcaUnavailableError, OrcaUncertainError):
             raise
         except SpyhopError as error:
