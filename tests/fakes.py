@@ -163,6 +163,9 @@ class FakeOrca:
         self.terminal_errors: list[Exception] = []
         self.prompts: list[tuple[str, str]] = []
         self.prompt_errors: list[Exception] = []
+        self.closed: list[str] = []
+        # Answers of create_terminal, before the default one.
+        self.terminal_answers: list[OrcaTerminal] = []
         # New worktrees are real Git repositories with one commit on master.
         self.real_git = False
 
@@ -326,9 +329,15 @@ class FakeOrca:
         if self.terminal_errors:
             raise self.terminal_errors.pop(0)
 
+        if self.terminal_answers:
+            return self.terminal_answers.pop(0)
+
         number = len(self.terminals)
 
         return OrcaTerminal(f"term_check_{number}", f"pane_term_{number}")
+
+    async def close_terminal(self, terminal: str) -> None:
+        self.closed.append(terminal)
 
     async def send_prompt(self, terminal: str, prompt: str) -> None:
         self.prompts.append((terminal, prompt))

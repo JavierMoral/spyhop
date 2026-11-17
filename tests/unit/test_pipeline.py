@@ -362,14 +362,26 @@ async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path
 
     await harness.supervisor.supervise()
 
-    # Spyhop stopped after it stored the row and before it started the unit.
+    # Spyhop stopped after it stored the row and before it started the
+    # unit, for longer than the timeout.
 
+    [row] = running(harness, run)
+    late = row.started_at + timedelta(hours=4)
+    harness.check_runner._now = lambda: late
     harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL")
     await harness.supervisor.supervise()
 
     first, second = harness.units.started
+    [restarted] = running(harness, run)
 
     assert first == second
+    assert restarted.started_at == late
+
+    # The timeout counts from the start of the unit.
+
+    await harness.supervisor.supervise()
+
+    assert harness.units.stopped == []
     assert len(running(harness, run)) == 1
 
 
@@ -478,6 +490,7 @@ async def test_an_approved_plan_without_plan_review_starts_a_new_agent(tmp_path:
     await harness.supervisor.supervise()
 
     assert len(harness.orca.launches) == 2
+    assert harness.orca.launches[1]["prompt"] == harness.context.goal("LPD-1", "implement")
     assert harness.run(run.id).status is RunStatus.RUNNING
 
 

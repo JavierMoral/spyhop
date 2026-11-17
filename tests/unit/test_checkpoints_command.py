@@ -474,7 +474,11 @@ def fake_claude(directory: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         {
             "type": "assistant",
             "message": {
-                "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git diff"}}]
+                # A content item that is not an object is skipped.
+                "content": [
+                    "plain text",
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "git diff"}},
+                ]
             },
         },
         {
@@ -530,6 +534,37 @@ def test_exec_runs_the_subagent_and_writes_its_result_once(
 
     assert "already has a result" in again.output
     assert calls.read_text().count("--dangerously-skip-permissions") == 1
+
+
+def test_exec_writes_a_result_when_it_stops_on_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "results" / "run" / "row.json"
+
+    def broken(*arguments: object) -> None:
+        raise KeyError("message")
+
+    monkeypatch.setattr("spyhop.cli._run_checkpoint", broken)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "checkpoints",
+            "exec",
+            "security",
+            "--base",
+            "b" * 40,
+            "--head",
+            "h" * 40,
+            "--root",
+            str(tmp_path),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(output.read_text()) == {"exit_code": 1, "output": None}
 
 
 class FakeBoard:

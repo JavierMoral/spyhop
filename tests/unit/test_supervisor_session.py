@@ -3,9 +3,10 @@ progress of the run and the reasons why it waits for a person."""
 
 from pathlib import Path
 
+from spyhop.application.supervisor_session import UNUSABLE
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
-from spyhop.domain.models import AutomationRun, CheckpointRun, Worktree
+from spyhop.domain.models import AutomationRun, CheckpointRun, OrcaTerminal, Worktree
 from tests.fakes import Harness
 from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started
 
@@ -125,3 +126,60 @@ async def test_an_orca_error_of_the_session_does_not_stop_the_checks_and_the_nex
     assert row.name == "ticket-info"
     assert current is not None
     assert current.supervisor_terminal == "term_check_2"
+
+
+def session_harness(tmp_path: Path) -> Harness:
+    return harness_with(
+        tmp_path, {"checks": ["ticket-info"]}, "implement", with_supervisor_session=True
+    )
+
+
+async def test_a_round_that_cannot_start_is_told_once_it_starts(tmp_path: Path) -> None:
+    harness = session_harness(tmp_path)
+    _, worktree = await started(harness)
+    notes = worktree.path / "Notes.java"
+
+    notes.write_text("class Notes {}\n")
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    notes.unlink()
+    await harness.supervisor.supervise()
+
+    messages = [terminal["command"] for terminal in harness.orca.terminals]
+    messages += [text for _, text in harness.orca.prompts]
+
+    assert sum("ronda 1 de checkpoints" in message for message in messages) == 1
+
+
+async def test_a_session_without_a_pane_is_closed_and_not_started_again(tmp_path: Path) -> None:
+    harness = session_harness(tmp_path)
+    harness.orca.terminal_answers.append(OrcaTerminal("term_no_pane", None))
+    run, worktree = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    current = harness.worktrees.get(worktree.id)
+
+    assert harness.orca.closed == ["term_no_pane"]
+    assert len(harness.orca.terminals) == 1
+    assert harness.orca.prompts == []
+    assert current is not None
+    assert current.supervisor_terminal == UNUSABLE
+    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+    assert harness.orca.cards[worktree.orca_worktree_id].startswith("LPD-1: checkpoints_failed")
+
+
+async def test_a_session_without_a_handle_is_not_started_again(tmp_path: Path) -> None:
+    harness = session_harness(tmp_path)
+    harness.orca.terminal_answers.append(OrcaTerminal(None, "pane_x"))
+    run, _ = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    assert harness.orca.closed == []
+    assert len(harness.orca.terminals) == 1
