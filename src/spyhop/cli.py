@@ -508,7 +508,15 @@ def checkpoints_exec(
 
         typer.echo(f"Checkpoint {name} on {head_sha[:12]} in {root}")
 
-        exit_code, result = _run_checkpoint(name, base, head_sha, root)
+        # Always a result file: without one, Spyhop waits for the timeout.
+
+        try:
+            exit_code, result = _run_checkpoint(name, base, head_sha, root)
+        except Exception as error:
+            typer.echo(f"Checkpoint {name} stopped: {error!r}", err=True)
+
+            exit_code, result = 1, None
+
         partial = output.parent / f"{output.name}.partial"
 
         partial.write_text(json.dumps({"exit_code": exit_code, "output": result}))
@@ -689,6 +697,9 @@ def _run_checkpoint(
             result = event
         elif event.get("type") == "assistant":
             for content in (event.get("message") or {}).get("content") or []:
+                if not isinstance(content, dict):
+                    continue
+
                 if content.get("type") == "tool_use" and content.get("name") != "StructuredOutput":
                     detail = json.dumps(content.get("input"))[:200]
 

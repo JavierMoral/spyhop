@@ -228,14 +228,9 @@ class CheckRunner:
     ) -> PhaseOutcome:
         stages = self._planner.plan(phase.checkpoints)
 
-        _log.info("%s: checkpoints round %d of phase %d", run.issue_key, number, run.phase)
-
-        if self._supervisor_session is not None:
-            await self._supervisor_session.tell(
-                worktree, f"ronda {number} de checkpoints: {', '.join(phase.checkpoints)}"
-            )
-
-        return await self._start_stage(run, worktree, workflow, number, stages[0], set())
+        return await self._start_stage(
+            run, worktree, workflow, number, stages[0], set(), new_round=True
+        )
 
     async def _start_stage(
         self,
@@ -245,6 +240,7 @@ class CheckRunner:
         number: int,
         stage: Stage,
         excluded: set[str],
+        new_round: bool = False,
     ) -> PhaseOutcome:
         """Starts the checkpoints of the stage that are not in ``excluded``:
         skipped, or started in an earlier cycle whose answer from Orca was
@@ -260,6 +256,20 @@ class CheckRunner:
                 f"uncommitted changes in {worktree.path}; checkpoints need a clean worktree",
                 number,
             )
+
+        if new_round:
+            # Only here: a round that cannot start yet is tried on each cycle.
+
+            phase = workflow.phases[run.phase]
+
+            assert isinstance(phase, ChecksPhase)
+
+            _log.info("%s: checkpoints round %d of phase %d", run.issue_key, number, run.phase)
+
+            if self._supervisor_session is not None:
+                await self._supervisor_session.tell(
+                    worktree, f"ronda {number} de checkpoints: {', '.join(phase.checkpoints)}"
+                )
 
         names = [name for name in stage.checkpoints if name not in excluded]
         inputs = {name: self._planner.read(name).inputs for name in names}
@@ -323,7 +333,7 @@ class CheckRunner:
 
             return
 
-        self._checkpoint_runs.set_unit(row.id, unit)
+        self._checkpoint_runs.set_unit(row.id, unit, self._now())
 
         if self._supervisor_session is not None:
             await self._supervisor_session.tell(
@@ -342,12 +352,17 @@ class CheckRunner:
             )
 
             await self._record(row, run, worktree, workflow, result)
+        elif row.unit is None:
+            # Spyhop stopped between the row and the start of its unit. A
+            # second start of the unit does nothing. The timeout counts from
+            # the start of the unit.
+
+            await self._start_unit(row, run, worktree, workflow)
         elif self._now() - row.started_at > self._timeout:
-            if row.unit is not None:
-                try:
-                    await self._units.stop(row.unit)
-                except UnitError as error:
-                    _log.warning("%s: %s", run.issue_key, error)
+            try:
+                await self._units.stop(row.unit)
+            except UnitError as error:
+                _log.warning("%s: %s", run.issue_key, error)
 
             if _still_runs(row.output_file):
                 return (
@@ -362,11 +377,6 @@ class CheckRunner:
                 workflow,
                 _Result("FAIL", f"no result after {self._timeout}", None),
             )
-        elif row.unit is None:
-            # Spyhop stopped between the row and the start of its unit. A
-            # second start of the unit does nothing.
-
-            await self._start_unit(row, run, worktree, workflow)
 
         return None
 

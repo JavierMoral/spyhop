@@ -367,9 +367,13 @@ class AgentSupervisor:
                 "use `spyhop retry` or start the agent yourself",
             )
         elif phase == "implement":
+            # A plan that a person approved is implemented, also in a
+            # workflow without plan_review.
+
+            approved = workflow.plan_review or run.waiting_reason is WaitingReason.PLAN_REVIEW
             goal = (
                 self._context.goal(run.issue_key, "implement")
-                if workflow.plan_review
+                if approved
                 else self._context.launch_goal(run.issue_key, workflow)
             )
 

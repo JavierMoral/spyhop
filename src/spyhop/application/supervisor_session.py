@@ -28,6 +28,11 @@ TITLE = "spyhop"
 
 PREFIX = "[spyhop]"
 
+# The terminal of a worktree whose session Spyhop cannot use: Orca gave no
+# handle or no pane. Spyhop starts no other session there.
+
+UNUSABLE = "unusable"
+
 # The session only reads. The prompt tells it to run a Spyhop command only
 # when the user asks; with the auto permission mode, Bash does not always ask.
 
@@ -58,6 +63,9 @@ class SupervisorSession:
         # the session.
 
         current = self._worktrees.get(worktree.id) or worktree
+
+        if current.supervisor_terminal == UNUSABLE:
+            return
 
         if current.supervisor_terminal is not None:
             try:
@@ -118,13 +126,36 @@ class SupervisorSession:
 
             return
 
+        if terminal.handle is None or terminal.pane_key is None:
+            await self._give_up(worktree, terminal.handle)
+
+            return
+
         self._worktrees.set_supervisor(worktree.id, terminal.handle, terminal.pane_key)
 
-        if terminal.handle is None:
-            _log.warning(
-                "%s: Orca gave no handle for the supervisor session; "
-                "the next message starts a new one",
-                worktree.issue_key,
-            )
-        else:
-            _log.info("%s: supervisor session %s started", worktree.issue_key, terminal.handle)
+        _log.info("%s: supervisor session %s started", worktree.issue_key, terminal.handle)
+
+    async def _give_up(self, worktree: Worktree, handle: str | None) -> None:
+        """Without a pane, the supervisor cannot keep the session out of the
+        agents of the run, so Spyhop closes it. Without a handle, Spyhop
+        cannot send it messages, and a new session for each message would
+        open a tab each time."""
+
+        if handle is not None:
+            try:
+                await self._orca.close_terminal(handle)
+            except OrcaError as error:
+                _log.warning(
+                    "%s: supervisor session %s without a pane not closed: %s",
+                    worktree.issue_key,
+                    handle,
+                    error,
+                )
+
+        self._worktrees.set_supervisor(worktree.id, UNUSABLE, None)
+
+        _log.warning(
+            "%s: Orca gave no handle or no pane for the supervisor session; "
+            "this worktree gets no supervisor session",
+            worktree.issue_key,
+        )

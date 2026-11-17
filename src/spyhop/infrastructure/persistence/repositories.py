@@ -455,9 +455,13 @@ class CheckpointRunRepository:
 
         return {row["name"]: _to_checkpoint_run(row) for row in rows}
 
-    def set_unit(self, checkpoint_run_id: str, unit: str) -> None:
+    def set_unit(self, checkpoint_run_id: str, unit: str, started_at: datetime) -> None:
+        """The timeout of the checkpoint counts from ``started_at``, the start
+        of its unit."""
+
         self._connection.execute(
-            "UPDATE checkpoint_runs SET unit = ? WHERE id = ?", (unit, checkpoint_run_id)
+            "UPDATE checkpoint_runs SET unit = ?, started_at = ? WHERE id = ?",
+            (unit, _to_text(started_at), checkpoint_run_id),
         )
 
     def finish(self, checkpoint_run_id: str, verdict: str, detail: str | None) -> None:

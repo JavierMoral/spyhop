@@ -72,6 +72,8 @@ class OrcaGateway(Protocol):
 
     async def send_prompt(self, terminal: str, prompt: str) -> None: ...
 
+    async def close_terminal(self, terminal: str) -> None: ...
+
 
 class UnitGateway(Protocol):
     """Runs commands outside the Spyhop service, so that a restart of the
