@@ -14,6 +14,7 @@ from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.cli import app
 from spyhop.config.paths import database_file
 from spyhop.config.settings import load_settings
+from spyhop.domain.enums import WaitingReason
 from spyhop.domain.models import IssueEntry, OrcaWorktree
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
@@ -529,3 +530,34 @@ def test_exec_runs_the_subagent_and_writes_its_result_once(
 
     assert "already has a result" in again.output
     assert calls.read_text().count("--dangerously-skip-permissions") == 1
+
+
+class FakeBoard:
+    def __init__(self) -> None:
+        self.cards: list[tuple[str, str]] = []
+
+    async def set_card_status(self, orca_worktree_id: str, status: str) -> None:
+        self.cards.append((orca_worktree_id, status))
+
+
+def test_approve_moves_the_card_of_a_plan_that_waits_for_its_review(
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    board = FakeBoard()
+    runs = RunRepository(connect(database_file(dry_run=False)))
+    [automation_run] = runs.list(issue_key="LPD-1")
+
+    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: board)
+
+    result = CliRunner().invoke(app, ["approve", "LPD-1", "--config", str(config_file)])
+
+    assert result.exit_code == 1
+    assert "LPD-1 has no plan that waits for a review." in result.output
+    assert board.cards == []
+
+    runs.mark_waiting(automation_run.id, WaitingReason.PLAN_REVIEW, "review the plan")
+
+    result = CliRunner().invoke(app, ["approve", "lpd-1", "--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert board.cards == [(f"repo::{run_worktree}", "in-progress")]

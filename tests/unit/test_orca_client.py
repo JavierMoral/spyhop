@@ -332,6 +332,22 @@ async def test_mark_card_comments_and_marks_unread() -> None:
     ]
 
 
+async def test_set_card_status_moves_the_card() -> None:
+    runner = FakeRunner(fixture("worktree_set.json"))
+
+    await client(runner).set_card_status(WORKTREE_ID, "in-progress")
+
+    assert runner.calls[0][0][1:] == [
+        "worktree",
+        "set",
+        "--worktree",
+        f"id:{WORKTREE_ID}",
+        "--workspace-status",
+        "in-progress",
+        "--json",
+    ]
+
+
 async def test_create_terminal_runs_the_command_in_the_worktree() -> None:
     runner = FakeRunner(
         json.dumps({"ok": True, "result": {"terminal": {"handle": "term_9", "paneKey": "tab:p1"}}})
