@@ -480,7 +480,8 @@ session uses `agents.model`, and it cannot use `Edit`, `Write` or
 
 Spyhop sends it a message that starts with `[spyhop]` for each event:
 
-- The start of a round of checkpoints, and each verdict.
+- The start of a round of checkpoints, the start of each checkpoint with its
+  log file, and each verdict.
 - The launch of an agent, a request to fix findings, and the end of the run.
 - Each reason why the run waits for a person, as `[spyhop] KEY: ESPERA: …`.
   Spyhop also comments on the card with the reason and marks it unread.
@@ -500,7 +501,8 @@ starts a new session. An error of Orca with the session only goes to the log.
 Every cycle, Spyhop asks JIRA which tickets with a worktree are closed (status
 category in `cleanup.close_status_categories`, or status in
 `cleanup.close_statuses`), whoever they are assigned to now. For each one it
-cancels the active run, stops the worktree's agents and terminals, and removes
+cancels the active run, stops the worktree's agents, terminals and checkpoints,
+and removes
 the worktree with `orca worktree rm`, never forced:
 
 - **Merged branch**: Orca deletes it with the worktree.
@@ -652,18 +654,26 @@ object, a `head` that is not the HEAD of the stage, a `PASS` without
 
 #### How Spyhop runs them
 
-For each stage, Spyhop opens one Orca terminal per checkpoint in the worktree.
-The terminal runs `spyhop checkpoints exec`, which runs
-`claude -p --agent checkpoint-<name> --json-schema …`, shows its steps, and
-writes the result to `~/.local/state/spyhop/checkpoints/`. You can watch each
-checkpoint in its tab.
+For each stage, Spyhop starts one systemd user unit per checkpoint, named
+`spyhop-checkpoint-<run>-<row>`, with `systemd-run --user`. The unit runs
+`spyhop checkpoints exec` in the worktree, which runs
+`claude -p --agent checkpoint-<name> --json-schema …` and writes the result to
+`~/.local/state/spyhop/checkpoints/<run>/<row>.json`. The steps go to
+`<row>.log` in the same directory. Orca shows no tab for a checkpoint: the
+[supervisor session](#the-supervisor-session) tells you when each one starts
+and ends.
+
+A unit is outside the Spyhop service, so a restart of the service does not
+stop a checkpoint. The unit gets the environment of the systemd user manager
+(`systemctl --user show-environment`), not the one of your shell. To stop a
+checkpoint, run `systemctl --user stop spyhop-checkpoint-<run>-<row>`.
 
 - A stage starts only when the worktree has no uncommitted change.
 - After an exclusive checkpoint, HEAD must be the same and the worktree must
   have no uncommitted change. If not, the verdict is `FAIL`.
 - A checkpoint that comes after a failed one in the same round is skipped.
 - A checkpoint without a result after `agents.checkpoint_timeout_minutes` is a
-  `FAIL`. Spyhop closes its terminal first. While its process still runs, the
+  `FAIL`. Spyhop stops its unit first. While its process still runs, the
   run waits, so that the process cannot change the worktree under the next
   stage.
 
