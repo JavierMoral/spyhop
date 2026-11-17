@@ -113,7 +113,9 @@ What you do is in **bold**; the rest happens on its own.
 2. The agent, on `agents.plan_model`, writes `CLAUDE-PLAN.md` and moves its card to *In review*
    (`orca.plan_review_status`). **Read `CLAUDE-PLAN.md`**, then either:
    - **drag the card to *In progress*** (`orca.plan_approved_status`) to
-     approve it, or
+     approve it, run `spyhop approve KEY`, which moves the card for you, or
+     tell the [supervisor session](#the-supervisor-session) that you approve
+     it, or
    - **answer the agent in its terminal** to change it.
 
    The implementation agent does not see this conversation. It reads only
@@ -490,6 +492,11 @@ For a wait, the session reads `CLAUDE-CHECKPOINTS.md` and the reports, and
 tells you what happened. It says if the code or the ticket has a problem, or
 if the checkpoint itself failed. It also gives the options with their commands.
 Ask it in the tab to run one, for example `spyhop checkpoints rerun KEY`.
+
+For a plan that waits for its review, the session reads `CLAUDE-PLAN.md`,
+gives a summary and asks if you approve it. When you approve it, the session
+runs `spyhop approve KEY`. Changes to the plan go to the plan agent in its
+own tab.
 
 The worktree row keeps the terminal and the pane of the session. The
 supervisor never takes that pane for an agent of the run, so the session does
