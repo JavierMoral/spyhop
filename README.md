@@ -501,7 +501,9 @@ own tab.
 The worktree row keeps the terminal and the pane of the session. The
 supervisor never takes that pane for an agent of the run, so the session does
 not block a round of checkpoints. If you close the tab, the next message
-starts a new session. An error of Orca with the session only goes to the log.
+starts a new session. If Orca gives no handle or no pane for the session,
+Spyhop closes it, and that worktree gets no session. An error of Orca with
+the session only goes to the log.
 
 ### When the ticket closes
 
