@@ -37,7 +37,7 @@ from spyhop.config.paths import (
 from spyhop.config.settings import Settings, load_settings
 from spyhop.daemon import orca_client, run_daemon
 from spyhop.doctor import Level, run_checks
-from spyhop.domain.enums import WorktreeStatus
+from spyhop.domain.enums import WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import ConfigurationError, SpyhopError
 from spyhop.domain.models import ChecksPhase, ResolvedWorkflow
 from spyhop.infrastructure.git import top_level
@@ -286,6 +286,56 @@ def cleanup(
         raise typer.Exit(1)
 
     typer.echo(f"{worktree.issue_key}: {worktree.path} removed")
+
+
+@app.command()
+def approve(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose plan is approved")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Approve the plan of a run that waits for its review.
+
+    Moves the card to orca.plan_approved_status, as a person does on the
+    board. The running daemon starts the next phase on its next cycle."""
+
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+    active = RunRepository(connection).list(issue_key=issue_key.upper())
+
+    if not active or active[0].waiting_reason is not WaitingReason.PLAN_REVIEW:
+        typer.echo(f"{issue_key.upper()} has no plan that waits for a review.", err=True)
+
+        raise typer.Exit(1)
+
+    automation_run = active[0]
+    worktree = (
+        WorktreeRepository(connection).get(automation_run.worktree_id)
+        if automation_run.worktree_id
+        else None
+    )
+
+    if worktree is None:
+        typer.echo(f"{automation_run.issue_key} has no worktree.", err=True)
+
+        raise typer.Exit(1)
+
+    try:
+        asyncio.run(
+            orca_client(settings).set_card_status(
+                worktree.orca_worktree_id, settings.orca.plan_approved_status
+            )
+        )
+    except SpyhopError as error:
+        typer.echo(f"{automation_run.issue_key}: plan not approved: {error}", err=True)
+
+        raise typer.Exit(1) from None
+
+    typer.echo(
+        f"{automation_run.issue_key}: plan approved; the next phase starts on the next cycle."
+    )
 
 
 @app.command()

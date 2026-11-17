@@ -312,6 +312,22 @@ class OrcaClient:
             uncertain=False,
         )
 
+    async def set_card_status(self, orca_worktree_id: str, status: str) -> None:
+        """Moves the worktree's card to the board column ``status``."""
+
+        await self._call(
+            [
+                "worktree",
+                "set",
+                "--worktree",
+                f"id:{orca_worktree_id}",
+                "--workspace-status",
+                status,
+            ],
+            self._operation_timeout,
+            uncertain=False,
+        )
+
     async def _call(
         self, args: Sequence[str], time_limit: float, uncertain: bool
     ) -> dict[str, Any]:
