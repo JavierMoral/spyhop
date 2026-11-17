@@ -26,13 +26,13 @@ BUG = {
 }
 
 
-def harness_with(tmp_path: Path, *pipeline: Any) -> Harness:
+def harness_with(tmp_path: Path, *pipeline: Any, with_supervisor_session: bool = False) -> Harness:
     config = settings(
         tmp_path,
         projects={"LPD": {"workflows": {"Bug": BUG}}},
         pipelines={"bug": list(pipeline)},
     )
-    harness = Harness(tmp_path, config)
+    harness = Harness(tmp_path, config, with_supervisor_session)
 
     harness.orca.real_git = True
 

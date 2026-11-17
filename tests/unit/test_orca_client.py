@@ -11,6 +11,7 @@ from spyhop.domain.exceptions import (
     OrcaUnavailableError,
     OrcaUncertainError,
 )
+from spyhop.domain.models import OrcaTerminal
 from spyhop.infrastructure.orca.client import OrcaClient, new_operation_id
 from spyhop.infrastructure.process.command_runner import CommandResult, CommandTimeoutError
 
@@ -332,11 +333,13 @@ async def test_mark_card_comments_and_marks_unread() -> None:
 
 
 async def test_create_terminal_runs_the_command_in_the_worktree() -> None:
-    runner = FakeRunner(json.dumps({"ok": True, "result": {"terminal": {"handle": "term_9"}}}))
+    runner = FakeRunner(
+        json.dumps({"ok": True, "result": {"terminal": {"handle": "term_9", "paneKey": "tab:p1"}}})
+    )
 
-    handle = await client(runner).create_terminal("repo::/wt/LPD-1", "checkpoint x", "spyhop x")
+    terminal = await client(runner).create_terminal("repo::/wt/LPD-1", "checkpoint x", "spyhop x")
 
-    assert handle == "term_9"
+    assert terminal == OrcaTerminal("term_9", "tab:p1")
     assert runner.calls[0][0] == [
         str(ORCA),
         "terminal",
@@ -354,7 +357,7 @@ async def test_create_terminal_runs_the_command_in_the_worktree() -> None:
 async def test_create_terminal_without_a_handle_is_not_an_error() -> None:
     runner = FakeRunner(json.dumps({"ok": True, "result": {}}))
 
-    assert await client(runner).create_terminal("repo::/wt", "t", "c") is None
+    assert await client(runner).create_terminal("repo::/wt", "t", "c") == OrcaTerminal(None, None)
 
 
 async def test_send_prompt_submits_the_text_to_the_terminal() -> None:

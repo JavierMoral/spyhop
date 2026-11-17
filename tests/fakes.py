@@ -14,6 +14,7 @@ from spyhop.application.context_builder import ContextBuilder, template_environm
 from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.supervisor import AgentSupervisor
+from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import Settings
 from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
@@ -23,6 +24,7 @@ from spyhop.domain.models import (
     IssueEntry,
     JiraUser,
     LaunchResult,
+    OrcaTerminal,
     OrcaWorktree,
     RemoveResult,
     Worktree,
@@ -300,13 +302,17 @@ class FakeOrca:
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None:
         self.cards[orca_worktree_id] = comment
 
-    async def create_terminal(self, orca_worktree_id: str, title: str, command: str) -> str | None:
+    async def create_terminal(
+        self, orca_worktree_id: str, title: str, command: str
+    ) -> OrcaTerminal:
         self.terminals.append({"worktree": orca_worktree_id, "title": title, "command": command})
 
         if self.terminal_errors:
             raise self.terminal_errors.pop(0)
 
-        return f"term_check_{len(self.terminals)}"
+        number = len(self.terminals)
+
+        return OrcaTerminal(f"term_check_{number}", f"pane_term_{number}")
 
     async def close_terminal(self, terminal: str) -> None:
         self.closed.append(terminal)
@@ -341,7 +347,12 @@ class FakeOrca:
 
 
 class Harness:
-    def __init__(self, tmp_path: Path, config: Settings | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        config: Settings | None = None,
+        with_supervisor_session: bool = False,
+    ) -> None:
         self.config = config or settings(tmp_path)
         self.connection = connect(tmp_path / "spyhop.db")
         self.runs = RunRepository(self.connection)
@@ -393,6 +404,17 @@ class Harness:
         self.agents_dir = tmp_path / "agents"
         self.results_dir = tmp_path / "results"
         self.checkpoint_runs = CheckpointRunRepository(self.connection)
+        self.supervisor_session = (
+            SupervisorSession(
+                worktrees=self.worktrees,
+                orca=self.orca,
+                context=self.context,
+                spyhop=SPYHOP,
+                model=self.config.agents.model,
+            )
+            if with_supervisor_session
+            else None
+        )
         self.check_runner = CheckRunner(
             checkpoint_runs=self.checkpoint_runs,
             orca=self.orca,
@@ -401,6 +423,7 @@ class Harness:
             spyhop=SPYHOP,
             results_dir=self.results_dir,
             timeout=timedelta(hours=3),
+            supervisor_session=self.supervisor_session,
         )
         self.supervisor = AgentSupervisor(
             runs=self.runs,
@@ -413,6 +436,7 @@ class Harness:
             plan_approved_status=PLAN_APPROVED,
             resolver=WorkflowResolver(self.config),
             check_runner=self.check_runner,
+            supervisor_session=self.supervisor_session,
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:
