@@ -59,6 +59,9 @@ LATER = NOW + timedelta(minutes=1)
         # The card alone, without a CLAUDE-PLAN.md of this run, is not a plan.
         (RUNNING, Observation(PLAN_REVIEW, agent("done", LATER), False, False), Signal.STOPPED),
         (PLAN_WAIT, Observation(PLAN_APPROVED, agent("done"), True, False), Signal.PLAN_APPROVED),
+        # A plan agent that is gone does not stop the plan review or the approval.
+        (PLAN_WAIT, Observation(PLAN_REVIEW, None, True, False), Signal.NONE),
+        (PLAN_WAIT, Observation(PLAN_APPROVED, None, True, False), Signal.PLAN_APPROVED),
         # Only a run waiting for its plan review is approved by the card.
         (RUNNING, Observation(PLAN_APPROVED, agent("done", LATER), True, False), Signal.STOPPED),
         # A state from before the run's last transition is stale.

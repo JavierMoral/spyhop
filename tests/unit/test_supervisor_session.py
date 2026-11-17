@@ -3,12 +3,13 @@ progress of the run and the reasons why it waits for a person."""
 
 from pathlib import Path
 
+from spyhop.application.supervisor import MISSING_CYCLES
 from spyhop.application.supervisor_session import UNUSABLE
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AutomationRun, CheckpointRun, OrcaTerminal, Worktree
-from tests.fakes import Harness
-from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started
+from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
+from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started, written
 
 
 async def failed_check(tmp_path: Path) -> tuple[Harness, AutomationRun, Worktree]:
@@ -183,3 +184,46 @@ async def test_a_session_without_a_handle_is_not_started_again(tmp_path: Path) -
 
     assert harness.orca.closed == []
     assert len(harness.orca.terminals) == 1
+
+
+async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Path) -> None:
+    harness = harness_with(
+        tmp_path,
+        {"checks": ["ticket-info"]},
+        "plan",
+        "plan_review",
+        "implement",
+        with_supervisor_session=True,
+    )
+    run, worktree = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info")
+    await harness.supervisor.supervise()
+
+    session = harness.sessions.find_launched(run.id)
+
+    assert session is not None and session.pane_key is not None
+
+    written(worktree.path / "CLAUDE-PLAN.md", "plan")
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
+    await harness.supervisor.supervise()
+    harness.orca.agents.clear()
+
+    for _ in range(MISSING_CYCLES + 1):
+        await harness.supervisor.supervise()
+
+    closed = (
+        "[spyhop] LPD-1: el agente del plan está cerrado; aprueba el plan con `spyhop approve "
+        f"LPD-1`, o abre un agente en {worktree.path} para revisar CLAUDE-PLAN.md"
+    )
+
+    assert session_prompts(harness, "term_check_1").count(closed) == 1
+    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
+
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    await harness.supervisor.supervise()
+
+    assert len(harness.orca.launches) == 2
+    assert harness.run(run.id).status is RunStatus.RUNNING

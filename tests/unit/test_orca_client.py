@@ -400,3 +400,12 @@ async def test_close_terminal_closes_one_terminal() -> None:
     await client(runner).close_terminal("term_1")
 
     assert runner.calls[0][0] == [str(ORCA), "terminal", "close", "--terminal", "term_1", "--json"]
+
+
+async def test_warnings_are_logged_as_objects_or_strings(caplog: pytest.LogCaptureFixture) -> None:
+    answer = json.dumps({"ok": True, "result": {"warnings": [{"message": "first"}, "second"]}})
+
+    await client(FakeRunner(answer)).send_prompt("term_1", "hello")
+
+    assert "orca terminal send: first" in caplog.text
+    assert "orca terminal send: second" in caplog.text
