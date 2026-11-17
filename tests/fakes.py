@@ -4,6 +4,7 @@ database, the launcher and the supervisor."""
 import dataclasses
 import shutil
 import subprocess
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,22 @@ def init_repository(path: Path) -> None:
     git(path, "commit", "--quiet", "-m", "First")
 
 
+class FakeUnits:
+    def __init__(self) -> None:
+        self.started: list[dict[str, Any]] = []
+        self.start_errors: list[Exception] = []
+        self.stopped: list[str] = []
+
+    async def start(self, unit: str, command: Sequence[str], cwd: Path, log: Path) -> None:
+        self.started.append({"unit": unit, "command": list(command), "cwd": cwd, "log": log})
+
+        if self.start_errors:
+            raise self.start_errors.pop(0)
+
+    async def stop(self, pattern: str) -> None:
+        self.stopped.append(pattern)
+
+
 class FakeOrca:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -145,7 +162,6 @@ class FakeOrca:
         self.terminals: list[dict[str, str]] = []
         self.terminal_errors: list[Exception] = []
         self.prompts: list[tuple[str, str]] = []
-        self.closed: list[str] = []
         self.prompt_errors: list[Exception] = []
         # New worktrees are real Git repositories with one commit on master.
         self.real_git = False
@@ -314,9 +330,6 @@ class FakeOrca:
 
         return OrcaTerminal(f"term_check_{number}", f"pane_term_{number}")
 
-    async def close_terminal(self, terminal: str) -> None:
-        self.closed.append(terminal)
-
     async def send_prompt(self, terminal: str, prompt: str) -> None:
         self.prompts.append((terminal, prompt))
 
@@ -385,10 +398,12 @@ class Harness:
         )
         self.cleaned: list[Path] = []
         self.cleanup_errors: list[Exception] = []
+        self.units = FakeUnits()
         self.remover = WorktreeRemover(
             self.runs,
             self.worktrees,
             self.orca,
+            self.units,
             self.config.repositories,
             cleanup_script=self.cleanup_script,
         )
@@ -417,7 +432,7 @@ class Harness:
         )
         self.check_runner = CheckRunner(
             checkpoint_runs=self.checkpoint_runs,
-            orca=self.orca,
+            units=self.units,
             planner=CheckpointPlanner(self.agents_dir),
             tickets=self.tickets,
             spyhop=SPYHOP,

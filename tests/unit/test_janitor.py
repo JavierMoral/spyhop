@@ -75,6 +75,7 @@ async def test_closed_ticket_cancels_its_run_and_removes_its_worktree(harness: H
     assert cancelled.error_message == TICKET_CLOSED
     assert cancelled.finished_at is not None
     assert harness.orca.closed_terminals == [worktree.orca_worktree_id]
+    assert harness.units.stopped == [f"spyhop-checkpoint-{run.id}-*"]
     assert harness.orca.removed == [worktree.orca_worktree_id]
     assert worktree_status(harness, worktree) is WorktreeStatus.REMOVED
     assert not worktree.path.exists()

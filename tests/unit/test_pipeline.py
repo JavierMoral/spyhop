@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from spyhop.domain.enums import RunStatus, WaitingReason
-from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
+from spyhop.domain.exceptions import UnitError
 from spyhop.domain.models import AutomationRun, CheckpointRun, Worktree
 from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
@@ -118,11 +118,14 @@ async def test_checks_before_the_plan_run_without_an_agent_and_then_start_it(
 
     await harness.supervisor.supervise()
 
-    [terminal] = harness.orca.terminals
+    [unit] = harness.units.started
     [row] = running(harness, run)
 
-    assert terminal["title"] == "checkpoint ticket-info"
-    assert terminal["command"].startswith(f"{SPYHOP} checkpoints exec ticket-info --base ")
+    assert unit["unit"] == f"spyhop-checkpoint-{run.id}-{row.id}"
+    assert unit["command"][:5] == [str(SPYHOP), "checkpoints", "exec", "ticket-info", "--base"]
+    assert unit["cwd"] == worktree.path
+    assert unit["log"] == row.output_file.with_suffix(".log")
+    assert row.unit == unit["unit"]
     assert row.inputs == "ticket=2026-11-01T09:00:00.000+0000"
 
     answer(harness, run, "ticket-info")
@@ -161,12 +164,12 @@ async def test_a_failed_check_waits_and_runs_again_when_the_ticket_changes(
 
     await harness.supervisor.supervise()
 
-    assert len(harness.orca.terminals) == 1
+    assert len(harness.units.started) == 1
 
     harness.tickets.updated["LPD-1"] = "2026-11-02T09:00:00.000+0000"
     await harness.supervisor.supervise()
 
-    assert len(harness.orca.terminals) == 2
+    assert len(harness.units.started) == 2
     assert harness.run(run.id).status is RunStatus.RUNNING
     assert harness.checkpoint_runs.last_round(run.id, 0) == 2
 
@@ -347,28 +350,30 @@ async def test_a_dirty_worktree_blocks_the_start_of_a_stage(tmp_path: Path) -> N
 
     waiting = harness.run(run.id)
 
-    assert harness.orca.terminals == []
+    assert harness.units.started == []
     assert waiting.waiting_reason is WaitingReason.UNKNOWN_STATE
     assert waiting.error_message is not None
     assert "checkpoints need a clean worktree" in waiting.error_message
 
 
-async def test_a_lost_terminal_answer_opens_the_terminal_again(tmp_path: Path) -> None:
+async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path) -> None:
     harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
     run, _ = await started(harness)
-    harness.orca.terminal_errors.append(OrcaUncertainError("timed out"))
 
     await harness.supervisor.supervise()
+
+    # Spyhop stopped after it stored the row and before it started the unit.
+
+    harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL")
     await harness.supervisor.supervise()
 
-    commands = [terminal["command"] for terminal in harness.orca.terminals]
+    first, second = harness.units.started
 
-    assert len(commands) == 2
-    assert commands[0] == commands[1]
+    assert first == second
     assert len(running(harness, run)) == 1
 
 
-async def test_a_check_without_a_result_in_time_is_a_fail_after_its_terminal_closes(
+async def test_a_check_without_a_result_in_time_is_a_fail_after_its_unit_stops(
     tmp_path: Path,
 ) -> None:
     harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
@@ -381,7 +386,7 @@ async def test_a_check_without_a_result_in_time_is_a_fail_after_its_terminal_clo
     harness.check_runner._now = lambda: late
     await harness.supervisor.supervise()
 
-    assert harness.orca.closed == [row.terminal]
+    assert harness.units.stopped == [row.unit]
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
 
 
@@ -414,16 +419,18 @@ async def test_a_late_check_whose_process_still_runs_blocks_the_phase(tmp_path: 
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
 
 
-async def test_a_checkpoint_started_before_a_lost_answer_does_not_start_again(
+async def test_a_checkpoint_whose_unit_did_not_start_gets_no_second_row(
     tmp_path: Path,
 ) -> None:
     harness = harness_with(tmp_path, {"checks": ["ticket-info", "security"]}, "implement")
     run, _ = await started(harness)
-    harness.orca.terminal_errors.append(OrcaUncertainError("timed out"))
-
-    # security, the first of the read stage, starts; then Orca loses the answer.
 
     await harness.supervisor.supervise()
+
+    # Spyhop stopped before the unit of ticket-info, the second of the read
+    # stage, started.
+
+    harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL WHERE name = 'ticket-info'")
     await harness.supervisor.supervise()
     answer(harness, run, "security")
     await harness.supervisor.supervise()
@@ -436,14 +443,14 @@ async def test_a_checkpoint_started_before_a_lost_answer_does_not_start_again(
     assert harness.run(run.id).phase == 1
 
 
-async def test_a_terminal_that_orca_refuses_gets_a_report(tmp_path: Path) -> None:
+async def test_a_unit_that_does_not_start_gets_a_report(tmp_path: Path) -> None:
     harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
     run, worktree = await started(harness)
-    harness.orca.terminal_errors.append(OrcaCommandError("invalid_argument", "bad worktree"))
+    harness.units.start_errors.append(UnitError("systemd-run x: no user bus"))
 
     await harness.supervisor.supervise()
 
-    assert "Validation: Orca refused the terminal: invalid_argument: bad worktree." in (
+    assert "Validation: the checkpoint did not start: systemd-run x: no user bus." in (
         (worktree.path / "CLAUDE-CHECKPOINT-ticket-info.md").read_text()
     )
     assert "| ticket-info | FAIL |" in (worktree.path / "CLAUDE-CHECKPOINTS.md").read_text()

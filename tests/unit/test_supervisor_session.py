@@ -5,7 +5,7 @@ from pathlib import Path
 
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
-from spyhop.domain.models import AutomationRun, Worktree
+from spyhop.domain.models import AutomationRun, CheckpointRun, Worktree
 from tests.fakes import Harness
 from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started
 
@@ -22,6 +22,12 @@ async def failed_check(tmp_path: Path) -> tuple[Harness, AutomationRun, Worktree
     return harness, run, worktree
 
 
+def running_or_done(harness: Harness, run: AutomationRun) -> CheckpointRun:
+    [row] = harness.checkpoint_runs.list_round(run.id, 0, 1)
+
+    return row
+
+
 def session_prompts(harness: Harness, terminal: str) -> list[str]:
     return [text for handle, text in harness.orca.prompts if handle == terminal]
 
@@ -31,13 +37,12 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
 ) -> None:
     harness, run, worktree = await failed_check(tmp_path)
 
-    session, check = harness.orca.terminals
+    [session] = harness.orca.terminals
 
     assert session["title"] == "spyhop"
     assert session["command"].startswith("env CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude ")
     assert "[spyhop] LPD-1: ronda 1 de checkpoints: ticket-info" in session["command"]
     assert session["command"].endswith(" --disallowed-tools Edit Write NotebookEdit")
-    assert check["title"] == "checkpoint ticket-info"
 
     current = harness.worktrees.get(worktree.id)
 
@@ -47,7 +52,12 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
 
     await harness.supervisor.supervise()
 
-    verdict, wait = session_prompts(harness, "term_check_1")
+    start, verdict, wait = session_prompts(harness, "term_check_1")
+
+    assert start == (
+        "[spyhop] LPD-1: checkpoint ticket-info arrancado; log en "
+        f"{running_or_done(harness, run).output_file.with_suffix('.log')}"
+    )
 
     assert verdict == (
         "[spyhop] LPD-1: checkpoint ticket-info: FAIL; informe en CLAUDE-CHECKPOINT-ticket-info.md"
@@ -75,10 +85,11 @@ async def test_the_session_pane_is_not_an_agent_of_the_run(tmp_path: Path) -> No
 
     assert harness.run(run.id).status is RunStatus.RUNNING
     assert harness.checkpoint_runs.last_round(run.id, 0) == 2
-    assert session_prompts(harness, "term_check_1")[-2:] == [
-        "[spyhop] LPD-1: ronda 2 de checkpoints: ticket-info",
-        "[spyhop] LPD-1: la run sigue (esperaba: checkpoints_failed)",
-    ]
+    round_start, checkpoint_start, resumed = session_prompts(harness, "term_check_1")[-3:]
+
+    assert round_start == "[spyhop] LPD-1: ronda 2 de checkpoints: ticket-info"
+    assert checkpoint_start.startswith("[spyhop] LPD-1: checkpoint ticket-info arrancado")
+    assert resumed == "[spyhop] LPD-1: la run sigue (esperaba: checkpoints_failed)"
 
 
 async def test_a_closed_session_starts_again_with_the_message(tmp_path: Path) -> None:
@@ -87,17 +98,19 @@ async def test_a_closed_session_starts_again_with_the_message(tmp_path: Path) ->
     harness.orca.prompt_errors.append(OrcaCommandError("selector_not_found", "terminal gone"))
     await harness.supervisor.supervise()
 
-    session = harness.orca.terminals[2]
+    session = harness.orca.terminals[1]
     current = harness.worktrees.get(worktree.id)
 
     assert session["title"] == "spyhop"
     assert "[spyhop] LPD-1: checkpoint ticket-info: FAIL" in session["command"]
     assert current is not None
-    assert current.supervisor_terminal == "term_check_3"
-    assert session_prompts(harness, "term_check_3")[0].startswith("[spyhop] LPD-1: ESPERA: ")
+    assert current.supervisor_terminal == "term_check_2"
+    assert session_prompts(harness, "term_check_2")[0].startswith("[spyhop] LPD-1: ESPERA: ")
 
 
-async def test_an_orca_error_of_the_session_does_not_stop_the_checks(tmp_path: Path) -> None:
+async def test_an_orca_error_of_the_session_does_not_stop_the_checks_and_the_next_message_starts_it(
+    tmp_path: Path,
+) -> None:
     harness = harness_with(
         tmp_path, {"checks": ["ticket-info"]}, "implement", with_supervisor_session=True
     )
@@ -111,4 +124,4 @@ async def test_an_orca_error_of_the_session_does_not_stop_the_checks(tmp_path: P
 
     assert row.name == "ticket-info"
     assert current is not None
-    assert current.supervisor_terminal is None
+    assert current.supervisor_terminal == "term_check_2"
