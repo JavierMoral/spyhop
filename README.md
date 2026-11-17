@@ -470,6 +470,31 @@ until the agent works again or you give up on it with `spyhop fail <KEY>`. Only
 files written after the run's launch count, so a `CLAUDE-PLAN.md` or `CLAUDE-RESULT.md` left
 by an earlier run of the ticket is never taken as a signal.
 
+### The supervisor session
+
+Each worktree gets one interactive Claude session in an Orca tab named
+`spyhop`. Spyhop starts it the first time it has something to tell about a run:
+usually the first round of checkpoints, or the launch of the first agent. The
+session uses `agents.model`, and it cannot use `Edit`, `Write` or
+`NotebookEdit`.
+
+Spyhop sends it a message that starts with `[spyhop]` for each event:
+
+- The start of a round of checkpoints, and each verdict.
+- The launch of an agent, a request to fix findings, and the end of the run.
+- Each reason why the run waits for a person, as `[spyhop] KEY: ESPERA: …`.
+  Spyhop also comments on the card with the reason and marks it unread.
+
+For a wait, the session reads `CLAUDE-CHECKPOINTS.md` and the reports, and
+tells you what happened. It says if the code or the ticket has a problem, or
+if the checkpoint itself failed. It also gives the options with their commands.
+Ask it in the tab to run one, for example `spyhop checkpoints rerun KEY`.
+
+The worktree row keeps the terminal and the pane of the session. The
+supervisor never takes that pane for an agent of the run, so the session does
+not block a round of checkpoints. If you close the tab, the next message
+starts a new session. An error of Orca with the session only goes to the log.
+
 ### When the ticket closes
 
 Every cycle, Spyhop asks JIRA which tickets with a worktree are closed (status
@@ -509,6 +534,8 @@ first in `~/.config/spyhop/templates/` and then among the bundled ones in
 | `goal.md` | The `/goal` the agent is launched with. |
 | `settings.local.json.j2` | The agent's permissions in the worktree. |
 | `bug_fix.md`, `feature.md`, `technical_task.md` | Workflow guidance, chosen by a workflow's `prompt`. |
+| `fix.md` | The prompt that asks the implementation agent to fix the findings of failed checkpoints. |
+| `supervisor.md` | The first prompt of the [supervisor session](#the-supervisor-session). |
 
 To change one, copy it to `~/.config/spyhop/templates/` with the same name and
 edit the copy; the bundled one is then ignored. A workflow's `prompt` can also
