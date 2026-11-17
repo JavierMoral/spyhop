@@ -357,6 +357,12 @@ class WorktreeRepository:
             (WorktreeStatus.REMOVED, reason, _to_text(utc_now()), worktree_id),
         )
 
+    def set_supervisor(self, worktree_id: str, terminal: str | None, pane_key: str | None) -> None:
+        self._connection.execute(
+            "UPDATE worktrees SET supervisor_terminal = ?, supervisor_pane_key = ? WHERE id = ?",
+            (terminal, pane_key, worktree_id),
+        )
+
     def _set_status(self, worktree_id: str, status: WorktreeStatus, error: str | None) -> None:
         self._connection.execute(
             "UPDATE worktrees SET status = ?, cleanup_error = ? WHERE id = ?",
@@ -668,6 +674,8 @@ def _to_worktree(row: sqlite3.Row) -> Worktree:
         status=WorktreeStatus(row["status"]),
         cleanup_error=row["cleanup_error"],
         removed_at=_to_datetime(row["removed_at"]),
+        supervisor_terminal=row["supervisor_terminal"],
+        supervisor_pane_key=row["supervisor_pane_key"],
     )
 
 

@@ -144,6 +144,13 @@ _MIGRATIONS = [
 
     CREATE INDEX idx_checkpoint_runs_run ON checkpoint_runs(run_id, phase, round);
     """,
+    # Supervisor session: the Orca terminal and pane of the Claude session that
+    # tells the user about the runs of the worktree.
+    """
+    ALTER TABLE worktrees ADD COLUMN supervisor_terminal TEXT;
+
+    ALTER TABLE worktrees ADD COLUMN supervisor_pane_key TEXT;
+    """,
 ]
 
 

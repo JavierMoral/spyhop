@@ -32,6 +32,7 @@ from spyhop.domain.exceptions import (
 from spyhop.domain.models import (
     AgentRow,
     LaunchResult,
+    OrcaTerminal,
     OrcaWorktree,
     RemoveResult,
 )
@@ -253,10 +254,13 @@ class OrcaClient:
             preserved_branch=(result.get("preservedBranch") or {}).get("branchName")
         )
 
-    async def create_terminal(self, orca_worktree_id: str, title: str, command: str) -> str | None:
+    async def create_terminal(
+        self, orca_worktree_id: str, title: str, command: str
+    ) -> OrcaTerminal:
         """Opens a terminal tab in the worktree that runs ``command``.
-        Returns its handle when Orca gives one. Orca has no retry id for
-        this command, so the command itself must be safe to start twice."""
+        Returns its handle and pane when Orca gives them. Orca has no retry
+        id for this command, so the command itself must be safe to start
+        twice."""
 
         result = await self._call(
             [
@@ -273,9 +277,14 @@ class OrcaClient:
             uncertain=True,
         )
         terminal = result.get("terminal")
-        handle = (terminal if isinstance(terminal, dict) else result).get("handle")
+        data = terminal if isinstance(terminal, dict) else result
+        handle = data.get("handle")
+        pane_key = data.get("paneKey")
 
-        return handle if isinstance(handle, str) else None
+        return OrcaTerminal(
+            handle if isinstance(handle, str) else None,
+            pane_key if isinstance(pane_key, str) else None,
+        )
 
     async def close_terminal(self, terminal: str) -> None:
         """Closes one terminal, which stops its process."""

@@ -231,6 +231,9 @@ class Worktree:
     status: WorktreeStatus
     cleanup_error: str | None
     removed_at: datetime | None
+    # The Orca terminal and pane of the supervisor session of the worktree.
+    supervisor_terminal: str | None = None
+    supervisor_pane_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,6 +270,15 @@ class CheckpointRun:
     detail: str | None
     started_at: datetime
     finished_at: datetime | None
+
+
+@dataclass(frozen=True)
+class OrcaTerminal:
+    """A terminal that Orca opened. Orca does not always give the handle or
+    the pane."""
+
+    handle: str | None
+    pane_key: str | None
 
 
 @dataclass(frozen=True)

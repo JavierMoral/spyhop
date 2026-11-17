@@ -15,6 +15,8 @@ supervisor calls advance() every cycle:
 - A failed round starts again when someone asks for it (a person, or the
   supervisor after a fix), or when the inputs of a failed checkpoint change
   while no agent works in the worktree.
+- The supervisor session of the worktree, when there is one, gets the start
+  of each round and each verdict.
 - A checkpoint without a result in time is a FAIL. Spyhop closes its terminal
   first, and the phase stays blocked while its process still runs, so that
   it cannot change the worktree under the next stage.
@@ -39,6 +41,7 @@ from spyhop.application.checkpoint_inputs import input_values
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner, Stage
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE, fingerprint
 from spyhop.application.context_builder import EXCLUDED_PATHS, add_exclusions, git_exclude_file
+from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.domain.exceptions import OrcaCommandError
 from spyhop.domain.models import (
     AutomationRun,
@@ -127,8 +130,10 @@ class CheckRunner:
         results_dir: Path,
         timeout: timedelta,
         now: Callable[[], datetime] = utc_now,
+        supervisor_session: SupervisorSession | None = None,
     ) -> None:
         self._checkpoint_runs = checkpoint_runs
+        self._supervisor_session = supervisor_session
         self._orca = orca
         self._planner = planner
         self._tickets = tickets
@@ -214,6 +219,11 @@ class CheckRunner:
 
         _log.info("%s: checkpoints round %d of phase %d", run.issue_key, number, run.phase)
 
+        if self._supervisor_session is not None:
+            await self._supervisor_session.tell(
+                worktree, f"ronda {number} de checkpoints: {', '.join(phase.checkpoints)}"
+            )
+
         return await self._start_stage(run, worktree, workflow, number, stages[0], set())
 
     async def _start_stage(
@@ -295,7 +305,7 @@ class CheckRunner:
                 worktree.orca_worktree_id, f"checkpoint {row.name}", command
             )
         except OrcaCommandError as error:
-            self._record(
+            await self._record(
                 row,
                 run,
                 worktree,
@@ -305,7 +315,7 @@ class CheckRunner:
 
             return
 
-        self._checkpoint_runs.set_terminal(row.id, terminal or UNKNOWN_TERMINAL)
+        self._checkpoint_runs.set_terminal(row.id, terminal.handle or UNKNOWN_TERMINAL)
 
     async def _poll(
         self, row: CheckpointRun, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
@@ -318,7 +328,7 @@ class CheckRunner:
                 row, worktree, _validate(_read_output(row.output_file), row.head)
             )
 
-            self._record(row, run, worktree, workflow, result)
+            await self._record(row, run, worktree, workflow, result)
         elif self._now() - row.started_at > self._timeout:
             if row.terminal not in (None, UNKNOWN_TERMINAL):
                 try:
@@ -333,7 +343,7 @@ class CheckRunner:
                     f"process still runs; stop it in its Orca terminal"
                 )
 
-            self._record(
+            await self._record(
                 row,
                 run,
                 worktree,
@@ -361,7 +371,7 @@ class CheckRunner:
 
         return result
 
-    def _record(
+    async def _record(
         self,
         row: CheckpointRun,
         run: AutomationRun,
@@ -381,6 +391,14 @@ class CheckRunner:
             result.verdict,
             f" ({result.validation})" if result.validation else "",
         )
+
+        if self._supervisor_session is not None:
+            await self._supervisor_session.tell(
+                worktree,
+                f"checkpoint {row.name}: {result.verdict}"
+                + (f" ({result.validation})" if result.validation else "")
+                + f"; informe en {REPORT_FILE.format(name=row.name)}",
+            )
 
     def _skipped(self, phase: ChecksPhase, failed: Sequence[str]) -> set[str]:
         skipped: set[str] = set()

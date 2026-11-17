@@ -159,6 +159,17 @@ class ContextBuilder:
 
         return oneline(text)
 
+    def supervisor_prompt(self, issue_key: str, worktree: Path, spyhop: Path, message: str) -> str:
+        text = self._render(
+            "supervisor.md",
+            issue_key=issue_key,
+            worktree=str(worktree),
+            spyhop=str(spyhop),
+            message=message,
+        )
+
+        return oneline(text)
+
     def _orca_commands(self) -> list[str]:
         # The agent may call Orca by name or by the absolute path in its goal;
         # permission rules match the literal command, so both are listed.

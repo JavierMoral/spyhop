@@ -16,6 +16,7 @@ from spyhop.application.launcher import AgentLauncher
 from spyhop.application.monitor import JiraMonitor
 from spyhop.application.orchestrator import Orchestrator
 from spyhop.application.supervisor import AgentSupervisor
+from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.transition_detector import TransitionDetector
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import credentials_from_environment
@@ -172,6 +173,13 @@ def _agents(
         settings.orca.plan_approved_status,
         settings.agents.review_command,
     )
+    supervisor_session = SupervisorSession(
+        worktrees=worktrees,
+        orca=orca,
+        context=context,
+        spyhop=spyhop_executable(),
+        model=settings.agents.model,
+    )
     supervisor = AgentSupervisor(
         runs=runs,
         worktrees=worktrees,
@@ -190,7 +198,9 @@ def _agents(
             spyhop=spyhop_executable(),
             results_dir=state_dir() / "checkpoints",
             timeout=timedelta(minutes=settings.agents.checkpoint_timeout_minutes),
+            supervisor_session=supervisor_session,
         ),
+        supervisor_session=supervisor_session,
     )
     launcher = AgentLauncher(
         runs=runs,
