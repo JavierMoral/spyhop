@@ -120,7 +120,10 @@ What you do is in **bold**; the rest happens on its own.
 
    The implementation agent does not see this conversation. It reads only
    `CLAUDE-PLAN.md`, so make sure that the plan agent writes each change into
-   that file. Workflows with `plan_review: false` skip this step.
+   that file. You can close the tab of the plan agent: the run stays in
+   `plan_review`, and the approval still starts the implementation. To change
+   the plan after that, start an agent in the worktree yourself and tell it to
+   edit `CLAUDE-PLAN.md`. Workflows with `plan_review: false` skip this step.
 3. Spyhop launches a new agent on `agents.model`, which implements the plan and
    commits locally. The plan agent stays open with no work. Workflows with
    `plan_review: false` keep one agent on `agents.model` for all the work. With
@@ -372,7 +375,9 @@ Its contract:
   Orca lists a worktree created outside it once it has seen it in Git; until
   then the run waits in `PREPARING`, and the next cycle runs the script again.
 - **Do the setup yourself.** Orca's setup hooks and the repository's `setup`
-  value do not apply to worktrees the script creates.
+  value do not apply to worktrees the script creates. `git worktree add` copies
+  only tracked files, so copy the ignored files that a build needs, for
+  example liferay-portal's `build.<user>.properties`.
 
 For example, a worktree in `agents/<name>/portal`, next to a bundle in
 `agents/<name>/bundles`:
@@ -496,7 +501,9 @@ Ask it in the tab to run one, for example `spyhop checkpoints rerun KEY`.
 For a plan that waits for its review, the session reads `CLAUDE-PLAN.md`,
 gives a summary and asks if you approve it. When you approve it, the session
 runs `spyhop approve KEY`. Changes to the plan go to the plan agent in its
-own tab.
+own tab. If you close that tab while the plan waits for its review, the
+session gets one message that tells you to approve the plan or to start an
+agent in the worktree to edit `CLAUDE-PLAN.md`.
 
 The worktree row keeps the terminal and the pane of the session. The
 supervisor never takes that pane for an agent of the run, so the session does
@@ -757,6 +764,7 @@ spyhop service uninstall
 | --- | --- |
 | `spyhop run` | Run the daemon in the foreground. `--once` polls once; `--dry-run/--no-dry-run` overrides the configuration; `-v` for debug logs. |
 | `spyhop status [KEY]` | Last poll, watermark, last error and active runs. `--all` includes finished runs. |
+| `spyhop approve KEY` | Approve the plan of a run in `plan_review`: moves its card to `orca.plan_approved_status`. The daemon starts the next phase on its next cycle. |
 | `spyhop retry RUN\|KEY` | Start a finished run again as a new run (same ticket and worktree). Takes the run id from `status` (its first characters are enough) or a ticket key for its latest run. |
 | `spyhop cleanup KEY` | Remove the ticket's worktree now, whatever its JIRA status: cancels its run, stops its agents, never forces. |
 | `spyhop fail KEY` | Mark the ticket's active run as `FAILED`, freeing its agent slot. `--reason` records why. The agent and the worktree in Orca are left as they are. |
