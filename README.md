@@ -45,7 +45,9 @@ What you do is in **bold**. The rest happens by itself.
    - **Approve it.** Drag the card to *In progress*, run `spyhop approve KEY`,
      or tell the [supervisor session](#the-supervisor-session) that you
      approve it.
-   - **Change it.** Answer the agent in its terminal.
+   - **Change it.** Answer the agent in its terminal, run
+     `spyhop tell KEY "the changes"`, or give the changes to the supervisor
+     session.
 
    The implementation agent reads only `CLAUDE-PLAN.md`, so make sure that
    each change goes into that file. You can close the tab of the plan agent:
@@ -82,9 +84,10 @@ the run waits for you.
 
 When the run waits, the session tells you what happened and gives the options
 with their commands. When a plan waits for its review, the session gives a
-summary of the plan and asks if you approve it. When the run completes, the
-session shows a table of the steps and the checkpoint rounds, with a ✅ or a
-❌ and the result of each step. The session cannot edit
+summary of the plan and asks if you approve it. When you ask for changes to
+the plan, the session sends them to the plan agent with `spyhop tell`. When
+the run completes, the session shows a table of the steps and the checkpoint
+rounds, with a ✅ or a ❌ and the result of each step. The session cannot edit
 files, and it runs a command only when you ask it to.
 
 ### When the ticket closes
@@ -327,6 +330,7 @@ checkpoints of a workflow.
 | --- | --- |
 | `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
+| `spyhop tell KEY TEXT` | Send a message to the current agent of the run, in its Orca terminal. |
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
 | `spyhop retry KEY` | Start a finished run again, on the same worktree. |
 | `spyhop cleanup KEY` | Remove the worktree of the ticket now. |

@@ -15,10 +15,15 @@ from spyhop.cli import app
 from spyhop.config.paths import database_file
 from spyhop.config.settings import load_settings
 from spyhop.domain.enums import WaitingReason
+from spyhop.domain.exceptions import OrcaCommandError
 from spyhop.domain.models import IssueEntry, OrcaWorktree
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
-from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
+from spyhop.infrastructure.persistence.repositories import (
+    RunRepository,
+    SessionRepository,
+    WorktreeRepository,
+)
 from tests.factories import issue
 from tests.unit.test_checkpoint_planner import checkpoint
 
@@ -596,3 +601,73 @@ def test_approve_moves_the_card_of_a_plan_that_waits_for_its_review(
 
     assert result.exit_code == 0
     assert board.cards == [(f"repo::{run_worktree}", "in-progress")]
+
+
+class FakeTerminals:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.prompts: list[tuple[str, str]] = []
+        self.error = error
+
+    async def send_prompt(self, terminal: str, prompt: str) -> None:
+        if self.error is not None:
+            raise self.error
+
+        self.prompts.append((terminal, prompt))
+
+
+def test_tell_sends_the_message_to_the_agent_of_the_active_run(
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    terminals = FakeTerminals()
+    connection = connect(database_file(dry_run=False))
+    [automation_run] = RunRepository(connection).list(issue_key="LPD-1")
+    sessions = SessionRepository(connection)
+
+    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: terminals)
+
+    result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
+
+    assert result.exit_code == 1
+    assert "LPD-1 has no agent." in result.output
+
+    session = sessions.create_launching(automation_run.id, "claude", "opus", "1-abc", "plan")
+
+    sessions.mark_launched(session.id, "term_1", "tab:leaf")
+
+    result = CliRunner().invoke(app, ["tell", "lpd-1", "Add a test", "--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert "LPD-1: message sent to the plan agent term_1." in result.output
+    assert terminals.prompts == [("term_1", "Add a test")]
+
+
+def test_tell_reports_an_agent_that_orca_refuses(
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    terminals = FakeTerminals(OrcaCommandError("terminal_not_found", "no terminal term_1"))
+    connection = connect(database_file(dry_run=False))
+    [automation_run] = RunRepository(connection).list(issue_key="LPD-1")
+    sessions = SessionRepository(connection)
+    session = sessions.create_launching(automation_run.id, "claude", "opus", "1-abc", "plan")
+
+    sessions.mark_launched(session.id, "term_1", "tab:leaf")
+    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: terminals)
+
+    result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
+
+    assert result.exit_code == 1
+    assert "Orca refused the message for the plan agent term_1" in result.output
+
+
+def test_tell_needs_an_active_run(
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    terminals = FakeTerminals()
+
+    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: terminals)
+
+    result = CliRunner().invoke(app, ["tell", "LPD-2", "Add a test", "--config", str(config_file)])
+
+    assert result.exit_code == 1
+    assert "LPD-2 has no active run." in result.output
+    assert terminals.prompts == []

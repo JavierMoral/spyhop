@@ -38,7 +38,7 @@ from spyhop.config.settings import Settings, load_settings
 from spyhop.daemon import orca_client, run_daemon
 from spyhop.doctor import Level, run_checks
 from spyhop.domain.enums import WaitingReason, WorktreeStatus
-from spyhop.domain.exceptions import ConfigurationError, SpyhopError
+from spyhop.domain.exceptions import ConfigurationError, OrcaCommandError, SpyhopError
 from spyhop.domain.models import ChecksPhase, ResolvedWorkflow
 from spyhop.infrastructure.git import top_level
 from spyhop.infrastructure.jira.client import JiraClient
@@ -344,6 +344,59 @@ def approve(
     typer.echo(
         f"{automation_run.issue_key}: plan approved; the next phase starts on the next cycle."
     )
+
+
+@app.command()
+def tell(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose agent gets the message")],
+    text: Annotated[str, typer.Argument(help="The message for the agent")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Send a message to the agent of a ticket's active run.
+
+    Orca types the message into the terminal of the agent and submits it."""
+
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+    active = RunRepository(connection).list(issue_key=issue_key.upper())
+
+    if not active:
+        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
+
+        raise typer.Exit(1)
+
+    automation_run = active[0]
+    session = SessionRepository(connection).find_launched(automation_run.id)
+
+    if session is None or session.agent_handle is None:
+        typer.echo(f"{automation_run.issue_key} has no agent.", err=True)
+
+        raise typer.Exit(1)
+
+    agent = f"{session.role or 'run'} agent {session.agent_handle}"
+
+    try:
+        asyncio.run(orca_client(settings).send_prompt(session.agent_handle, text))
+    except OrcaCommandError as error:
+        typer.echo(
+            f"{automation_run.issue_key}: Orca refused the message for the {agent}, "
+            f"which can be closed: {error}",
+            err=True,
+        )
+
+        raise typer.Exit(1) from None
+    except SpyhopError as error:
+        typer.echo(
+            f"{automation_run.issue_key}: the message may not have reached the {agent}: {error}",
+            err=True,
+        )
+
+        raise typer.Exit(1) from None
+
+    typer.echo(f"{automation_run.issue_key}: message sent to the {agent}.")
 
 
 @app.command()
