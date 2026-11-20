@@ -325,7 +325,7 @@ checkpoints of a workflow.
 
 | Command | Description |
 | --- | --- |
-| `spyhop status [KEY]` | Show the active runs. `--all` also shows the finished runs. |
+| `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
 | `spyhop retry KEY` | Start a finished run again, on the same worktree. |

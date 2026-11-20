@@ -46,6 +46,7 @@ from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     PollerStateRepository,
     RunRepository,
+    SessionRepository,
     WorktreeRepository,
 )
 from spyhop.infrastructure.process.units import SystemdUnits
@@ -124,6 +125,7 @@ def status(
 
     connection = connect(database)
     poller_state = PollerStateRepository(connection)
+    sessions = SessionRepository(connection)
     runs = RunRepository(connection).list(issue_key=issue_key, include_terminal=show_all)
 
     typer.echo(f"Database:       {database}{' (dry run)' if use_dry_run else ''}")
@@ -159,6 +161,12 @@ def status(
 
         if automation_run.error_message:
             typer.echo(f"{'':<24}{automation_run.error_message}")
+
+        for session in sessions.list_for_run(automation_run.id):
+            typer.echo(
+                f"{'':<24}agent: {session.role or '-'} {session.model or '-'} "
+                f"{session.agent_handle or '-'} {session.status}"
+            )
 
 
 @app.command()

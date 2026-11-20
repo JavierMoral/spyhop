@@ -162,7 +162,9 @@ async def test_approving_the_plan_launches_a_new_agent_on_the_model(harness: Har
     assert launch["operation_id"] == session.launch_operation_id
     assert plan_session.status is SessionStatus.FINISHED
     assert session.status is SessionStatus.LAUNCHED
+    assert plan_session.role == "plan"
     assert session.model == "sonnet"
+    assert session.role == "implement"
     assert session.pane_key is not None and session.pane_key != plan_pane
     assert approved.status is RunStatus.RUNNING
     assert approved.waiting_reason is None
@@ -251,7 +253,7 @@ async def test_approval_launch_lost_too_long_ago_is_handed_to_a_person(
     run, worktree, _ = await plan_ready(harness)
 
     harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.sessions.create_launching(run.id, "claude", "sonnet", "1000-" + "0" * 32)
+    harness.sessions.create_launching(run.id, "claude", "sonnet", "1000-" + "0" * 32, "implement")
 
     await harness.supervisor.supervise()
 

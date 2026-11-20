@@ -485,7 +485,7 @@ class SessionRepository:
         return _to_session(row) if row else None
 
     def create_launching(
-        self, run_id: str, provider: str, model: str | None, operation_id: str
+        self, run_id: str, provider: str, model: str | None, operation_id: str, role: str
     ) -> AgentSession:
         """Stored before calling Orca, so a launch interrupted at any point is
         retried with the same operation id."""
@@ -495,10 +495,10 @@ class SessionRepository:
         self._connection.execute(
             """
             INSERT INTO agent_sessions (
-                id, run_id, provider, model, launch_operation_id, status
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                id, run_id, provider, model, launch_operation_id, status, role
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, run_id, provider, model, operation_id, SessionStatus.LAUNCHING),
+            (session_id, run_id, provider, model, operation_id, SessionStatus.LAUNCHING, role),
         )
 
         session = self.get(session_id)
@@ -695,4 +695,5 @@ def _to_session(row: sqlite3.Row) -> AgentSession:
         started_at=_to_datetime(row["started_at"]),
         finished_at=_to_datetime(row["finished_at"]),
         pane_key=row["pane_key"],
+        role=row["role"],
     )

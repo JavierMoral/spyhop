@@ -64,7 +64,7 @@ def test_launching_session_keeps_its_operation_id(tmp_path: Path) -> None:
     )
 
     sessions = SessionRepository(connection)
-    session = sessions.create_launching("r1", "claude", "sonnet", "1-abc")
+    session = sessions.create_launching("r1", "claude", "sonnet", "1-abc", "plan")
 
     assert sessions.find_launching("r1") == session
 
@@ -76,6 +76,7 @@ def test_launching_session_keeps_its_operation_id(tmp_path: Path) -> None:
     assert launched.status is SessionStatus.LAUNCHED
     assert launched.agent_handle == "term_1"
     assert launched.launch_operation_id == "1-abc"
+    assert launched.role == "plan"
 
 
 def test_status_changes_are_timestamped(tmp_path: Path) -> None:

@@ -155,6 +155,10 @@ _MIGRATIONS = [
     """
     ALTER TABLE checkpoint_runs RENAME COLUMN terminal TO unit;
     """,
+    # The step of the pipeline that each agent does: plan or implement.
+    """
+    ALTER TABLE agent_sessions ADD COLUMN role TEXT;
+    """,
 ]
 
 

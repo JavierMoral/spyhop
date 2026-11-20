@@ -284,12 +284,17 @@ class AgentLauncher:
 
             return True
 
-        model = self._agents.plan_model if prepared.workflow.plan_review else self._agents.model
+        plan_review = prepared.workflow.plan_review
+        model = self._agents.plan_model if plan_review else self._agents.model
         session = self._sessions.find_launching(run.id)
 
         if session is None:
             session = self._sessions.create_launching(
-                run.id, self._agents.provider, model, new_operation_id()
+                run.id,
+                self._agents.provider,
+                model,
+                new_operation_id(),
+                "plan" if plan_review else "implement",
             )
         elif replay_expired(session):
             _log.warning(

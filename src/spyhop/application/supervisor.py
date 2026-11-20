@@ -400,6 +400,7 @@ class AgentSupervisor:
                 session,
                 self._agents.plan_model,
                 self._context.launch_goal(run.issue_key, workflow),
+                phase,
                 "plan",
                 "use `spyhop retry` or start the agent yourself",
             )
@@ -420,6 +421,7 @@ class AgentSupervisor:
                 session,
                 self._agents.model,
                 goal,
+                phase,
                 "implementation",
                 f"move the card back to {self._plan_review_status} and approve the plan again"
                 if workflow.plan_review
@@ -433,6 +435,7 @@ class AgentSupervisor:
         previous: AgentSession | None,
         model: str,
         goal: str,
+        step: str,
         role: str,
         advice: str,
     ) -> None:
@@ -440,7 +443,7 @@ class AgentSupervisor:
 
         if session is None:
             session = self._sessions.create_launching(
-                run.id, self._agents.provider, model, new_operation_id()
+                run.id, self._agents.provider, model, new_operation_id(), step
             )
         elif replay_expired(session):
             self._sessions.mark_failed(session.id)

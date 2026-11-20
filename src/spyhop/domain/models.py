@@ -248,6 +248,8 @@ class AgentSession:
     started_at: datetime | None
     finished_at: datetime | None
     pane_key: str | None = None
+    # The step of the pipeline that the agent does: plan or implement.
+    role: str | None = None
 
 
 @dataclass(frozen=True)
