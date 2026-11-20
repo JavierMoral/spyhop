@@ -431,8 +431,11 @@ class AgentLauncher:
             previous = self._reopened(issue_key, workflow)
 
             if previous is not None:
-                base_branch = previous.branch_name
                 branch = previous.branch_name
+
+            # The script checks the kept branch out by its name. It gets the
+            # base branch of the workflow, which it can use for more than the
+            # start of the branch.
 
             if workflow.worktree_script is not None:
                 orca_worktree = await self._scripted_worktree(
@@ -447,6 +450,7 @@ class AgentLauncher:
                     # title changed.
 
                     name = previous.path.name
+                    base_branch = previous.branch_name
 
                 orca_worktree = await self._orca.create_worktree(
                     workflow.repository_path,
