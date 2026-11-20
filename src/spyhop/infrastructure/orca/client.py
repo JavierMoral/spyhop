@@ -293,6 +293,15 @@ class OrcaClient:
             ["terminal", "close", "--terminal", terminal], self._operation_timeout, uncertain=True
         )
 
+    async def rename_terminal(self, terminal: str, title: str) -> None:
+        """Sets the title of the tab of the terminal."""
+
+        await self._call(
+            ["terminal", "rename", "--terminal", terminal, "--title", title],
+            self._operation_timeout,
+            uncertain=False,
+        )
+
     async def send_prompt(self, terminal: str, prompt: str) -> None:
         """Types ``prompt`` into the agent of the terminal and submits it."""
 

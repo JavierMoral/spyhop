@@ -30,6 +30,7 @@ from spyhop.domain.exceptions import (
     JiraAuthenticationError,
     JiraError,
     OrcaCommandError,
+    OrcaError,
     OrcaUnavailableError,
     OrcaUncertainError,
 )
@@ -84,6 +85,11 @@ REPLAY_WINDOW_SECONDS = 15 * 60
 # Safety bound on the parent chain; JIRA hierarchies are a few levels deep.
 
 MAX_ANCESTORS = 10
+
+# The prompt bar color of the Claude session of each role. The supervisor
+# session has its own color.
+
+ROLE_COLORS = {"plan": "blue", "implement": "orange"}
 
 # Characters of the ticket title kept in a worktree's name, cut at a word.
 
@@ -328,6 +334,7 @@ class AgentLauncher:
 
         self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_running(run.id)
+        await label_agent(self._orca, run.issue_key, result.agent_handle, session)
 
         _log.info(
             "%s: agent %s started in %s (branch %s, %s, %s)",
@@ -537,6 +544,24 @@ def worktree_name(issue_key: str, summary: str) -> str:
         slug = words[0][:MAX_SLUG_LENGTH]
 
     return f"{issue_key}-{slug}" if slug else issue_key
+
+
+async def label_agent(
+    orca: OrcaGateway, issue_key: str, terminal: str, session: AgentSession
+) -> None:
+    """Gives the tab of the agent its role and model, for example "plan
+    opus", and gives the session the color of its role. An error only goes
+    to the log."""
+
+    title = " ".join(value for value in (session.role, session.model) if value)
+
+    try:
+        await orca.rename_terminal(terminal, title)
+
+        if session.role in ROLE_COLORS:
+            await orca.send_prompt(terminal, f"/color {ROLE_COLORS[session.role]}")
+    except OrcaError as error:
+        _log.warning("%s: agent %s not labeled: %s", issue_key, terminal, error)
 
 
 def replay_expired(session: AgentSession, now: float | None = None) -> bool:

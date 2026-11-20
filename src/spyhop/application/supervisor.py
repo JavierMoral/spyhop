@@ -43,7 +43,7 @@ from pathlib import Path
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
 from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBuilder
-from spyhop.application.launcher import replay_expired
+from spyhop.application.launcher import label_agent, replay_expired
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings
@@ -483,6 +483,7 @@ class AgentSupervisor:
 
         self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_resumed(run.id)
+        await label_agent(self._orca, run.issue_key, result.agent_handle, session)
 
         _log.info(
             "%s: %s agent %s started (%s)", run.issue_key, role, result.agent_handle, session.model

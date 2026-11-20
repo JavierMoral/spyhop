@@ -74,6 +74,8 @@ class OrcaGateway(Protocol):
 
     async def close_terminal(self, terminal: str) -> None: ...
 
+    async def rename_terminal(self, terminal: str, title: str) -> None: ...
+
 
 class UnitGateway(Protocol):
     """Runs commands outside the Spyhop service, so that a restart of the

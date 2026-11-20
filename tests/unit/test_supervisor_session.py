@@ -53,6 +53,7 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
     assert current is not None
     assert current.supervisor_terminal == "term_check_1"
     assert current.supervisor_pane_key == "pane_term_1"
+    assert harness.orca.colors == {"term_check_1": "violet"}
 
     await harness.supervisor.supervise()
 

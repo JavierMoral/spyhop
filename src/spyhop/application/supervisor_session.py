@@ -33,6 +33,10 @@ PREFIX = "[spyhop]"
 
 UNUSABLE = "unusable"
 
+# The prompt bar color of the session, apart from the colors of the agents.
+
+COLOR = "violet"
+
 # The session only reads. It runs without permission prompts: a prompt
 # blocks the messages of Spyhop. The prompt of the session tells it to run a
 # Spyhop command only when the user asks.
@@ -140,6 +144,11 @@ class SupervisorSession:
         self._worktrees.set_supervisor(worktree.id, terminal.handle, terminal.pane_key)
 
         _log.info("%s: supervisor session %s started", worktree.issue_key, terminal.handle)
+
+        try:
+            await self._orca.send_prompt(terminal.handle, f"/color {COLOR}")
+        except OrcaError as error:
+            _log.warning("%s: supervisor session without color: %s", worktree.issue_key, error)
 
         return True
 

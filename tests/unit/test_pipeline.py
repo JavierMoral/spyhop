@@ -526,3 +526,28 @@ async def test_a_worktree_without_the_report_exclusions_gets_them(tmp_path: Path
     await harness.supervisor.supervise()
 
     assert [row.name for row in running(harness, run)] == ["regressions"]
+
+
+async def test_each_agent_has_the_title_and_the_color_of_its_role(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, "plan", "plan_review", "implement")
+    run, worktree = await started(harness)
+    agents = harness.config.agents
+
+    assert harness.orca.titles == {"term_1": f"plan {agents.plan_model}"}
+
+    session = harness.sessions.find_launched(run.id)
+
+    assert session is not None and session.pane_key is not None
+
+    written(worktree.path / "CLAUDE-PLAN.md", "plan")
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
+    await harness.supervisor.supervise()
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    await harness.supervisor.supervise()
+
+    assert harness.orca.titles == {
+        "term_1": f"plan {agents.plan_model}",
+        "term_2": f"implement {agents.model}",
+    }
+    assert harness.orca.colors == {"term_1": "blue", "term_2": "orange"}
