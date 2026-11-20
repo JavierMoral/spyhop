@@ -44,6 +44,12 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
     assert session["title"] == "spyhop"
     assert session["command"].startswith("env CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude ")
     assert "[spyhop] LPD-1: ronda 1 de checkpoints: ticket-info" in session["command"]
+    assert " --allowed-tools 'Bash(" in session["command"]
+    assert (
+        "'Bash(spyhop status *)' 'Bash(spyhop approve *)' 'Bash(spyhop tell *)'"
+        in (session["command"])
+    )
+    assert "'Bash(spyhop cleanup *)'" not in session["command"]
     assert session["command"].endswith(" --disallowed-tools Edit Write NotebookEdit")
 
     current = harness.worktrees.get(worktree.id)

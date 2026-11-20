@@ -38,6 +38,11 @@ UNUSABLE = "unusable"
 
 DISALLOWED_TOOLS = ("Edit", "Write", "NotebookEdit")
 
+# The Spyhop commands that the prompt proposes run without a permission
+# prompt. The other commands, such as cleanup, still ask.
+
+ALLOWED_COMMANDS = ("status", "approve", "tell", "fail", "retry", "checkpoints rerun")
+
 
 class SupervisorSession:
     def __init__(
@@ -103,8 +108,15 @@ class SupervisorSession:
             worktree.issue_key, worktree.path, self._spyhop, message
         )
 
-        # The prompt comes before --disallowed-tools, which takes all the
-        # words after it. env keeps the title of the tab for any shell.
+        # The prompt comes before --allowed-tools and --disallowed-tools,
+        # which take all the words after them. env keeps the title of the tab
+        # for any shell.
+
+        allowed = [
+            f"Bash({executable} {command} *)"
+            for executable in (self._spyhop, "spyhop")
+            for command in ALLOWED_COMMANDS
+        ]
 
         command = shlex.join(
             [
@@ -114,6 +126,8 @@ class SupervisorSession:
                 prompt,
                 "--model",
                 self._model,
+                "--allowed-tools",
+                *allowed,
                 "--disallowed-tools",
                 *DISALLOWED_TOOLS,
             ]
