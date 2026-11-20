@@ -44,12 +44,8 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
     assert session["title"] == "spyhop"
     assert session["command"].startswith("env CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude ")
     assert "[spyhop] LPD-1: ronda 1 de checkpoints: ticket-info" in session["command"]
-    assert " --allowed-tools 'Bash(" in session["command"]
-    assert (
-        "'Bash(spyhop status *)' 'Bash(spyhop approve *)' 'Bash(spyhop tell *)'"
-        in (session["command"])
-    )
-    assert "'Bash(spyhop cleanup *)'" not in session["command"]
+    assert " --dangerously-skip-permissions " in session["command"]
+    assert "--allowed-tools" not in session["command"]
     assert session["command"].endswith(" --disallowed-tools Edit Write NotebookEdit")
 
     current = harness.worktrees.get(worktree.id)
@@ -114,6 +110,36 @@ async def test_a_closed_session_starts_again_with_the_message(tmp_path: Path) ->
     assert current is not None
     assert current.supervisor_terminal == "term_check_2"
     assert session_prompts(harness, "term_check_2")[0].startswith("[spyhop] LPD-1: ESPERA: ")
+
+
+async def test_a_wait_that_does_not_reach_the_session_goes_again_until_it_arrives(
+    tmp_path: Path,
+) -> None:
+    harness, run, _ = await failed_check(tmp_path)
+    send_prompt = harness.orca.send_prompt
+    blocked = [OrcaUncertainError("agent_prompt_blocked")]
+
+    async def blocked_once(terminal: str, prompt: str) -> None:
+        await send_prompt(terminal, prompt)
+
+        if "ESPERA: " in prompt and blocked:
+            raise blocked.pop()
+
+    harness.orca.send_prompt = blocked_once  # type: ignore[method-assign]
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    waits = [
+        text
+        for text in session_prompts(harness, "term_check_1")
+        if "ESPERA: checkpoints_failed" in text
+    ]
+
+    assert len(waits) == 2
 
 
 async def test_an_orca_error_of_the_session_does_not_stop_the_checks_and_the_next_message_starts_it(

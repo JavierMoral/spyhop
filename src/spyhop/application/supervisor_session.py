@@ -33,15 +33,11 @@ PREFIX = "[spyhop]"
 
 UNUSABLE = "unusable"
 
-# The session only reads. The prompt tells it to run a Spyhop command only
-# when the user asks; with the auto permission mode, Bash does not always ask.
+# The session only reads. It runs without permission prompts: a prompt
+# blocks the messages of Spyhop. The prompt of the session tells it to run a
+# Spyhop command only when the user asks.
 
 DISALLOWED_TOOLS = ("Edit", "Write", "NotebookEdit")
-
-# The Spyhop commands that the prompt proposes run without a permission
-# prompt. The other commands, such as cleanup, still ask.
-
-ALLOWED_COMMANDS = ("status", "approve", "tell", "fail", "retry", "checkpoints rerun")
 
 
 class SupervisorSession:
@@ -59,8 +55,9 @@ class SupervisorSession:
         self._spyhop = spyhop
         self._model = model
 
-    async def tell(self, worktree: Worktree, text: str) -> None:
-        """Sends a progress message to the session of the worktree."""
+    async def tell(self, worktree: Worktree, text: str) -> bool:
+        """Sends a progress message to the session of the worktree. Returns
+        False when the message did not reach a session that can get it."""
 
         message = f"{PREFIX} {worktree.issue_key}: {text}"
 
@@ -70,13 +67,13 @@ class SupervisorSession:
         current = self._worktrees.get(worktree.id) or worktree
 
         if current.supervisor_terminal == UNUSABLE:
-            return
+            return True
 
         if current.supervisor_terminal is not None:
             try:
                 await self._orca.send_prompt(current.supervisor_terminal, message)
 
-                return
+                return True
             except OrcaCommandError as error:
                 _log.info(
                     "%s: supervisor session gone (%s); starting a new one",
@@ -88,35 +85,31 @@ class SupervisorSession:
                     "%s: message not sent to the supervisor session: %s", worktree.issue_key, error
                 )
 
-                return
+                return False
 
-        await self._start(current, message)
+        return await self._start(current, message)
 
-    async def alert(self, worktree: Worktree, text: str) -> None:
+    async def alert(self, worktree: Worktree, text: str) -> bool:
         """Tells the session that the run waits for a person, and marks the
-        card of the worktree unread."""
+        card of the worktree unread. Returns False when the message did not
+        reach the session."""
 
-        await self.tell(worktree, f"ESPERA: {text}")
+        delivered = await self.tell(worktree, f"ESPERA: {text}")
 
         try:
             await self._orca.mark_card(worktree.orca_worktree_id, f"{worktree.issue_key}: {text}")
         except OrcaError as error:
             _log.warning("%s: could not mark the Orca card: %s", worktree.issue_key, error)
 
-    async def _start(self, worktree: Worktree, message: str) -> None:
+        return delivered
+
+    async def _start(self, worktree: Worktree, message: str) -> bool:
         prompt = self._context.supervisor_prompt(
             worktree.issue_key, worktree.path, self._spyhop, message
         )
 
-        # The prompt comes before --allowed-tools and --disallowed-tools,
-        # which take all the words after them. env keeps the title of the tab
-        # for any shell.
-
-        allowed = [
-            f"Bash({executable} {command} *)"
-            for executable in (self._spyhop, "spyhop")
-            for command in ALLOWED_COMMANDS
-        ]
+        # The prompt comes before --disallowed-tools, which takes all the
+        # words after it. env keeps the title of the tab for any shell.
 
         command = shlex.join(
             [
@@ -126,8 +119,7 @@ class SupervisorSession:
                 prompt,
                 "--model",
                 self._model,
-                "--allowed-tools",
-                *allowed,
+                "--dangerously-skip-permissions",
                 "--disallowed-tools",
                 *DISALLOWED_TOOLS,
             ]
@@ -138,16 +130,18 @@ class SupervisorSession:
         except OrcaError as error:
             _log.warning("%s: supervisor session not started: %s", worktree.issue_key, error)
 
-            return
+            return False
 
         if terminal.handle is None or terminal.pane_key is None:
             await self._give_up(worktree, terminal.handle)
 
-            return
+            return True
 
         self._worktrees.set_supervisor(worktree.id, terminal.handle, terminal.pane_key)
 
         _log.info("%s: supervisor session %s started", worktree.issue_key, terminal.handle)
+
+        return True
 
     async def _give_up(self, worktree: Worktree, handle: str | None) -> None:
         """Without a pane, the supervisor cannot keep the session out of the

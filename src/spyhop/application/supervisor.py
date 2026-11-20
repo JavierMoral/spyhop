@@ -29,8 +29,8 @@ ever COMPLETED without the agent's explicit signal, and without the checks
 after the implementation, if the pipeline has them.
 
 The supervisor session of the worktree, when there is one, gets the progress
-and each reason why the run waits for a person. Its pane is not an agent of
-the run.
+and each reason why the run waits for a person. A wait that does not reach the
+session goes again on the next cycle. Its pane is not an agent of the run.
 """
 
 import logging
@@ -182,6 +182,9 @@ class AgentSupervisor:
         self._plan_approved_status = plan_approved_status
         self._missing: dict[str, int] = {}
         self._plan_agent_closed: set[str] = set()
+        # The runs whose wait did not reach the supervisor session. Each
+        # cycle sends the wait again until it arrives.
+        self._unalerted: set[str] = set()
         self._reconciled = False
 
     async def supervise(self) -> None:
@@ -576,6 +579,7 @@ class AgentSupervisor:
             return
 
         self._runs.mark_resumed(run.id)
+        self._unalerted.discard(run.id)
 
         _log.info("%s: agent working again (was waiting: %s)", run.issue_key, run.waiting_reason)
 
@@ -583,18 +587,24 @@ class AgentSupervisor:
 
     async def _wait(self, run: AutomationRun, reason: WaitingReason, message: str) -> None:
         if run.status is RunStatus.WAITING_FOR_HUMAN and run.waiting_reason is reason:
-            return
+            if run.id not in self._unalerted:
+                return
+        else:
+            self._runs.mark_waiting(run.id, reason, message)
 
-        self._runs.mark_waiting(run.id, reason, message)
-
-        _log.info("%s: waiting for a person (%s): %s", run.issue_key, reason, message)
+            _log.info("%s: waiting for a person (%s): %s", run.issue_key, reason, message)
 
         worktree = self._session_worktree(run)
 
-        if worktree is not None:
-            assert self._supervisor_session is not None
+        if worktree is None:
+            return
 
-            await self._supervisor_session.alert(worktree, f"{reason}: {message}")
+        assert self._supervisor_session is not None
+
+        if await self._supervisor_session.alert(worktree, f"{reason}: {message}"):
+            self._unalerted.discard(run.id)
+        else:
+            self._unalerted.add(run.id)
 
     async def _tell(self, run: AutomationRun, text: str) -> None:
         worktree = self._session_worktree(run)
