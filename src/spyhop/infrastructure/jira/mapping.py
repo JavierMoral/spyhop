@@ -92,3 +92,140 @@ def parent_key(issue: dict[str, Any]) -> str | None:
     key = parent.get("key")
 
     return key if isinstance(key, str) and key else None
+
+
+# Fields of `spyhop ticket` that say nothing about the work.
+
+NOISE_FIELDS = {
+    "aggregateprogress",
+    "comment",
+    "creator",
+    "issuerestriction",
+    "lastViewed",
+    "progress",
+    "statusCategory",
+    "statuscategorychangedate",
+    "votes",
+    "watches",
+    "workratio",
+    "worklog",
+}
+
+NOISE_NAMES = {"Development", "Rank"}
+
+
+def ticket_text(issue: dict[str, Any]) -> str:
+    """The ticket as text for an agent: each field with a value, by its
+    display name, and then the comments. ``issue`` comes from
+    ``fields=*all`` and ``expand=names``."""
+
+    fields = issue.get("fields") or {}
+    names = issue.get("names") or {}
+    lines = [f"# {issue.get('key')}: {fields.get('summary', '')}"]
+
+    # The description first: it is where most tickets give the work.
+
+    for key, value in sorted(fields.items(), key=lambda item: item[0] != "description"):
+        name = names.get(key, key)
+
+        if key in NOISE_FIELDS or key == "summary" or name in NOISE_NAMES:
+            continue
+
+        text = field_text(value).strip()
+
+        if text:
+            lines += ["", f"## {name}", "", text]
+
+    comment_page = fields.get("comment") or {}
+    comments = comment_page.get("comments") or []
+    total = int(comment_page.get("total", len(comments)))
+
+    if comments:
+        lines += ["", "## Comments"]
+
+    if total > len(comments):
+        lines += ["", f"JIRA gave only {len(comments)} of the {total} comments."]
+
+    for comment in comments:
+        author = (comment.get("author") or {}).get("displayName", "?")
+
+        lines += ["", f"### {author}, {comment.get('created', '')}", ""]
+        lines.append(field_text(comment.get("body")).strip())
+
+    return "\n".join(lines) + "\n"
+
+
+def field_text(value: Any) -> str:
+    """A field value as text. Rich text (ADF) becomes plain text."""
+
+    if value is None or value == {}:
+        return ""
+
+    if isinstance(value, list):
+        return "\n".join(text for item in value if (text := field_text(item).strip()))
+
+    if isinstance(value, dict):
+        if value.get("type") == "doc":
+            return _adf_text(value)
+
+        for key in ("displayName", "name", "value", "key", "filename"):
+            if isinstance(value.get(key), str):
+                return str(value[key])
+
+        return ""
+
+    return str(value)
+
+
+# ADF nodes whose children are blocks, one on each line.
+
+_BLOCKS = {"blockquote", "bulletList", "doc", "listItem", "panel", "table"}
+
+
+def _adf_text(node: dict[str, Any]) -> str:
+    node_type = node.get("type")
+    attrs = node.get("attrs") or {}
+    children = node.get("content") or []
+
+    if node_type == "text":
+        return str(node.get("text", ""))
+
+    if node_type == "hardBreak":
+        return "\n"
+
+    if node_type in ("mention", "emoji", "status", "date"):
+        return str(attrs.get("text") or attrs.get("shortName") or attrs.get("timestamp") or "")
+
+    if node_type in ("inlineCard", "blockCard", "embedCard"):
+        return str(attrs.get("url", ""))
+
+    if node_type == "codeBlock":
+        return "```\n" + "".join(_adf_text(child) for child in children) + "\n```"
+
+    if node_type == "orderedList":
+        # Each item starts with the "- " of a listItem.
+
+        start = int(attrs.get("order", 1))
+
+        return "\n".join(
+            f"{number}. {_adf_text(child)[2:]}" for number, child in enumerate(children, start)
+        )
+
+    if node_type in _BLOCKS:
+        text = "\n".join(_adf_text(child) for child in children)
+
+        return "- " + text.replace("\n", "\n  ") if node_type == "listItem" else text
+
+    if node_type == "tableRow":
+        cells = (_adf_text(child).replace("\n", "; ") for child in children)
+
+        return "| " + " | ".join(cells) + " |"
+
+    text = "".join(_adf_text(child) for child in children)
+
+    if node_type == "heading":
+        # Below the "##" of the field.
+
+        return "#" * (int(attrs.get("level", 1)) + 2) + " " + text
+
+    return text

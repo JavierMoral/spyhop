@@ -102,9 +102,16 @@ class JiraClient:
 
             body["nextPageToken"] = next_page_token
 
-    async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]:
+    async def issue(
+        self, issue_key: str, fields: list[str], expand: str | None = None
+    ) -> dict[str, Any]:
+        params = {"fields": ",".join(fields)}
+
+        if expand:
+            params["expand"] = expand
+
         data: dict[str, Any] = await self._request(
-            "GET", f"/rest/api/3/issue/{issue_key}", params={"fields": ",".join(fields)}
+            "GET", f"/rest/api/3/issue/{issue_key}", params=params
         )
 
         return data

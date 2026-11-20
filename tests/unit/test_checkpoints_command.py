@@ -671,3 +671,27 @@ def test_tell_needs_an_active_run(
     assert result.exit_code == 1
     assert "LPD-2 has no active run." in result.output
     assert terminals.prompts == []
+
+
+@respx.mock
+def test_ticket_shows_all_the_fields_of_the_issue(
+    config_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket_checkpoint(tmp_path, monkeypatch)
+    route = respx.get(ISSUE_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "LPD-1",
+                "names": {"versions": "Affects versions"},
+                "fields": {"summary": "Broken page", "versions": [{"name": "Master"}]},
+            },
+        )
+    )
+
+    result = CliRunner().invoke(app, ["ticket", "lpd-1", "--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert result.output == "# LPD-1: Broken page\n\n## Affects versions\n\nMaster\n"
+    assert route.calls.last.request.url.params["fields"] == "*all"
+    assert route.calls.last.request.url.params["expand"] == "names"

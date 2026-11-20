@@ -333,6 +333,7 @@ checkpoints of a workflow.
 | `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
 | `spyhop tell KEY TEXT` | Send a message to the current agent of the run, in its Orca terminal. |
+| `spyhop ticket KEY` | Show all the fields of a JIRA ticket, also the custom fields, and its comments. The agents and the checkpoints read the ticket with it. |
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
 | `spyhop retry KEY` | Start a finished run again, on the same worktree. |
 | `spyhop cleanup KEY` | Remove the worktree of the ticket now. |

@@ -6,7 +6,7 @@ import os
 import subprocess
 from importlib.resources import files
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -42,6 +42,7 @@ from spyhop.domain.exceptions import ConfigurationError, OrcaCommandError, Spyho
 from spyhop.domain.models import ChecksPhase, ResolvedWorkflow
 from spyhop.infrastructure.git import top_level
 from spyhop.infrastructure.jira.client import JiraClient
+from spyhop.infrastructure.jira.mapping import ticket_text
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     PollerStateRepository,
@@ -397,6 +398,31 @@ def tell(
         raise typer.Exit(1) from None
 
     typer.echo(f"{automation_run.issue_key}: message sent to the {agent}.")
+
+
+@app.command()
+def ticket(
+    issue_key: Annotated[str, typer.Argument(help="Ticket to read")],
+    config: ConfigOption = None,
+) -> None:
+    """Show a JIRA ticket with all its fields and comments.
+
+    Rich text becomes plain text. Fields without a value are left out."""
+
+    settings = _load(config)
+
+    async def read() -> dict[str, Any]:
+        async with _jira_client(settings) as jira:
+            return await jira.issue(issue_key.upper(), ["*all"], expand="names")
+
+    try:
+        issue = asyncio.run(read())
+    except SpyhopError as error:
+        typer.echo(f"{issue_key.upper()}: cannot read the ticket: {error}", err=True)
+
+        raise typer.Exit(1) from None
+
+    typer.echo(ticket_text(issue), nl=False)
 
 
 @app.command()
@@ -828,25 +854,30 @@ def _input_values(
     issue_key: str | None,
     names: set[str],
 ) -> dict[str, str]:
-    """The current values of the checkpoint inputs in ``names``. The JIRA
-    credentials come from the environment, or from the env file of the
-    service when the environment does not have them."""
+    """The current values of the checkpoint inputs in ``names``."""
 
     async def values() -> dict[str, str]:
         if "ticket" not in names or issue_key is None:
             return await input_values(names, root, resolved.base_branch, issue_key, None)
 
-        env_file = settings.service.env_file
-        environment = {**(read_env_file(env_file) if env_file.is_file() else {}), **os.environ}
-
-        async with JiraClient(
-            settings.jira.base_url,
-            credentials_from_environment(settings.jira, environment),
-            settings.jira.request_timeout,
-        ) as jira:
+        async with _jira_client(settings) as jira:
             return await input_values(names, root, resolved.base_branch, issue_key, jira)
 
     return asyncio.run(values())
+
+
+def _jira_client(settings: Settings) -> JiraClient:
+    """The JIRA credentials come from the environment, or from the env file
+    of the service when the environment does not have them."""
+
+    env_file = settings.service.env_file
+    environment = {**(read_env_file(env_file) if env_file.is_file() else {}), **os.environ}
+
+    return JiraClient(
+        settings.jira.base_url,
+        credentials_from_environment(settings.jira, environment),
+        settings.jira.request_timeout,
+    )
 
 
 def _current_workflow(

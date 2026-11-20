@@ -4,7 +4,7 @@
 {%- set allow = [] -%}
 {%- for command in [
     "git status", "git diff", "git log", "git show", "git add", "git commit",
-    "spyhop checkpoints check"] -%}
+    "spyhop checkpoints check", "spyhop ticket"] -%}
 {%- do allow.append("Bash(" ~ command ~ "*)") -%}
 {%- endfor -%}
 {%- for command in build_commands -%}

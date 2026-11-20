@@ -183,7 +183,7 @@ def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
     task = builder(tmp_path).render_task(ticket(), workflow())
 
     assert "- LPD-0 (Story) · Import pages\n- LPD-00 (Epic) · Site migration\n" in task
-    assert f"`{ORCA} jira issue <KEY>`" in task
+    assert "`spyhop ticket <KEY>`" in task
     assert "Los padres explican el objetivo" in task
 
 
@@ -236,6 +236,7 @@ def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_way
     assert f"Bash({ORCA} worktree rm*)" in permissions["deny"]
     assert "Bash(./gradlew*)" in permissions["allow"]
     assert "Bash(spyhop checkpoints check*)" in permissions["allow"]
+    assert "Bash(spyhop ticket*)" in permissions["allow"]
     assert "Bash(git restore --source=*)" not in permissions["allow"]
 
 

@@ -22,8 +22,8 @@ Tickets padre, del más cercano a la raíz:
 Antes de planificar, lee en JIRA el contenido actual de {{ subject }}:
 descripción, criterios de aceptación, comentarios y los tickets enlazados que
 sean relevantes. Si el proyecto tiene una skill o un script que reúna el
-contexto de un ticket, úsalo; si no, usa `{{ orca }} jira issue <KEY>` y
-`{{ orca }} jira comment list <KEY>`.
+contexto de un ticket, úsalo; si no, usa `spyhop ticket <KEY>`, que muestra
+todos los campos del ticket, también los personalizados, y sus comentarios.
 
 {{ ticket.key }} es el contrato de esta tarea: sus criterios de aceptación marcan
 el alcance.{% if ticket.ancestors %} Los padres explican el objetivo, pero no lo amplían.{% endif %}
