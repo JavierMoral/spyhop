@@ -82,7 +82,9 @@ the run waits for you.
 
 When the run waits, the session tells you what happened and gives the options
 with their commands. When a plan waits for its review, the session gives a
-summary of the plan and asks if you approve it. The session cannot edit
+summary of the plan and asks if you approve it. When the run completes, the
+session shows a table of the steps and the checkpoint rounds, with a ✅ or a
+❌ and the result of each step. The session cannot edit
 files, and it runs a command only when you ask it to.
 
 ### When the ticket closes
