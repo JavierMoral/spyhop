@@ -164,6 +164,7 @@ class FakeOrca:
         self.prompts: list[tuple[str, str]] = []
         self.titles: dict[str, str] = {}
         self.colors: dict[str, str] = {}
+        self.names: dict[str, str] = {}
         self.prompt_errors: list[Exception] = []
         self.closed: list[str] = []
         # Answers of create_terminal, before the default one.
@@ -345,10 +346,15 @@ class FakeOrca:
         self.titles[terminal] = title
 
     async def send_prompt(self, terminal: str, prompt: str) -> None:
-        # The /color commands are kept apart from the messages.
+        # The /color and /rename commands are kept apart from the messages.
 
         if prompt.startswith("/color "):
             self.colors[terminal] = prompt.removeprefix("/color ")
+
+            return
+
+        if prompt.startswith("/rename "):
+            self.names[terminal] = prompt.removeprefix("/rename ")
 
             return
 

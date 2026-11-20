@@ -549,14 +549,15 @@ def worktree_name(issue_key: str, summary: str) -> str:
 async def label_agent(
     orca: OrcaGateway, issue_key: str, terminal: str, session: AgentSession
 ) -> None:
-    """Gives the tab of the agent its role and model, for example "plan
-    opus", and gives the session the color of its role. An error only goes
-    to the log."""
+    """Gives the tab and the session of the agent its role and model, for
+    example "plan opus", and gives the session the color of its role. An
+    error only goes to the log."""
 
     title = " ".join(value for value in (session.role, session.model) if value)
 
     try:
         await orca.rename_terminal(terminal, title)
+        await orca.send_prompt(terminal, f"/rename {title}")
 
         if session.role in ROLE_COLORS:
             await orca.send_prompt(terminal, f"/color {ROLE_COLORS[session.role]}")

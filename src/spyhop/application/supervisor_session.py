@@ -121,6 +121,8 @@ class SupervisorSession:
                 "CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1",
                 "claude",
                 prompt,
+                "--name",
+                TITLE,
                 "--model",
                 self._model,
                 "--dangerously-skip-permissions",
