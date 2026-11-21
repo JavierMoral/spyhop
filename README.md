@@ -344,7 +344,21 @@ them again yourself, use `spyhop checkpoints rerun KEY`. Add `--failed` to run
 only the failed and stale checkpoints: the round keeps each PASS whose inputs
 did not change.
 
-Each checkpoint is a file `~/.claude/agents/checkpoint-<name>.md`:
+Spyhop owns its checkpoints and skills, in
+[`src/spyhop/claude/agents/`](src/spyhop/claude/agents/) and
+[`src/spyhop/claude/skills/`](src/spyhop/claude/skills/). Claude Code reads
+them from `~/.claude/agents/` and `~/.claude/skills/`, so link them there:
+
+```sh
+spyhop claude install
+```
+
+The command replaces a link that already exists, and keeps a file or
+directory that is not a link. Run it again after each installation of Spyhop.
+With `uv tool install --editable .`, the links point to the repository, and a
+change of a checkpoint applies without a new installation.
+
+Each checkpoint is a file `checkpoint-<name>.md`:
 
 ```markdown
 ---

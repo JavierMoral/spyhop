@@ -12,6 +12,7 @@ from spyhop.cli.common import (
     ConfigOption,
     _load,
     app,
+    claude_app,
     config_app,
     service_app,
 )
@@ -19,11 +20,14 @@ from spyhop.config.credentials import (
     write_env_file,
 )
 from spyhop.config.paths import (
+    bundled_claude_dir,
+    claude_dir,
     default_config_file,
     spyhop_executable,
     systemd_user_unit_file,
 )
 from spyhop.doctor import Level, run_checks
+from spyhop.infrastructure.claude_links import link_claude_files
 from spyhop.infrastructure.service.systemd import (
     install_unit,
     linger_enabled,
@@ -51,6 +55,23 @@ def version() -> None:
     """Print the Spyhop version."""
 
     typer.echo(__version__)
+
+
+@claude_app.command("install")
+def claude_install() -> None:
+    """Link the subagents and skills of Spyhop in ~/.claude, so that Claude Code
+    uses them. Run it again after a new installation of Spyhop."""
+
+    links = link_claude_files(bundled_claude_dir(), claude_dir())
+
+    for link in links:
+        if link.linked:
+            typer.echo(f"Linked {link.target} -> {link.source}")
+        else:
+            typer.echo(f"Not linked: {link.target} is not a link; remove it first.", err=True)
+
+    if not all(link.linked for link in links):
+        raise typer.Exit(1)
 
 
 @config_app.command("init")

@@ -47,8 +47,12 @@ checkpoints_app = typer.Typer(
 )
 config_app = typer.Typer(help="Manage the configuration.", no_args_is_help=True)
 service_app = typer.Typer(help="Manage the systemd user service.", no_args_is_help=True)
+claude_app = typer.Typer(
+    help="Manage the Claude Code subagents and skills of Spyhop.", no_args_is_help=True
+)
 
 app.add_typer(checkpoints_app, name="checkpoints")
+app.add_typer(claude_app, name="claude")
 app.add_typer(config_app, name="config")
 app.add_typer(service_app, name="service")
 

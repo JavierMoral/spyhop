@@ -57,7 +57,8 @@ projects:
         pipeline: technical_task
 
 pipelines:                        # checkpoints are subagents in
-  bug:                            # ~/.claude/agents/checkpoint-<name>.md
+  bug:                            # ~/.claude/agents/checkpoint-<name>.md;
+                                  # `spyhop claude install` links them there
     - checks: [ticket-info, repro-steps, reproduce]
       on_fail: human              # the run waits for you
     - plan

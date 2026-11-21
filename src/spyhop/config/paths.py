@@ -37,11 +37,21 @@ def default_env_file() -> Path:
     return config_dir() / "env"
 
 
-def claude_agents_dir() -> Path:
-    # Claude Code reads the user's subagents from here; CLAUDE_CONFIG_DIR
-    # moves the whole ~/.claude directory.
+def claude_dir() -> Path:
+    # Claude Code reads the user's subagents and skills from here;
+    # CLAUDE_CONFIG_DIR moves the whole ~/.claude directory.
 
-    return expand_path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude") / "agents"
+    return expand_path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+
+
+def claude_agents_dir() -> Path:
+    return claude_dir() / "agents"
+
+
+def bundled_claude_dir() -> Path:
+    """The subagents and skills that Spyhop owns, in agents/ and skills/."""
+
+    return Path(__file__).parent.parent / "claude"
 
 
 def database_file(dry_run: bool) -> Path:
