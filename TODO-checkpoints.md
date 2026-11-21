@@ -245,7 +245,7 @@ R4. [ ] **Checks before the plan.** The plan agent reads their reports.
   `ticket` input, each cycle sends one JIRA request and parses the agent
   files again. Cache the parsed checkpoints in `advance`, and read the
   ticket less often.
-- [ ] From the code review: the lookup of the workflow of a run
+- [x] From the code review: the lookup of the workflow of a run
   (`issue_key.rsplit("-", 1)[0]` and `resolve_by_name`) is in four places.
   Add `WorkflowResolver.resolve_for_run(run)`.
 
