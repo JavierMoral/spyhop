@@ -85,9 +85,15 @@ the run waits for you.
 When the run waits, the session tells you what happened and gives the options
 with their commands. When a plan waits for its review, the session gives a
 summary of the plan and asks if you approve it. When you ask for changes to
-the plan, the session sends them to the plan agent with `spyhop tell`. When
-the run completes, the session shows a table of the steps and the checkpoint
-rounds, with a ✅ or a ❌ and the result of each step. The session cannot edit
+the plan, the session sends them to the plan agent with `spyhop tell`.
+
+The session keeps a table of the run: one row for each agent, each wait and
+each checkpoint of each round. Each row gives the state, the result, a link to
+the file that the step wrote, and the cause of a failure or a problem. The
+session shows the full table again for each message, and after `retry`,
+`fail` or `checkpoints rerun`. When the run completes, the session shows a
+report: a description of the branch in 50 words or less, then the table. The
+session cannot edit
 files, and it runs a command only when you ask it to. Claude Code does not ask
 for permission when the session runs `spyhop status`, `approve`, `tell`,
 `fail`, `retry` or `checkpoints rerun`. It asks for other commands.
