@@ -137,3 +137,62 @@ give the commit.
     Done in the branch `run-commands-and-events`. `RunRepository` writes the
     events itself, so the callers did not change. `spyhop status --timeline`
     shows them, and `spyhop stats` gives the median time to the plan.
+
+## Second review, in this order
+
+11. [ ] **One agent start for the launcher and the phase runner.**
+    `AgentLauncher._launch` and `PhaseRunner.launch` repeat the same steps:
+    `find_launching` or `create_launching`, `replay_expired`,
+    `launch_agent`, `mark_launched` and `label_agent`. Only the handling of
+    an error is different. Move the steps and the replay rule to one
+    `AgentStarter` that returns the result, and let each caller handle the
+    error.
+
+12. [ ] **Transactions in the repositories.** The connection commits each
+    statement (`isolation_level=None`), and the CLI writes to the same
+    database from another process. Some operations have more than one
+    statement: `take_plan_changes` (read and consume), `_update` (status
+    and event), and `CheckpointRunRepository.create` (row and consumed
+    request). Add `with repository.transaction():` (`BEGIN IMMEDIATE`) and
+    use it for these operations.
+
+13. [ ] **Remove the name of Orca from the domain.** The protocols are
+    neutral, but `orca_worktree_id` (40 uses) and the exceptions
+    `OrcaUnavailableError`, `OrcaUncertainError` and `OrcaCommandError` are
+    in the models, the protocols and the application. Rename them to
+    `host_worktree_id`, `HostUnavailableError`, `HostUncertainError` and
+    `HostCommandError`, so that a tmux or headless host does not raise
+    Orca errors. The database column needs a migration.
+
+14. [ ] **Split `repositories.py` (993 lines).** Put each repository in its
+    own module, and the row mappers and the pipeline JSON in
+    `_mapping.py`. This is a move without a change of behavior.
+
+15. [ ] **Move the worktree creation out of `AgentLauncher` (648 lines).**
+    `_worktree`, `_scripted_worktree`, `_reopened`, `worktree_name` and the
+    wait for disk space get a worktree for a run. Move them to a
+    `WorktreeProvisioner`, so that the launcher only prepares the run and
+    starts the agent.
+
+16. [ ] **Move the checkpoint reports out of `CheckRunner` (695 lines).**
+    `_validate`, `_contract_problem`, `_append_report` and
+    `_write_verdicts` check the JSON of a checkpoint and write the files.
+    Move them to `checkpoint_verdicts.py` or to a new
+    `checkpoint_reports.py`, so that `CheckRunner` only runs the rounds.
+
+17. [ ] **Inject a clock.** 32 calls read the time directly (`utc_now()`,
+    `datetime.now`) in the repositories, the launcher, the Orca client and
+    `agent_state`. The tests change times with SQL or set
+    `_recovery._started_at`. Add a small `Clock` that the daemon gives to
+    the components, and a fixed clock for the tests.
+
+18. [ ] **Do not block the asyncio loop with git.** `infrastructure/git.py`
+    calls `subprocess.run` from async code (`CheckRunner`, the janitor,
+    `checkpoint_inputs`). A slow `git merge-base` on liferay-portal stops
+    the whole cycle. Use the async `CommandRunner` or `asyncio.to_thread`.
+
+19. [ ] **Integration tests against the real Orca.** `tests/integration/`
+    is empty, and all the tests use `FakeOrca`. A change of the JSON of
+    `orca-ide` is not found. Add a few tests with the mark `integration`
+    that skip when Orca is not there: `worktree ps`, `worktree show` and
+    `terminal send`.
