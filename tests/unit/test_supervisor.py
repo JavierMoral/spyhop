@@ -245,7 +245,7 @@ async def test_refused_approval_waits_until_the_plan_is_approved_again(
     assert refused.waiting_reason is WaitingReason.UNKNOWN_STATE
     assert refused.error_message is not None
     assert refused.error_message.endswith(
-        f"move the card back to {PLAN_REVIEW} and approve the plan again"
+        f"run `spyhop declare {run.issue_key} plan` and `spyhop approve {run.issue_key}`"
     )
     assert plan_session.status is SessionStatus.LAUNCHED
     assert failed.status is SessionStatus.FAILED

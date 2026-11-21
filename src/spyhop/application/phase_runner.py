@@ -41,7 +41,6 @@ class PhaseRunner:
         terminal_host: TerminalHost,
         context: ContextBuilder,
         agents: AgentSettings,
-        plan_review_status: str,
         alerts: RunAlerts,
         check_runner: CheckRunner | None = None,
         knowledge: KnowledgeWriter | None = None,
@@ -52,7 +51,6 @@ class PhaseRunner:
         self._terminal_host = terminal_host
         self._context = context
         self._agents = agents
-        self._plan_review_status = plan_review_status
         self._alerts = alerts
         self._check_runner = check_runner
         self._knowledge = knowledge
@@ -147,7 +145,7 @@ class PhaseRunner:
                 goal,
                 phase,
                 "implementation",
-                f"move the card back to {self._plan_review_status} and approve the plan again"
+                f"run `spyhop declare {run.issue_key} plan` and `spyhop approve {run.issue_key}`"
                 if workflow.plan_review
                 else "use `spyhop retry` or start the agent yourself",
             )

@@ -197,7 +197,6 @@ class AgentSupervisor:
             terminal_host,
             context,
             agents,
-            plan_review_status,
             self._alerts,
             check_runner,
             knowledge,

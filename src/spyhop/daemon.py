@@ -197,8 +197,6 @@ def _agents(
     context = ContextBuilder(
         template_environment(user_templates_dir()),
         executable,
-        settings.orca.plan_review_status,
-        settings.orca.plan_approved_status,
         settings.agents.review_command,
         settings.knowledge.recall_command,
         spyhop_executable(),

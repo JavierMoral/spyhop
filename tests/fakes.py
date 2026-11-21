@@ -453,8 +453,6 @@ class Harness:
         self.context = ContextBuilder(
             template_environment(tmp_path / "templates"),
             ORCA,
-            PLAN_REVIEW,
-            PLAN_APPROVED,
             spyhop=SPYHOP,
         )
         self.supervisor_session = (

@@ -74,16 +74,12 @@ class ContextBuilder:
         self,
         templates: Environment,
         orca_executable: Path,
-        plan_review_status: str,
-        plan_approved_status: str = "in-progress",
         review_command: str | None = None,
         recall_command: str | None = None,
         spyhop: Path = Path("spyhop"),
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
-        self._plan_review_status = plan_review_status
-        self._plan_approved_status = plan_approved_status
         self._review_command = review_command
         self._recall_command = recall_command
         self._spyhop = spyhop
@@ -116,8 +112,6 @@ class ContextBuilder:
             guidance=guidance,
             orca=str(self._orca_executable),
             implement_goal=self.goal(ticket.key, "implement"),
-            plan_review_status=self._plan_review_status,
-            plan_approved_status=self._plan_approved_status,
             review_command=self._review_command,
             recall_command=self._recall_command,
         )
@@ -150,8 +144,6 @@ class ContextBuilder:
             spyhop=str(self._spyhop),
             issue_key=issue_key,
             orca=str(self._orca_executable),
-            plan_review_status=self._plan_review_status,
-            plan_approved_status=self._plan_approved_status,
         )
 
         return oneline(text)
@@ -163,7 +155,6 @@ class ContextBuilder:
             issue_key=issue_key,
             failed=list(failed),
             orca=str(self._orca_executable),
-            plan_approved_status=self._plan_approved_status,
         )
 
         return oneline(text)

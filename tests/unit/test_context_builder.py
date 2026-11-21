@@ -49,7 +49,7 @@ def workflow(
 
 
 def builder(user_templates: Path) -> ContextBuilder:
-    return ContextBuilder(template_environment(user_templates), ORCA, "plan-review")
+    return ContextBuilder(template_environment(user_templates), ORCA)
 
 
 def linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
@@ -81,7 +81,6 @@ def test_goal_without_plan_review_declares_the_end(tmp_path: Path) -> None:
 
     assert goal.endswith("spyhop declare LPD-1 done")
     assert "CLAUDE-RESULT.md" in goal
-    assert "plan-review" not in goal
 
 
 def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
@@ -115,7 +114,6 @@ def test_review_command_runs_after_the_implementation(tmp_path: Path, plan_revie
     context = ContextBuilder(
         template_environment(tmp_path),
         ORCA,
-        "plan-review",
         review_command="/code-review-loop --rounds 2",
     )
     task = context.render_task(ticket(), workflow(plan_review=plan_review))
@@ -276,19 +274,15 @@ def test_prepare_requires_the_worktree_directory(tmp_path: Path) -> None:
 
 
 def test_recall_command_runs_before_the_plan(tmp_path: Path) -> None:
-    plain = ContextBuilder(template_environment(tmp_path), ORCA, "plan-review")
-    recall = ContextBuilder(
-        template_environment(tmp_path), ORCA, "plan-review", recall_command="/recall"
-    )
+    plain = ContextBuilder(template_environment(tmp_path), ORCA)
+    recall = ContextBuilder(template_environment(tmp_path), ORCA, recall_command="/recall")
 
     assert "## Earlier findings" not in plain.render_task(ticket(), workflow())
     assert "`/recall <palabras clave>`" in recall.render_task(ticket(), workflow())
 
 
 def test_the_settings_record_the_state_of_the_agent_with_hooks(tmp_path: Path) -> None:
-    context = ContextBuilder(
-        template_environment(tmp_path), ORCA, "plan-review", spyhop=Path("/bin/spyhop")
-    )
+    context = ContextBuilder(template_environment(tmp_path), ORCA, spyhop=Path("/bin/spyhop"))
     settings = json.loads(context.render_settings(workflow()))
     hook = [{"type": "command", "command": "/bin/spyhop hook"}]
 
