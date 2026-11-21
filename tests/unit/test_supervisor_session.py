@@ -48,6 +48,7 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
     assert " --dangerously-skip-permissions " in session["command"]
     assert "--allowed-tools" not in session["command"]
     assert session["command"].endswith(" --disallowed-tools Edit Write NotebookEdit")
+    assert "preguntas numeradas para el reportero" in session["command"]
 
     current = harness.worktrees.get(worktree.id)
 
