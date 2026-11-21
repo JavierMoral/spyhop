@@ -53,6 +53,14 @@ the code without them.
    evidence, not a skipped test.
 5. Make sure that each changed public API keeps its old behavior or that the
    commits update all its callers.
+6. Make sure that the commits do not make the tests weaker. Each of these is a
+   medium finding:
+   - A test that the commits disable, for example with `@Ignore`,
+     `@Disabled`, `Assume`, or a skip in a JavaScript test.
+   - A test method that the commits delete while the code that it tests
+     still exists, and that no new test replaces.
+   - An assertion that the commits delete or make less strict in a test that
+     still exists.
 
 ## Verdict
 
