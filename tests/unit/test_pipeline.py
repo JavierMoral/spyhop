@@ -3,6 +3,7 @@
 import fcntl
 import json
 import os
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from spyhop.application import checkpoint_runner
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaUnavailableError, UnitError
 from spyhop.domain.models import AutomationRun, CheckpointRun, ChecksPhase, Worktree
@@ -440,12 +442,31 @@ async def test_a_result_that_breaks_the_contract_is_a_fail(
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
 
 
+def git_threads(monkeypatch: pytest.MonkeyPatch) -> list[threading.Thread]:
+    """The threads in which the checkpoint runner asks Git."""
+
+    threads: list[threading.Thread] = []
+
+    for name in ("has_changes", "head"):
+        real = getattr(checkpoint_runner, name)
+
+        def recorded(path: Path, real: Any = real) -> Any:
+            threads.append(threading.current_thread())
+
+            return real(path)
+
+        monkeypatch.setattr(checkpoint_runner, name, recorded)
+
+    return threads
+
+
 async def test_an_exclusive_check_that_leaves_changes_fails_and_blocks_the_next_stage(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     harness = harness_with(tmp_path, "implement", {"checks": ["regressions", "mutation"]})
     run, worktree, _ = await implemented(harness)
     [row] = running(harness, run)
+    threads = git_threads(monkeypatch)
 
     (worktree.path / "App.java").write_text("class App {}\n")
     answer(harness, run, "regressions")
@@ -455,11 +476,15 @@ async def test_an_exclusive_check_that_leaves_changes_fails_and_blocks_the_next_
 
     assert finished is not None and finished.verdict == "FAIL"
     assert finished.detail is not None and "left uncommitted changes" in finished.detail
+    assert threads and threading.main_thread() not in threads
 
 
-async def test_a_dirty_worktree_blocks_the_start_of_a_stage(tmp_path: Path) -> None:
+async def test_a_dirty_worktree_blocks_the_start_of_a_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
     run, worktree = await started(harness)
+    threads = git_threads(monkeypatch)
 
     (worktree.path / "Notes.java").write_text("class Notes {}\n")
     await harness.supervisor.supervise()
@@ -470,6 +495,7 @@ async def test_a_dirty_worktree_blocks_the_start_of_a_stage(tmp_path: Path) -> N
     assert waiting.waiting_reason is WaitingReason.UNKNOWN_STATE
     assert waiting.error_message is not None
     assert "checkpoints need a clean worktree" in waiting.error_message
+    assert threads and threading.main_thread() not in threads
 
 
 async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path) -> None:

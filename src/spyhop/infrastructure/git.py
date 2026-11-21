@@ -1,6 +1,7 @@
 """The few local Git questions Orca does not answer. Read-only. A Git command
 on a large repository can take seconds, so the async code runs these
-functions in a thread (`asyncio.to_thread`)."""
+functions in a thread (`asyncio.to_thread`). A thread cannot be cancelled,
+so a stop of the daemon can wait for a Git command up to its timeout."""
 
 import subprocess
 from pathlib import Path

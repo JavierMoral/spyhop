@@ -201,9 +201,10 @@ give the commit.
     `checkpoint_inputs`). A slow `git merge-base` on liferay-portal stops
     the whole cycle. Use the async `CommandRunner` or `asyncio.to_thread`.
 
-    Done: `git.py` stays synchronous for the CLI. The async callers run it
-    with `asyncio.to_thread`: `CheckRunner`, `checkpoint_inputs`, the
-    janitor and the launcher (`branch_exists` of a reopened ticket).
+    Done: `git.py` stays synchronous. The async callers run it with
+    `asyncio.to_thread`: `CheckRunner`, `checkpoint_inputs` (also from the
+    CLI), the janitor and the launcher (`branch_exists` of a reopened
+    ticket). Only `top_level` runs directly, from the CLI.
 
 19. [ ] **Integration tests against the real Orca.** `tests/integration/`
     is empty, and all the tests use `FakeOrca`. A change of the JSON of
