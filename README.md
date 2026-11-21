@@ -358,23 +358,25 @@ knowledge:
 
 | Command | Description |
 | --- | --- |
-| `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. `--timeline` shows what happened to each run, in order: status changes, phases, requests, declarations, restarts and checkpoint verdicts. |
+| `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. `--timeline` shows the history of each run. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
-| `spyhop declare KEY plan\|done` | Declare that the plan or the work is ready. The agents run it at the end of their goal. |
-| `spyhop replan KEY TEXT` | Start a new plan agent that changes `CLAUDE-PLAN.md`, for a plan in review whose agent is closed. |
-| `spyhop tell KEY TEXT` | Send a message to the current agent of the run, in its Orca terminal. |
-| `spyhop ticket KEY` | Show all the fields of a JIRA ticket, also the custom fields, and its comments. The agents and the checkpoints read the ticket with it. |
+| `spyhop replan KEY TEXT` | Change a plan in review when its agent is closed. |
+| `spyhop tell KEY TEXT` | Send a message to the current agent of the run. |
+| `spyhop ticket KEY` | Show a JIRA ticket with all its fields and comments. |
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
 | `spyhop retry KEY` | Start a finished run again, on the same worktree. |
 | `spyhop cleanup KEY` | Remove the worktree of the ticket now. |
-| `spyhop checkpoints rerun KEY [--failed]` | Run the current checks phase again. With `--failed`, run only the failed and stale checkpoints. |
-| `spyhop checkpoints plan` / `check` | Show the checkpoints of the current worktree, or check their verdicts. |
+| `spyhop checkpoints rerun KEY [--failed]` | Run the checkpoints again. With `--failed`, run only the failed and stale checkpoints. |
 | `spyhop run` | Run in the foreground. `--once` polls one time. `-v` shows debug logs. |
-| `spyhop stats [--days N]` | Show the runs, agents and checkpoints of the last days: counts, the time to the plan and to the end, PASS rate and the cost of the checkpoints. |
+| `spyhop stats [--days N]` | Show the counts, times and costs of the runs of the last days. |
 | `spyhop doctor` | Check the configuration and everything that Spyhop needs to run. |
 | `spyhop config init` | Create the configuration and the credentials file. |
+| `spyhop claude install` | Link the subagents and skills of Spyhop in `~/.claude`. |
 | `spyhop service install` / `uninstall` | Install and start, or remove, the systemd user service. |
 | `spyhop version` | Print the version of Spyhop. |
+
+The agents use `spyhop declare` and `spyhop checkpoints plan` / `check`. You
+do not need them.
 
 To follow the logs of the service:
 
