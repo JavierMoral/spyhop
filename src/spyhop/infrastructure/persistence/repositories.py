@@ -243,10 +243,11 @@ class RunRepository:
             "UPDATE automation_runs SET fix_requested_at = NULL WHERE id = ?", (run_id,)
         )
 
-    def request_checks(self, run_id: str) -> None:
+    def request_checks(self, run_id: str, failed_only: bool = False) -> None:
         self._connection.execute(
-            "UPDATE automation_runs SET checks_requested_at = ? WHERE id = ?",
-            (_to_text(utc_now()), run_id),
+            "UPDATE automation_runs SET checks_requested_at = ?, checks_failed_only = ? "
+            "WHERE id = ?",
+            (_to_text(utc_now()), failed_only, run_id),
         )
 
     def mark_failed(self, run_id: str, error_message: str) -> None:
@@ -445,12 +446,14 @@ class CheckpointRunRepository:
 
         return [_to_checkpoint_run(row) for row in rows]
 
-    def latest(self, run_id: str) -> dict[str, CheckpointRun]:
-        """The last finished run of each checkpoint of the run."""
+    def latest(self, run_id: str, phase: int | None = None) -> dict[str, CheckpointRun]:
+        """The last finished run of each checkpoint of the run, or of one phase
+        of the run."""
 
         rows = self._connection.execute(
-            "SELECT * FROM checkpoint_runs WHERE run_id = ? AND status = 'DONE' ORDER BY rowid",
-            (run_id,),
+            "SELECT * FROM checkpoint_runs WHERE run_id = ? AND status = 'DONE' "
+            "AND (? IS NULL OR phase = ?) ORDER BY rowid",
+            (run_id, phase, phase),
         )
 
         return {row["name"]: _to_checkpoint_run(row) for row in rows}
@@ -642,6 +645,7 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         phase=row["phase"],
         fix_requested_at=_to_datetime(row["fix_requested_at"]),
         checks_requested_at=_to_datetime(row["checks_requested_at"]),
+        checks_failed_only=bool(row["checks_failed_only"]),
     )
 
 

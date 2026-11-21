@@ -193,6 +193,8 @@ class AutomationRun:
     fix_requested_at: datetime | None = None
     # When a person last asked to run the checkpoints of the phase again.
     checks_requested_at: datetime | None = None
+    # Whether that request runs only the failed and stale checkpoints.
+    checks_failed_only: bool = False
 
 
 @dataclass(frozen=True)

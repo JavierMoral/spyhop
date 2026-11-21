@@ -528,6 +528,9 @@ def checkpoints_plan(
 @checkpoints_app.command("rerun")
 def checkpoints_rerun(
     issue_key: Annotated[str, typer.Argument(help="Ticket whose checkpoints run again")],
+    failed: Annotated[
+        bool, typer.Option("--failed", help="Run only the failed and stale checkpoints")
+    ] = False,
     config: ConfigOption = None,
     dry_run: Annotated[
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
@@ -537,7 +540,8 @@ def checkpoints_rerun(
 
     For a run that waits with checkpoints_failed when the inputs did not
     change: for example, after you repaired the bundle of the worktree. The
-    running daemon starts the new round on its next cycle."""
+    running daemon starts the new round on its next cycle. With --failed,
+    the round keeps each PASS whose inputs did not change."""
 
     settings = _load(config)
     runs = RunRepository(connect(_existing_database(config, dry_run, settings)))
@@ -560,7 +564,7 @@ def checkpoints_rerun(
 
         raise typer.Exit(1)
 
-    runs.request_checks(automation_run.id)
+    runs.request_checks(automation_run.id, failed)
 
     typer.echo(f"{automation_run.issue_key}: the checkpoints run again on the next cycle.")
 

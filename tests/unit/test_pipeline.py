@@ -187,6 +187,53 @@ async def test_rerun_on_request_without_a_change_of_inputs(tmp_path: Path) -> No
     assert harness.checkpoint_runs.last_round(run.id, 0) == 2
 
 
+async def test_rerun_of_the_failed_checkpoints_keeps_each_pass_with_the_same_inputs(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info", "security"]}, "implement")
+    run, worktree = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    answer(harness, run, "security")
+    await harness.supervisor.supervise()
+    harness.runs.request_checks(run.id, failed_only=True)
+    await harness.supervisor.supervise()
+
+    assert [row.name for row in running(harness, run)] == ["ticket-info"]
+
+    [kept] = [
+        row for row in harness.checkpoint_runs.list_round(run.id, 0, 2) if row.name == "security"
+    ]
+
+    assert kept.verdict == "PASS"
+    assert kept.detail == "kept from round 1"
+
+    answer(harness, run, "ticket-info")
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).phase == 1
+    assert len(harness.units.started) == 3
+    assert "| security | PASS | " in (worktree.path / "CLAUDE-CHECKPOINTS.md").read_text()
+
+
+async def test_rerun_of_the_failed_checkpoints_runs_a_pass_with_changed_inputs(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info", "security"]}, "implement")
+    run, worktree = await started(harness)
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    answer(harness, run, "security")
+    await harness.supervisor.supervise()
+    git(worktree.path, "commit", "--quiet", "--allow-empty", "-m", "LPD-1 Change")
+    harness.runs.request_checks(run.id, failed_only=True)
+    await harness.supervisor.supervise()
+
+    assert sorted(row.name for row in running(harness, run)) == ["security", "ticket-info"]
+
+
 async def implemented(harness: Harness) -> tuple[AutomationRun, Worktree, str]:
     """The implementation agent declared the end; the checks start."""
 

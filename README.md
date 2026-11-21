@@ -309,7 +309,9 @@ projects:
 ```
 
 After a fix, or a change of the ticket, the failed checks run again. To run
-them again yourself, use `spyhop checkpoints rerun KEY`.
+them again yourself, use `spyhop checkpoints rerun KEY`. Add `--failed` to run
+only the failed and stale checkpoints: the round keeps each PASS whose inputs
+did not change.
 
 Each checkpoint is a file `~/.claude/agents/checkpoint-<name>.md`:
 
@@ -343,7 +345,7 @@ checkpoints of a workflow.
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
 | `spyhop retry KEY` | Start a finished run again, on the same worktree. |
 | `spyhop cleanup KEY` | Remove the worktree of the ticket now. |
-| `spyhop checkpoints rerun KEY` | Run the current checks phase again. |
+| `spyhop checkpoints rerun KEY [--failed]` | Run the current checks phase again. With `--failed`, run only the failed and stale checkpoints. |
 | `spyhop checkpoints plan` / `check` | Show the checkpoints of the current worktree, or check their verdicts. |
 | `spyhop run` | Run in the foreground. `--once` polls one time. `-v` shows debug logs. |
 | `spyhop doctor` | Check the configuration, JIRA, the repositories, the checkpoints, Orca and the service. |

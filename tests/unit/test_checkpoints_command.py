@@ -364,6 +364,14 @@ def test_rerun_asks_for_a_new_round_of_the_current_checks_phase(
 
     assert result.exit_code == 0
     assert runs.list(issue_key="LPD-1")[0].checks_requested_at is not None
+    assert not runs.list(issue_key="LPD-1")[0].checks_failed_only
+
+    result = CliRunner().invoke(
+        app, ["checkpoints", "rerun", "LPD-1", "--failed", "--config", str(config_file)]
+    )
+
+    assert result.exit_code == 0
+    assert runs.list(issue_key="LPD-1")[0].checks_failed_only
 
 
 def test_an_unknown_workflow_is_an_error(config_file: Path) -> None:

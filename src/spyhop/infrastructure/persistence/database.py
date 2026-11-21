@@ -159,6 +159,11 @@ _MIGRATIONS = [
     """
     ALTER TABLE agent_sessions ADD COLUMN role TEXT;
     """,
+    # Whether the last request to run the checkpoints again is only for the
+    # failed and stale checkpoints.
+    """
+    ALTER TABLE automation_runs ADD COLUMN checks_failed_only INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

@@ -15,7 +15,9 @@ cycle:
   have no uncommitted change.
 - A failed round starts again when someone asks for it (a person, or the
   supervisor after a fix), or when the inputs of a failed checkpoint change
-  while no agent works in the worktree.
+  while no agent works in the worktree. A person can ask for only the failed
+  and stale checkpoints: the new round keeps each PASS whose inputs did not
+  change, as a row that does not run.
 - The supervisor session of the worktree, when there is one, gets the start
   of each round, the start of each checkpoint with its log, and each verdict.
 - A checkpoint without a result in time is a FAIL. Spyhop stops its unit
@@ -209,7 +211,13 @@ class CheckRunner:
             return PhaseOutcome("passed", "all checkpoints passed", number)
 
         if not agent_busy and await self._restart(run, worktree, workflow, rows):
-            return await self._start_round(run, worktree, workflow, phase, number + 1)
+            kept = (
+                await self._kept(run, worktree, workflow, phase)
+                if run.checks_failed_only and _requested(run, rows)
+                else []
+            )
+
+            return await self._start_round(run, worktree, workflow, phase, number + 1, kept)
 
         detail = f"failed: {', '.join(failed)}"
 
@@ -225,11 +233,34 @@ class CheckRunner:
         workflow: ResolvedWorkflow,
         phase: ChecksPhase,
         number: int,
+        kept: Sequence[CheckpointRun] = (),
     ) -> PhaseOutcome:
-        stages = self._planner.plan(phase.checkpoints)
+        """Starts the round. Each row in ``kept`` is a PASS that the round
+        copies and does not run again."""
+
+        for row in kept:
+            copy = self._checkpoint_runs.create(
+                run.id,
+                run.phase,
+                number,
+                row.name,
+                row.inputs,
+                row.base,
+                row.head,
+                self._results_dir / run.id,
+            )
+
+            self._checkpoint_runs.finish(copy.id, "PASS", f"kept from round {row.round}")
+
+        excluded = {row.name for row in kept}
+        stage = next(
+            stage
+            for stage in self._planner.plan(phase.checkpoints)
+            if any(name not in excluded for name in stage.checkpoints)
+        )
 
         return await self._start_stage(
-            run, worktree, workflow, number, stages[0], set(), new_round=True
+            run, worktree, workflow, number, stage, excluded, new_round=True
         )
 
     async def _start_stage(
@@ -267,8 +298,10 @@ class CheckRunner:
             _log.info("%s: checkpoints round %d of phase %d", run.issue_key, number, run.phase)
 
             if self._supervisor_session is not None:
+                names = [name for name in phase.checkpoints if name not in excluded]
+
                 await self._supervisor_session.tell(
-                    worktree, f"ronda {number} de checkpoints: {', '.join(phase.checkpoints)}"
+                    worktree, f"ronda {number} de checkpoints: {', '.join(names)}"
                 )
 
         names = [name for name in stage.checkpoints if name not in excluded]
@@ -441,9 +474,7 @@ class CheckRunner:
         """Whether a failed round starts again by itself: a person asked for
         it, or the inputs of a failed checkpoint changed."""
 
-        started = min(row.started_at for row in rows)
-
-        if run.checks_requested_at is not None and run.checks_requested_at > started:
+        if _requested(run, rows):
             return True
 
         failed = [row for row in rows if row.verdict == "FAIL"]
@@ -460,6 +491,41 @@ class CheckRunner:
             row.inputs != fingerprint({key: values[key] for key in inputs[row.name]})
             for row in failed
         )
+
+    async def _kept(
+        self, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow, phase: ChecksPhase
+    ) -> list[CheckpointRun]:
+        """The last PASS of each checkpoint of the phase whose inputs did not
+        change since then."""
+
+        latest = self._checkpoint_runs.latest(run.id, run.phase)
+        passed = [
+            row
+            for name in phase.checkpoints
+            if (row := latest.get(name)) is not None and row.verdict == "PASS"
+        ]
+        inputs = {row.name: self._planner.read(row.name).inputs for row in passed}
+        values = await input_values(
+            set().union(*inputs.values()),
+            worktree.path,
+            workflow.base_branch,
+            run.issue_key,
+            self._tickets,
+        )
+
+        return [
+            row
+            for row in passed
+            if row.inputs == fingerprint({key: values[key] for key in inputs[row.name]})
+        ]
+
+
+def _requested(run: AutomationRun, rows: Sequence[CheckpointRun]) -> bool:
+    """Whether someone asked for a new round after the start of ``rows``."""
+
+    started = min(row.started_at for row in rows)
+
+    return run.checks_requested_at is not None and run.checks_requested_at > started
 
 
 def _still_runs(output_file: Path) -> bool:
