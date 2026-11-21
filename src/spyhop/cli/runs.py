@@ -31,6 +31,7 @@ from spyhop.config.paths import (
     state_dir,
 )
 from spyhop.daemon import run_daemon
+from spyhop.domain.clock import utc_now
 from spyhop.domain.exceptions import OrcaCommandError, SpyhopError
 from spyhop.infrastructure.agent_state import AGENT_STATES, pane_key, write_state
 from spyhop.infrastructure.jira.mapping import ticket_text
@@ -41,7 +42,6 @@ from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
     WorktreeRepository,
-    utc_now,
 )
 from spyhop.infrastructure.process.units import SystemdUnits
 

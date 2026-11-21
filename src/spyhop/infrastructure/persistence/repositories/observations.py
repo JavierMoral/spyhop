@@ -2,13 +2,12 @@
 
 import sqlite3
 
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.models import (
     JiraIssue,
 )
 from spyhop.infrastructure.persistence.repositories._mapping import (
-    Clock,
     _to_text,
-    utc_now,
 )
 
 

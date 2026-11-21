@@ -3,15 +3,14 @@
 import sqlite3
 import uuid
 
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import SessionStatus
 from spyhop.domain.models import (
     AgentSession,
 )
 from spyhop.infrastructure.persistence.repositories._mapping import (
-    Clock,
     _to_session,
     _to_text,
-    utc_now,
 )
 
 

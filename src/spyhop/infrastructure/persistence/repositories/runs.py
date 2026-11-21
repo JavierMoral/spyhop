@@ -6,6 +6,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.models import (
     AutomationRun,
@@ -15,13 +16,11 @@ from spyhop.domain.models import (
 )
 from spyhop.infrastructure.persistence.database import transaction
 from spyhop.infrastructure.persistence.repositories._mapping import (
-    Clock,
     _phase_name,
     _phase_to_json,
     _record_event,
     _to_run,
     _to_text,
-    utc_now,
 )
 
 

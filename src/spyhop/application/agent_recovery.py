@@ -9,11 +9,14 @@ from spyhop.application.context_builder import PLAN_FILE
 from spyhop.application.phase_runner import PhaseRunner
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.config.settings import AgentSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaError
 from spyhop.domain.models import AgentSession, AutomationRun, ResolvedWorkflow, Worktree
 from spyhop.domain.protocols import TerminalHost
-from spyhop.infrastructure.persistence.repositories import Clock, RunRepository, utc_now
+from spyhop.infrastructure.persistence.repositories import (
+    RunRepository,
+)
 
 _log = logging.getLogger(__name__)
 

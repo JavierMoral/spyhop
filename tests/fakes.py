@@ -489,6 +489,7 @@ class Harness:
             provisioner=self.provisioner,
             supervisor_session=self.supervisor_session,
             notify=self.notify,
+            now=self.clock,
         )
         self.cleaned: list[Path] = []
         self.cleanup_errors: list[Exception] = []

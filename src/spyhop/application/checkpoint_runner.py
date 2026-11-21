@@ -54,6 +54,7 @@ from spyhop.application.checkpoint_reports import (
 from spyhop.application.checkpoint_verdicts import fingerprint
 from spyhop.application.context_builder import EXCLUDED_PATHS, add_exclusions, git_exclude_file
 from spyhop.application.supervisor_session import SupervisorSession
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.exceptions import UnitError
 from spyhop.domain.models import (
     AutomationRun,
@@ -66,8 +67,6 @@ from spyhop.domain.protocols import TicketGateway, UnitGateway
 from spyhop.infrastructure.git import has_changes, head
 from spyhop.infrastructure.persistence.repositories import (
     CheckpointRunRepository,
-    Clock,
-    utc_now,
 )
 
 _log = logging.getLogger(__name__)

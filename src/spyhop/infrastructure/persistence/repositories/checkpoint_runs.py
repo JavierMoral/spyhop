@@ -5,16 +5,15 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.models import (
     CheckpointRun,
 )
 from spyhop.infrastructure.persistence.database import transaction
 from spyhop.infrastructure.persistence.repositories._mapping import (
-    Clock,
     _record_event,
     _to_checkpoint_run,
     _to_text,
-    utc_now,
 )
 
 

@@ -25,6 +25,7 @@ from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import AgentSettings, JiraSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
     JiraAuthenticationError,
@@ -92,6 +93,7 @@ class AgentLauncher:
         provisioner: WorktreeProvisioner,
         supervisor_session: SupervisorSession | None = None,
         notify: Callable[[str, str], Awaitable[None]] | None = None,
+        now: Clock = utc_now,
     ) -> None:
         self._runs = runs
         self._supervisor_session = supervisor_session
@@ -107,7 +109,7 @@ class AgentLauncher:
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
         self._provisioner = provisioner
-        self._starter = AgentStarter(sessions, terminal_host, agents)
+        self._starter = AgentStarter(sessions, terminal_host, agents, now)
 
     async def launch_pending(self) -> list[AutomationRun]:
         """Advances pending runs, oldest first, while there are free slots.

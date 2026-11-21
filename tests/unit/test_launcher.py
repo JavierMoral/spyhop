@@ -1,6 +1,6 @@
 import sqlite3
 import threading
-import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -199,9 +199,7 @@ async def test_old_lost_launch_is_handed_to_a_person(harness: Harness) -> None:
 
     await harness.launcher.launch_pending()
 
-    stale = f"{int((time.time() - 3600) * 1000)}-{'0' * 32}"
-
-    harness.connection.execute("UPDATE agent_sessions SET launch_operation_id = ?", (stale,))
+    harness.clock.advance(timedelta(hours=1))
 
     await harness.launcher.launch_pending()
 

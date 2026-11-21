@@ -4,8 +4,7 @@ import dataclasses
 import json
 import logging
 import sqlite3
-from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
@@ -20,15 +19,6 @@ from spyhop.domain.models import (
 )
 
 _log = logging.getLogger(__name__)
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-# What gives the current time. The daemon uses utc_now, and the tests a clock
-# that they can move.
-Clock = Callable[[], datetime]
 
 
 def _to_text(value: datetime | None) -> str | None:

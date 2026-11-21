@@ -4,16 +4,15 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.models import (
     OrcaWorktree,
     Worktree,
 )
 from spyhop.infrastructure.persistence.repositories._mapping import (
-    Clock,
     _to_text,
     _to_worktree,
-    utc_now,
 )
 
 

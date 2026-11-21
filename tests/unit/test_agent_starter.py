@@ -1,4 +1,4 @@
-import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,6 +13,7 @@ from spyhop.config.settings import AgentSettings
 from spyhop.domain.enums import SessionStatus
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AutomationRun, Worktree
+from spyhop.infrastructure.orca.client import new_operation_id
 from tests.fakes import Harness
 from tests.unit.test_persistence import orca_worktree
 
@@ -24,7 +25,7 @@ def harness(tmp_path: Path) -> Harness:
 
 @pytest.fixture
 def starter(harness: Harness) -> AgentStarter:
-    return AgentStarter(harness.sessions, harness.orca, AgentSettings())
+    return AgentStarter(harness.sessions, harness.orca, AgentSettings(), harness.clock)
 
 
 def _run_and_worktree(harness: Harness) -> tuple[AutomationRun, Worktree]:
@@ -54,8 +55,13 @@ async def test_a_lost_answer_is_replayed_with_the_same_operation_id(
 
 async def test_an_old_lost_answer_is_not_replayed(harness: Harness, starter: AgentStarter) -> None:
     run, worktree = _run_and_worktree(harness)
-    stale = f"{int((time.time() - REPLAY_WINDOW_SECONDS - 60) * 1000)}-{'0' * 32}"
-    session = harness.sessions.create_launching(run.id, "claude", "opus", stale, "plan")
+    harness.orca.launch_errors.append(OrcaUncertainError("timed out"))
+
+    with pytest.raises(OrcaUncertainError):
+        await starter.start(run, worktree, "opus", "goal", "plan")
+
+    [session] = harness.sessions.list_for_run(run.id)
+    harness.clock.advance(timedelta(seconds=REPLAY_WINDOW_SECONDS + 1))
 
     with pytest.raises(LaunchOutcomeUnknown):
         await starter.start(run, worktree, "opus", "goal", "plan")
@@ -63,7 +69,7 @@ async def test_an_old_lost_answer_is_not_replayed(harness: Harness, starter: Age
     failed = harness.sessions.get(session.id)
 
     assert failed is not None and failed.status is SessionStatus.FAILED
-    assert harness.orca.launches == []
+    assert len(harness.orca.launches) == 1
 
 
 async def test_a_refused_launch_fails_the_session(harness: Harness, starter: AgentStarter) -> None:
@@ -96,12 +102,13 @@ async def test_a_label_error_only_goes_to_the_log(
 
 def test_a_replay_expires_after_the_window(harness: Harness) -> None:
     run = harness.discover()
-    issued = 1_000_000.0
+    issued = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
+    window = timedelta(seconds=REPLAY_WINDOW_SECONDS)
     session = harness.sessions.create_launching(
-        run.id, "claude", "opus", f"{int(issued * 1000)}-{'0' * 32}", "plan"
+        run.id, "claude", "opus", new_operation_id(issued), "plan"
     )
     broken = harness.sessions.create_launching(run.id, "claude", "opus", "broken", "plan")
 
-    assert not replay_expired(session, issued + REPLAY_WINDOW_SECONDS)
-    assert replay_expired(session, issued + REPLAY_WINDOW_SECONDS + 1)
-    assert replay_expired(broken)
+    assert not replay_expired(session, issued + window)
+    assert replay_expired(session, issued + window + timedelta(seconds=1))
+    assert replay_expired(broken, issued)

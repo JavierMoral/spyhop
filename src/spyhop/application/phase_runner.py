@@ -12,6 +12,7 @@ from spyhop.application.context_builder import RESULT_FILE, ContextBuilder
 from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.config.settings import AgentSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
@@ -44,6 +45,7 @@ class PhaseRunner:
         alerts: RunAlerts,
         check_runner: CheckRunner | None = None,
         knowledge: KnowledgeWriter | None = None,
+        now: Clock = utc_now,
     ) -> None:
         self._runs = runs
         self._sessions = sessions
@@ -54,7 +56,7 @@ class PhaseRunner:
         self._alerts = alerts
         self._check_runner = check_runner
         self._knowledge = knowledge
-        self._starter = AgentStarter(sessions, terminal_host, agents)
+        self._starter = AgentStarter(sessions, terminal_host, agents, now)
 
     async def change_plan(
         self, run: AutomationRun, worktree: Worktree, session: AgentSession | None

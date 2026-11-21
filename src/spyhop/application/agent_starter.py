@@ -6,9 +6,10 @@ again on each attempt, so a launch whose answer was lost is replayed and not
 repeated. Each caller handles the errors and the status of the run."""
 
 import logging
-import time
+from datetime import datetime
 
 from spyhop.config.settings import AgentSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.exceptions import OrcaCommandError, OrcaError, SpyhopError
 from spyhop.domain.models import AgentSession, AutomationRun, Worktree
 from spyhop.domain.protocols import TerminalHost
@@ -35,11 +36,16 @@ class LaunchOutcomeUnknown(SpyhopError):
 
 class AgentStarter:
     def __init__(
-        self, sessions: SessionRepository, terminal_host: TerminalHost, agents: AgentSettings
+        self,
+        sessions: SessionRepository,
+        terminal_host: TerminalHost,
+        agents: AgentSettings,
+        now: Clock = utc_now,
     ) -> None:
         self._sessions = sessions
         self._terminal_host = terminal_host
         self._agents = agents
+        self._now = now
 
     async def start(
         self, run: AutomationRun, worktree: Worktree, model: str, goal: str, role: str
@@ -56,9 +62,9 @@ class AgentStarter:
 
         if session is None:
             session = self._sessions.create_launching(
-                run.id, self._agents.provider, model, new_operation_id(), role
+                run.id, self._agents.provider, model, new_operation_id(self._now()), role
             )
-        elif replay_expired(session):
+        elif replay_expired(session, self._now()):
             _log.warning(
                 "%s: the answer to launch %s was lost too long ago to replay it safely; "
                 "check the worktree in Orca",
@@ -115,7 +121,7 @@ class AgentStarter:
             _log.warning("%s: agent %s not labeled: %s", run.issue_key, terminal, error)
 
 
-def replay_expired(session: AgentSession, now: float | None = None) -> bool:
+def replay_expired(session: AgentSession, now: datetime) -> bool:
     operation_id = session.launch_operation_id or ""
 
     try:
@@ -123,4 +129,4 @@ def replay_expired(session: AgentSession, now: float | None = None) -> bool:
     except ValueError:
         return True
 
-    return (now or time.time()) - issued_at > REPLAY_WINDOW_SECONDS
+    return now.timestamp() - issued_at > REPLAY_WINDOW_SECONDS

@@ -9,11 +9,11 @@ from datetime import datetime, timedelta
 
 from spyhop.application.orchestrator import Orchestrator
 from spyhop.application.transition_detector import TransitionDetector
+from spyhop.domain.clock import utc_now
 from spyhop.domain.models import AutomationRun
 from spyhop.infrastructure.persistence.repositories import (
     ObservationRepository,
     PollerStateRepository,
-    utc_now,
 )
 
 _log = logging.getLogger(__name__)

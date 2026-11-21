@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -252,7 +253,8 @@ async def test_worktree_agents_groups_agents_by_worktree() -> None:
 
 
 def test_operation_ids_follow_orca_format() -> None:
-    first, second = new_operation_id(), new_operation_id()
+    now = datetime.now(UTC)
+    first, second = new_operation_id(now), new_operation_id(now)
 
     milliseconds, random_part = first.split("-")
 

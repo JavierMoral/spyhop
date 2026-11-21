@@ -203,13 +203,14 @@ give the commit.
     `_recovery._started_at`. Add a small `Clock` that the daemon gives to
     the components, and a fixed clock for the tests.
 
-    Done: `Clock` (a function that gives the time) in the repositories,
-    `AgentSupervisor`, `AgentRecovery` and `CheckRunner`. The default is
-    `utc_now`, so the daemon gives no clock. The tests use `FakeClock` of
-    `tests/fakes.py`. These still read the time directly: the ids of the
-    launch operations (`time.time()`), `monitor.py`, `agent_state.py`, the
-    CLI, and the modification times of the files that
-    `supervisor._written_since` compares.
+    Done: `Clock` and `utc_now` are in `domain/clock.py`. The repositories,
+    `AgentSupervisor`, `AgentRecovery`, `CheckRunner`, `AgentLauncher`,
+    `PhaseRunner` and `AgentStarter` take a clock, also for the ids of the
+    launch operations and their replay window. The default is `utc_now`, so
+    the daemon gives no clock. The tests use `FakeClock` of
+    `tests/fakes.py`. `JiraMonitor.poll` and `agent_state.write_state` take
+    the time as an argument. Only the CLI and the modification times of the
+    files that `supervisor._written_since` compares read the time directly.
 
 18. [x] **Do not block the asyncio loop with git.** `infrastructure/git.py`
     calls `subprocess.run` from async code (`CheckRunner`, the janitor,

@@ -3,11 +3,10 @@
 import sqlite3
 from datetime import datetime
 
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.infrastructure.persistence.repositories._mapping import (
-    Clock,
     _to_datetime,
     _to_text,
-    utc_now,
 )
 
 

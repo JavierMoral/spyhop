@@ -18,7 +18,6 @@ Verified against Orca 1.4.245; the captured answers are in tests/fixtures/orca.
 import json
 import logging
 import secrets
-import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,8 +59,8 @@ _DEFINITE_CODES = {
 }
 
 
-def new_operation_id() -> str:
-    return f"{int(time.time() * 1000)}-{secrets.token_hex(16)}"
+def new_operation_id(issued_at: datetime) -> str:
+    return f"{int(issued_at.timestamp() * 1000)}-{secrets.token_hex(16)}"
 
 
 class OrcaClient:

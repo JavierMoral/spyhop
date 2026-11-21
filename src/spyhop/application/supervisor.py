@@ -59,6 +59,7 @@ from spyhop.application.run_alerts import RunAlerts
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
@@ -75,11 +76,9 @@ from spyhop.domain.models import (
 from spyhop.domain.protocols import TerminalHost, WorktreeHost
 from spyhop.infrastructure.agent_state import read_state
 from spyhop.infrastructure.persistence.repositories import (
-    Clock,
     RunRepository,
     SessionRepository,
     WorktreeRepository,
-    utc_now,
 )
 
 _log = logging.getLogger(__name__)
@@ -202,6 +201,7 @@ class AgentSupervisor:
             self._alerts,
             check_runner,
             knowledge,
+            now,
         )
         self._recovery = AgentRecovery(
             runs, terminal_host, agents, self._phases, self._alerts, missing_after, now
