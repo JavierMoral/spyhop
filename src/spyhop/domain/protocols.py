@@ -88,6 +88,8 @@ class BoardMirror(Protocol):
 
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...
 
+    async def set_card_status(self, orca_worktree_id: str, status: str) -> None: ...
+
 
 async def ensure_ready(*hosts: WorktreeHost | TerminalHost) -> None:
     """Makes sure that each host is ready. A host that has more than one role,

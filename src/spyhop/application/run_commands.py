@@ -1,0 +1,169 @@
+"""What a person or an agent asks of a run: approve or change the plan,
+declare a step, retry a run or give it up. The CLI only reads the arguments
+and shows the result.
+
+The board card moves only as a reflection, so a failure of the board is a
+warning. The exception is the approval of a run from before
+`spyhop declare`, which the supervisor still reads from the card."""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from spyhop.domain.enums import WaitingReason
+from spyhop.domain.exceptions import SpyhopError
+from spyhop.domain.models import AutomationRun, Worktree
+from spyhop.domain.protocols import BoardMirror
+from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
+
+# What an agent declares: the board column and the comment of its card.
+DECLARATIONS = {
+    "plan": ("plan_review_status", "plan listo"),
+    "done": ("plan_approved_status", "listo para revisión"),
+}
+
+
+class RunCommandError(SpyhopError):
+    """The command does not apply to the run. The message says why."""
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    message: str
+    warnings: tuple[str, ...] = ()
+
+
+class RunCommands:
+    def __init__(
+        self,
+        runs: RunRepository,
+        worktrees: WorktreeRepository,
+        board: Callable[[], BoardMirror],
+        plan_review_status: str,
+        plan_approved_status: str,
+    ) -> None:
+        self._runs = runs
+        self._worktrees = worktrees
+        self._board = board
+        self._statuses = {
+            "plan_review_status": plan_review_status,
+            "plan_approved_status": plan_approved_status,
+        }
+
+    def fail(self, issue_key: str, reason: str) -> CommandResult:
+        active = self._active(issue_key)
+
+        for run in active:
+            self._runs.mark_failed(run.id, reason)
+
+        return CommandResult(
+            "\n".join(f"{run.issue_key}: {run.status} -> FAILED ({reason})" for run in active)
+        )
+
+    def retry(self, target: str) -> CommandResult:
+        matches = self._runs.find(target)
+
+        if len(matches) != 1:
+            raise RunCommandError(
+                f"No run matches {target!r}."
+                if not matches
+                else f"{target!r} matches several runs."
+            )
+
+        [original] = matches
+
+        if not original.status.terminal:
+            raise RunCommandError(
+                f"{original.issue_key}: run {original.id[:8]} is still {original.status}."
+            )
+
+        retried = self._runs.create_retry(original)
+
+        if retried is None:
+            raise RunCommandError(f"{original.issue_key} already has an active run.")
+
+        return CommandResult(
+            f"{retried.issue_key}: run {retried.id[:8]} created as a retry of {original.id[:8]} "
+            f"({original.status})"
+        )
+
+    async def approve(self, issue_key: str) -> CommandResult:
+        run = self._in_plan_review(issue_key)
+        worktree = self._worktree(run)
+
+        if worktree is None:
+            raise RunCommandError(f"{run.issue_key} has no worktree.")
+
+        self._runs.approve(run.id)
+
+        warnings: tuple[str, ...] = ()
+
+        try:
+            await self._board().set_card_status(
+                worktree.orca_worktree_id, self._statuses["plan_approved_status"]
+            )
+        except SpyhopError as error:
+            # A run from before `spyhop declare` reads the approval from the card.
+
+            if run.signals == "card":
+                raise RunCommandError(f"{run.issue_key}: plan not approved: {error}") from error
+
+            warnings = (f"{run.issue_key}: the card did not move: {error}",)
+
+        return CommandResult(
+            f"{run.issue_key}: plan approved; the next phase starts on the next cycle.", warnings
+        )
+
+    async def declare(self, issue_key: str, what: str) -> CommandResult:
+        if what not in DECLARATIONS:
+            raise RunCommandError(f"Declare one of: {', '.join(DECLARATIONS)}.")
+
+        [run, *_] = self._active(issue_key)
+
+        self._runs.declare(run.id, what)
+
+        worktree = self._worktree(run)
+        warnings: tuple[str, ...] = ()
+
+        if worktree is not None:
+            status, comment = DECLARATIONS[what]
+
+            try:
+                board = self._board()
+
+                await board.set_card_status(worktree.orca_worktree_id, self._statuses[status])
+                await board.mark_card(worktree.orca_worktree_id, f"{run.issue_key}: {comment}")
+            except SpyhopError as error:
+                warnings = (f"{run.issue_key}: the card did not move: {error}",)
+
+        return CommandResult(f"{run.issue_key}: {what} declared.", warnings)
+
+    def replan(self, issue_key: str, changes: str) -> CommandResult:
+        run = self._in_plan_review(issue_key)
+
+        if not changes.strip():
+            raise RunCommandError("Give the changes to the plan.")
+
+        self._runs.request_plan_changes(run.id, changes)
+
+        return CommandResult(
+            f"{run.issue_key}: a new plan agent makes the changes on the next cycle."
+        )
+
+    def _active(self, issue_key: str) -> list[AutomationRun]:
+        active = self._runs.list(issue_key=issue_key.upper())
+
+        if not active:
+            raise RunCommandError(f"{issue_key.upper()} has no active run.")
+
+        return active
+
+    def _in_plan_review(self, issue_key: str) -> AutomationRun:
+        active = self._runs.list(issue_key=issue_key.upper())
+
+        if not active or active[0].waiting_reason is not WaitingReason.PLAN_REVIEW:
+            raise RunCommandError(f"{issue_key.upper()} has no plan that waits for a review.")
+
+        return active[0]
+
+    def _worktree(self, run: AutomationRun) -> Worktree | None:
+        return self._worktrees.get(run.worktree_id) if run.worktree_id else None

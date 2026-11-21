@@ -334,6 +334,9 @@ class FakeOrca:
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None:
         self.cards[orca_worktree_id] = comment
 
+    async def set_card_status(self, orca_worktree_id: str, status: str) -> None:
+        self.set_card(orca_worktree_id, status)
+
     async def create_terminal(
         self, orca_worktree_id: str, title: str, command: str
     ) -> OrcaTerminal:

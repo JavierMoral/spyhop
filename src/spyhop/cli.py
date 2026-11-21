@@ -1,10 +1,12 @@
 import asyncio
 import fcntl
+import inspect
 import json
 import logging
 import os
 import subprocess
 import sys
+from collections.abc import Callable, Coroutine
 from datetime import timedelta
 from importlib.resources import files
 from pathlib import Path
@@ -23,6 +25,7 @@ from spyhop.application.checkpoint_verdicts import (
     run_reason,
 )
 from spyhop.application.janitor import Cleanup, WorktreeRemover
+from spyhop.application.run_commands import CommandResult, RunCommandError, RunCommands
 from spyhop.application.stats import run_stats
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import (
@@ -41,7 +44,7 @@ from spyhop.config.paths import (
 from spyhop.config.settings import Settings, load_settings
 from spyhop.daemon import orca_client, run_daemon
 from spyhop.doctor import Level, run_checks
-from spyhop.domain.enums import WaitingReason, WorktreeStatus
+from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import ConfigurationError, OrcaCommandError, SpyhopError
 from spyhop.domain.models import ChecksPhase, ResolvedWorkflow
 from spyhop.infrastructure.agent_state import AGENT_STATES, pane_key, write_state
@@ -65,12 +68,6 @@ from spyhop.infrastructure.service.systemd import (
     uninstall_unit,
     wake_service,
 )
-
-# What an agent declares: the board column and the comment of its card.
-DECLARATIONS = {
-    "plan": ("plan_review_status", "plan listo"),
-    "done": ("plan_approved_status", "listo para revisión"),
-}
 
 app = typer.Typer(
     help="Watches JIRA and feeds tickets to Claude Code agents running in Orca.",
@@ -266,20 +263,7 @@ def fail(
     For runs Spyhop cannot conclude by itself, such as one waiting with
     unknown_state. The agent and the worktree in Orca are left untouched."""
 
-    runs = RunRepository(connect(_existing_database(config, dry_run)))
-    active = runs.list(issue_key=issue_key.upper())
-
-    if not active:
-        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
-
-        raise typer.Exit(1)
-
-    for automation_run in active:
-        runs.mark_failed(automation_run.id, reason)
-
-        typer.echo(f"{automation_run.issue_key}: {automation_run.status} -> FAILED ({reason})")
-
-    wake_service()
+    _finish(lambda: _run_commands(config, dry_run).fail(issue_key, reason))
 
 
 @app.command()
@@ -295,36 +279,7 @@ def retry(
     With a ticket key, retries the ticket's latest run. The running daemon
     picks the new run up on its next cycle."""
 
-    runs = RunRepository(connect(_existing_database(config, dry_run)))
-    matches = runs.find(target)
-
-    if len(matches) != 1:
-        typer.echo(
-            f"No run matches {target!r}." if not matches else f"{target!r} matches several runs.",
-            err=True,
-        )
-
-        raise typer.Exit(1)
-
-    [original] = matches
-
-    if not original.status.terminal:
-        typer.echo(f"{original.issue_key}: run {original.id[:8]} is still {original.status}.")
-
-        raise typer.Exit(1)
-
-    retried = runs.create_retry(original)
-
-    if retried is None:
-        typer.echo(f"{original.issue_key} already has an active run.", err=True)
-
-        raise typer.Exit(1)
-
-    wake_service()
-    typer.echo(
-        f"{retried.issue_key}: run {retried.id[:8]} created as a retry of {original.id[:8]} "
-        f"({original.status})"
-    )
+    _finish(lambda: _run_commands(config, dry_run).retry(target))
 
 
 @app.command()
@@ -407,50 +362,7 @@ def approve(
     the worktree also moves to orca.plan_approved_status, to show it on the
     board."""
 
-    settings = _load(config)
-    connection = connect(_existing_database(config, dry_run, settings))
-    runs = RunRepository(connection)
-    active = runs.list(issue_key=issue_key.upper())
-
-    if not active or active[0].waiting_reason is not WaitingReason.PLAN_REVIEW:
-        typer.echo(f"{issue_key.upper()} has no plan that waits for a review.", err=True)
-
-        raise typer.Exit(1)
-
-    automation_run = active[0]
-    worktree = (
-        WorktreeRepository(connection).get(automation_run.worktree_id)
-        if automation_run.worktree_id
-        else None
-    )
-
-    if worktree is None:
-        typer.echo(f"{automation_run.issue_key} has no worktree.", err=True)
-
-        raise typer.Exit(1)
-
-    runs.approve(automation_run.id)
-
-    try:
-        asyncio.run(
-            orca_client(settings).set_card_status(
-                worktree.orca_worktree_id, settings.orca.plan_approved_status
-            )
-        )
-    except SpyhopError as error:
-        # A run from before `spyhop declare` reads the approval from the card.
-
-        if automation_run.signals == "card":
-            typer.echo(f"{automation_run.issue_key}: plan not approved: {error}", err=True)
-
-            raise typer.Exit(1) from None
-
-        typer.echo(f"{automation_run.issue_key}: the card did not move: {error}", err=True)
-
-    wake_service()
-    typer.echo(
-        f"{automation_run.issue_key}: plan approved; the next phase starts on the next cycle."
-    )
+    _finish(lambda: _run_commands(config, dry_run).approve(issue_key))
 
 
 @app.command()
@@ -469,48 +381,7 @@ def declare(
     The agent of the run runs this command at the end of its /goal. The card
     of the worktree also moves, to show it on the board."""
 
-    if what not in DECLARATIONS:
-        typer.echo(f"Declare one of: {', '.join(DECLARATIONS)}.", err=True)
-
-        raise typer.Exit(1)
-
-    settings = _load(config)
-    connection = connect(_existing_database(config, dry_run, settings))
-    runs = RunRepository(connection)
-    active = runs.list(issue_key=issue_key.upper())
-
-    if not active:
-        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
-
-        raise typer.Exit(1)
-
-    automation_run = active[0]
-
-    runs.declare(automation_run.id, what)
-
-    worktree = (
-        WorktreeRepository(connection).get(automation_run.worktree_id)
-        if automation_run.worktree_id
-        else None
-    )
-
-    if worktree is not None:
-        status, comment = DECLARATIONS[what]
-
-        try:
-            orca = orca_client(settings)
-
-            asyncio.run(
-                orca.set_card_status(worktree.orca_worktree_id, getattr(settings.orca, status))
-            )
-            asyncio.run(
-                orca.mark_card(worktree.orca_worktree_id, f"{automation_run.issue_key}: {comment}")
-            )
-        except SpyhopError as error:
-            typer.echo(f"{automation_run.issue_key}: the card did not move: {error}", err=True)
-
-    wake_service()
-    typer.echo(f"{automation_run.issue_key}: {what} declared.")
+    _finish(lambda: _run_commands(config, dry_run).declare(issue_key, what))
 
 
 @app.command()
@@ -528,23 +399,7 @@ def replan(
     daemon starts the agent on its next cycle, and the plan waits for the
     review again."""
 
-    runs = RunRepository(connect(_existing_database(config, dry_run)))
-    active = runs.list(issue_key=issue_key.upper())
-
-    if not active or active[0].waiting_reason is not WaitingReason.PLAN_REVIEW:
-        typer.echo(f"{issue_key.upper()} has no plan that waits for a review.", err=True)
-
-        raise typer.Exit(1)
-
-    if not changes.strip():
-        typer.echo("Give the changes to the plan.", err=True)
-
-        raise typer.Exit(1)
-
-    runs.request_plan_changes(active[0].id, changes)
-    wake_service()
-
-    typer.echo(f"{active[0].issue_key}: a new plan agent makes the changes on the next cycle.")
+    _finish(lambda: _run_commands(config, dry_run).replan(issue_key, changes))
 
 
 @app.command()
@@ -1019,6 +874,39 @@ def _run_checkpoint(
                     typer.echo(content.get("text", ""))
 
     return process.wait(), result
+
+
+def _run_commands(config: Path | None, dry_run: bool | None) -> RunCommands:
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+
+    return RunCommands(
+        RunRepository(connection),
+        WorktreeRepository(connection),
+        lambda: orca_client(settings),
+        settings.orca.plan_review_status,
+        settings.orca.plan_approved_status,
+    )
+
+
+def _finish(command: Callable[[], CommandResult | Coroutine[Any, Any, CommandResult]]) -> None:
+    """Runs a command of RunCommands, shows its result and wakes the service."""
+
+    try:
+        outcome = command()
+        result = asyncio.run(outcome) if inspect.iscoroutine(outcome) else outcome
+    except RunCommandError as error:
+        typer.echo(str(error), err=True)
+
+        raise typer.Exit(1) from None
+
+    assert isinstance(result, CommandResult)
+
+    for warning in result.warnings:
+        typer.echo(warning, err=True)
+
+    wake_service()
+    typer.echo(result.message)
 
 
 def _existing_database(
