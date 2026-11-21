@@ -93,7 +93,7 @@ agents:
 
 knowledge:                        # findings of earlier tickets
   # recall_command: /recall       # the agent searches with keywords of the ticket before it plans
-  # write_script: ~/.claude/liferay-knowledge/_scripts/write-entry.sh  # stores fixed findings
+  # write_script: ~/bin/spyhop-write-finding  # stores fixed findings
   write_timeout: 60
 
 cleanup:                          # remove worktrees of closed tickets (never forced)

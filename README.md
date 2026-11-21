@@ -258,7 +258,7 @@ the repository with these variables: `SPYHOP_ISSUE_KEY`,
 #!/usr/bin/env bash
 set -euo pipefail
 
-worktree="$HOME/git/liferay-portal/agents/$SPYHOP_WORKTREE_NAME/portal"
+worktree="$HOME/git/your-repository/agents/$SPYHOP_WORKTREE_NAME/portal"
 
 if [[ ! -e "$worktree/.git" ]]; then
 	mkdir -p "$(dirname "$worktree")"
@@ -345,7 +345,7 @@ The `knowledge` section connects Spyhop to a knowledge base of your own:
 ```yaml
 knowledge:
   recall_command: /recall
-  write_script: ~/.claude/liferay-knowledge/_scripts/write-entry.sh
+  write_script: ~/bin/spyhop-write-finding
 ```
 
 - With `recall_command`, `CLAUDE-TASK.md` tells the agent to run the command
