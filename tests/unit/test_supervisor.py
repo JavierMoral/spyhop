@@ -412,6 +412,38 @@ async def test_an_agent_is_lost_only_after_the_missing_time_also_with_many_cycle
         "UPDATE automation_runs SET missing_since = ?",
         ((datetime.now(UTC) - MISSING_AFTER).isoformat(),),
     )
+    harness.supervisor._started_at -= MISSING_AFTER
+
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).error_message == f"no agent running in {worktree.path}"
+
+
+async def test_the_missing_count_survives_a_restart_but_the_time_starts_again(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(tmp_path, settings(tmp_path, agents={"max_restarts": 0}))
+    run, worktree, _ = await launched(harness)
+
+    harness.orca.agents.clear()
+
+    for _ in range(MISSING_CYCLES - 1):
+        await harness.supervisor.supervise()
+
+    # Missing for long before the stop of the service.
+
+    harness.connection.execute(
+        "UPDATE automation_runs SET missing_since = ?",
+        ((datetime.now(UTC) - 10 * MISSING_AFTER).isoformat(),),
+    )
+    harness.restart_supervisor()
+    harness.supervisor._missing_after = MISSING_AFTER
+
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).status is RunStatus.RUNNING
+
+    harness.restart_supervisor()
 
     await harness.supervisor.supervise()
 

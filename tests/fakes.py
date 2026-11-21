@@ -494,6 +494,12 @@ class Harness:
             timeout=timedelta(hours=3),
             supervisor_session=self.supervisor_session,
         )
+        self.restart_supervisor()
+
+    def restart_supervisor(self) -> None:
+        """A new supervisor on the same database, as after a restart of the
+        service."""
+
         self.supervisor = AgentSupervisor(
             runs=self.runs,
             worktrees=self.worktrees,

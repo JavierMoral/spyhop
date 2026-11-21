@@ -82,7 +82,8 @@ give the commit.
    `alert_pending`. `_reconciled` stays in memory, because only the log uses
    it. An agent is now lost only after `MISSING_CYCLES` cycles and 90 seconds
    (`MISSING_AFTER`), because the wake can start several cycles in a few
-   seconds.
+   seconds. The 90 seconds count from the start of the service at the
+   earliest, and a new agent clears the count.
 
 7. [ ] **Move the logic out of `cli.py`.** `approve`, `declare`, `replan`,
    `retry` and `fail` decide and move cards in the CLI. Move that logic to an

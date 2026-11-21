@@ -198,6 +198,9 @@ class AgentSupervisor:
     ) -> None:
         self._runs = runs
         self._missing_after = missing_after
+        # The missing time counts from the start at the earliest: while the
+        # service was stopped, nothing looked for the agent.
+        self._started_at = utc_now()
         self._agent_states_dir = agent_states_dir
         self._knowledge = knowledge
         self._supervisor_session = supervisor_session
@@ -425,7 +428,7 @@ class AgentSupervisor:
 
         if (
             missing.missing_cycles < MISSING_CYCLES
-            or utc_now() - missing.missing_since < self._missing_after
+            or utc_now() - max(missing.missing_since, self._started_at) < self._missing_after
         ):
             _log.debug("%s: agent not listed by Orca (%d)", run.issue_key, missing.missing_cycles)
 
@@ -669,6 +672,11 @@ class AgentSupervisor:
 
         self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_resumed(run.id)
+
+        # A new agent: the cycles without the agent before it do not count.
+
+        if run.missing_cycles:
+            self._runs.clear_missing(run.id)
         await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
 
         _log.info(

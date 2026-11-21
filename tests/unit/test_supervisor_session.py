@@ -141,6 +141,8 @@ async def test_a_wait_that_does_not_reach_the_session_goes_again_until_it_arrive
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
     assert harness.run(run.id).alert_pending
 
+    harness.restart_supervisor()
+
     await harness.supervisor.supervise()
 
     assert not harness.run(run.id).alert_pending
@@ -261,6 +263,10 @@ async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Pa
 
     for _ in range(MISSING_CYCLES + 1):
         await harness.supervisor.supervise()
+
+    harness.restart_supervisor()
+
+    await harness.supervisor.supervise()
 
     closed = (
         "[spyhop] LPD-1: el agente del plan está cerrado; aprueba el plan con `spyhop approve "
