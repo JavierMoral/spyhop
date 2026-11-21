@@ -334,6 +334,9 @@ projects:
         pipeline: bug             # instead of plan_review
 ```
 
+A run keeps the pipeline that it started with. A change of `pipelines:`
+applies to the runs that start after the change.
+
 After a fix, or a change of the ticket, the failed checks run again. To run
 them again yourself, use `spyhop checkpoints rerun KEY`. Add `--failed` to run
 only the failed and stale checkpoints: the round keeps each PASS whose inputs

@@ -208,6 +208,9 @@ class AutomationRun:
     declared_at: datetime | None = None
     # When a person approved the plan with `spyhop approve`.
     approved_at: datetime | None = None
+    # The pipeline from when the first phase started; `phase` is an index into
+    # it. None: the run has not started, or it is from before this column.
+    pipeline: tuple[Phase, ...] | None = None
 
 
 @dataclass(frozen=True)

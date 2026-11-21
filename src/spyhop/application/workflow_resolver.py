@@ -1,3 +1,5 @@
+import dataclasses
+
 from spyhop.config.settings import Settings, WorkflowSettings
 from spyhop.domain.models import AutomationRun, ResolvedWorkflow
 
@@ -33,9 +35,17 @@ class WorkflowResolver:
         return None
 
     def resolve_for_run(self, run: AutomationRun) -> ResolvedWorkflow | None:
-        """The workflow of the run, from the project of its issue key."""
+        """The workflow of the run, from the project of its issue key, with the
+        pipeline that the run started with."""
 
-        return self.resolve_by_name(run.issue_key.rsplit("-", 1)[0], run.workflow_name)
+        resolved = self.resolve_by_name(run.issue_key.rsplit("-", 1)[0], run.workflow_name)
+
+        if resolved is None or run.pipeline is None:
+            return resolved
+
+        return dataclasses.replace(
+            resolved, pipeline=run.pipeline, plan_review="plan_review" in run.pipeline
+        )
 
     def project_keys(self) -> list[str]:
         return sorted(

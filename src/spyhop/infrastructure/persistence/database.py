@@ -193,6 +193,12 @@ _MIGRATIONS = [
 
     ALTER TABLE automation_runs ADD COLUMN signals TEXT NOT NULL DEFAULT 'card';
     """,
+    # The pipeline of the run, as JSON, from when its first phase started:
+    # run.phase is an index into it. NULL: a run from before, which reads the
+    # pipeline of the current configuration.
+    """
+    ALTER TABLE automation_runs ADD COLUMN pipeline TEXT;
+    """,
 ]
 
 

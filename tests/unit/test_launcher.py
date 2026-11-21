@@ -11,6 +11,7 @@ from spyhop.domain.exceptions import (
     OrcaCommandError,
     OrcaUncertainError,
 )
+from spyhop.domain.models import ChecksPhase
 from spyhop.infrastructure.worktree_script import (
     WorktreeRequest,
     WorktreeScriptError,
@@ -50,6 +51,16 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert launch["operation_id"] == session.launch_operation_id
     assert session.status is SessionStatus.LAUNCHED
     assert session.agent_handle == "term_1"
+    assert run.pipeline == ("plan", "plan_review", "implement")
+
+
+def test_the_pipeline_of_a_run_is_stored_with_its_checks(harness: Harness) -> None:
+    run = harness.discover()
+    pipeline = ("implement", ChecksPhase(("regressions", "security"), "fix", 2))
+
+    harness.runs.set_pipeline(run.id, pipeline)
+
+    assert harness.run(run.id).pipeline == pipeline
 
 
 @pytest.mark.parametrize(("plan_review", "model"), [(True, "opus"), (False, "sonnet")])

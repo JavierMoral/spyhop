@@ -294,6 +294,11 @@ class AgentLauncher:
         return _Prepared(workflow, worktree)
 
     async def _launch(self, run: AutomationRun, prepared: _Prepared) -> bool:
+        # From here on, run.phase is an index into this pipeline.
+
+        if run.pipeline is None:
+            self._runs.set_pipeline(run.id, prepared.workflow.phases)
+
         # The implementation of a plan comes later, from a new agent on
         # agents.model (see AgentSupervisor).
 

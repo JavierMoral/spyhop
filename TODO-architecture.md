@@ -24,12 +24,15 @@ give the commit.
    and the cleanup stay on the poll interval, and a wake launches nothing
    while a JIRA rate limit lasts. Done in the branch `wake-daemon`.
 
-2. [ ] **Store the pipeline of the run, not only an index.** `run.phase` is an
+2. [x] **Store the pipeline of the run, not only an index.** `run.phase` is an
    index into the pipeline of the current configuration, and
    `WorkflowResolver.resolve_for_run` reads that pipeline again on each cycle.
    A change of the pipeline while a run is active changes the meaning of the
    index. Store a copy of the resolved pipeline (JSON) when Spyhop creates the
-   run, or store the phase name.
+   run, or store the phase name. Done in the branch `run-pipeline`: the launcher stores
+   the pipeline (migration 14) when the first phase starts, and
+   `resolve_for_run` uses it. The runs from before keep the pipeline of the
+   current configuration.
 
 3. [ ] **Use a commands table, not flag columns.** `fix_requested_at`,
    `plan_changes`, `checks_requested`, `checks_failed_only`, `approved_at` and

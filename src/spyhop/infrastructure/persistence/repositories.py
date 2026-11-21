@@ -4,15 +4,18 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
     CheckpointRun,
+    ChecksPhase,
     IssueEntry,
     JiraIssue,
     OrcaWorktree,
+    Phase,
     Worktree,
 )
 
@@ -287,6 +290,15 @@ class RunRepository:
         self._connection.execute(
             "UPDATE automation_runs SET approved_at = ? WHERE id = ?",
             (_to_text(utc_now()), run_id),
+        )
+
+    def set_pipeline(self, run_id: str, phases: tuple[Phase, ...]) -> None:
+        """Keeps the pipeline of the run, so that a change of the configuration
+        does not change what run.phase points to."""
+
+        self._connection.execute(
+            "UPDATE automation_runs SET pipeline = ? WHERE id = ?",
+            (json.dumps([_phase_to_json(phase) for phase in phases]), run_id),
         )
 
     def request_plan_changes(self, run_id: str, changes: str | None) -> None:
@@ -708,7 +720,24 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         declared=row["declared"],
         declared_at=_to_datetime(row["declared_at"]),
         approved_at=_to_datetime(row["approved_at"]),
+        pipeline=tuple(_phase_from_json(phase) for phase in json.loads(row["pipeline"]))
+        if row["pipeline"]
+        else None,
     )
+
+
+def _phase_to_json(phase: Phase) -> object:
+    if isinstance(phase, str):
+        return phase
+
+    return {"checks": list(phase.checkpoints), "on_fail": phase.on_fail, "rounds": phase.rounds}
+
+
+def _phase_from_json(data: Any) -> Phase:
+    if isinstance(data, str):
+        return data
+
+    return ChecksPhase(tuple(data["checks"]), data["on_fail"], data["rounds"])
 
 
 def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:
