@@ -260,12 +260,17 @@ def _agents(
 
     janitor = WorktreeJanitor(
         remover=WorktreeRemover(
-            runs, worktrees, orca, orca, orca, SystemdUnits(), settings.repositories
+            runs,
+            worktrees,
+            worktree_host=orca,
+            terminal_host=orca,
+            board=orca,
+            units=SystemdUnits(),
+            repositories=settings.repositories,
         ),
         runs=runs,
         worktrees=worktrees,
         jira=jira,
-        worktree_host=orca,
         settings=settings.cleanup,
     )
 

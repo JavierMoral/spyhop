@@ -81,10 +81,24 @@ class TerminalHost(Protocol):
 
 
 class BoardMirror(Protocol):
-    """Shows the progress of the runs on a board. Spyhop does not read it back,
-    except the card of a run from before `spyhop declare`."""
+    """Shows the progress of the runs on a board. Spyhop does not read the
+    board: the card of a run from before `spyhop declare` comes from
+    WorktreeHost.show_worktree."""
 
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...
+
+
+async def ensure_ready(*hosts: WorktreeHost | TerminalHost) -> None:
+    """Makes sure that each host is ready. A host that has more than one role,
+    such as Orca, is asked once."""
+
+    asked: list[object] = []
+
+    for host in hosts:
+        if not any(host is other for other in asked):
+            asked.append(host)
+
+            await host.ensure_ready()
 
 
 class UnitGateway(Protocol):

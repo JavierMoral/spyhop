@@ -35,6 +35,7 @@ from spyhop.domain.protocols import (
     TerminalHost,
     UnitGateway,
     WorktreeHost,
+    ensure_ready,
 )
 from spyhop.infrastructure.git import has_changes
 from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
@@ -61,7 +62,6 @@ class WorktreeJanitor:
         runs: RunRepository,
         worktrees: WorktreeRepository,
         jira: JiraGateway,
-        worktree_host: WorktreeHost,
         settings: CleanupSettings,
         has_changes: Callable[[Path], bool] = has_changes,
     ) -> None:
@@ -69,7 +69,6 @@ class WorktreeJanitor:
         self._runs = runs
         self._worktrees = worktrees
         self._jira = jira
-        self._worktree_host = worktree_host
         self._settings = settings
         self._has_changes = has_changes
 
@@ -118,7 +117,7 @@ class WorktreeJanitor:
             return []
 
         try:
-            await self._worktree_host.ensure_ready()
+            await self._remover.ensure_ready()
         except OrcaUnavailableError as error:
             _log.info("%d worktree(s) waiting for Orca to be removed: %s", len(due), error)
 
@@ -189,6 +188,9 @@ class WorktreeRemover:
             repository.path: repository for repository in (repositories or {}).values()
         }
         self._cleanup_script = cleanup_script
+
+    async def ensure_ready(self) -> None:
+        await ensure_ready(self._worktree_host, self._terminal_host)
 
     async def clean_up(self, worktree: Worktree, reason: str) -> Cleanup:
         """Cancels the ticket's active run, stops its agents and its

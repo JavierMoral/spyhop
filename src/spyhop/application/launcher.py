@@ -45,7 +45,7 @@ from spyhop.domain.models import (
     TicketRef,
     Worktree,
 )
-from spyhop.domain.protocols import TerminalHost, TicketGateway, WorktreeHost
+from spyhop.domain.protocols import TerminalHost, TicketGateway, WorktreeHost, ensure_ready
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.git import branch_exists
 from spyhop.infrastructure.jira.mapping import (
@@ -170,7 +170,7 @@ class AgentLauncher:
             return []
 
         try:
-            await self._worktree_host.ensure_ready()
+            await ensure_ready(self._worktree_host, self._terminal_host)
         except OrcaUnavailableError as error:
             _log.info("%d run(s) waiting for Orca: %s", len(pending), error)
 

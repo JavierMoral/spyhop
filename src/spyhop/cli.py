@@ -343,11 +343,11 @@ def cleanup(
         remover = WorktreeRemover(
             RunRepository(connection),
             worktrees,
-            orca,
-            orca,
-            orca,
-            SystemdUnits(),
-            settings.repositories,
+            worktree_host=orca,
+            terminal_host=orca,
+            board=orca,
+            units=SystemdUnits(),
+            repositories=settings.repositories,
         )
         outcome = asyncio.run(remover.clean_up(worktree, "cleaned up by a person"))
     except SpyhopError as error:

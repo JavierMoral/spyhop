@@ -465,11 +465,11 @@ class Harness:
         self.remover = WorktreeRemover(
             self.runs,
             self.worktrees,
-            self.orca,
-            self.orca,
-            self.orca,
-            self.units,
-            self.config.repositories,
+            worktree_host=self.orca,
+            terminal_host=self.orca,
+            board=self.orca,
+            units=self.units,
+            repositories=self.config.repositories,
             cleanup_script=self.cleanup_script,
         )
         self.janitor = WorktreeJanitor(
@@ -477,7 +477,6 @@ class Harness:
             runs=self.runs,
             worktrees=self.worktrees,
             jira=self.tickets,
-            worktree_host=self.orca,
             settings=self.config.cleanup,
             has_changes=lambda path: path in self.dirty,
         )
