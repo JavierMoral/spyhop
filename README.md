@@ -35,7 +35,9 @@ and opens a pull request only when you run `/pr` in its terminal.
 
 ## A ticket, step by step
 
-What you do is in **bold**. The rest happens by itself.
+What you do is in **bold**. The rest happens by itself. Follow the run in its
+[supervisor session](#the-supervisor-session): it tells you what happens, and
+it runs the Spyhop commands that you ask for.
 
 1. **Move a ticket assigned to you to a start status in JIRA.** Spyhop creates
    a worktree for the ticket and starts an agent on `agents.plan_model`. If the
@@ -43,13 +45,11 @@ What you do is in **bold**. The rest happens by itself.
    after they pass. The agent gets the ticket and its parents in
    `CLAUDE-TASK.md`.
 2. The agent writes `CLAUDE-PLAN.md` and moves its Orca card to *In review*.
-   **Read the plan**, then do one of these:
-   - **Approve it.** Drag the card to *In progress*, run `spyhop approve KEY`,
-     or tell the [supervisor session](#the-supervisor-session) that you
-     approve it.
-   - **Change it.** Answer the agent in its terminal, run
-     `spyhop tell KEY "the changes"`, or give the changes to the supervisor
-     session.
+   The supervisor session gives you a summary of the plan. **Read the plan**,
+   then do one of these:
+   - **Approve it.** Tell the supervisor session that you approve the plan.
+   - **Change it.** Give the changes to the supervisor session. It sends them
+     to the plan agent.
 
    The implementation agent reads only `CLAUDE-PLAN.md`, so make sure that
    each change goes into that file. You can close the tab of the plan agent:
@@ -64,8 +64,9 @@ What you do is in **bold**. The rest happens by itself.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree. See
    [When the ticket closes](#when-the-ticket-closes).
 
-`spyhop status` shows where each ticket is. When a run is
-`WAITING_FOR_HUMAN`, the reason tells you what to do:
+When a run is `WAITING_FOR_HUMAN`, the supervisor session tells you why and
+gives the options. `spyhop status` also shows where each ticket is. The reason
+tells you what to do:
 
 | Reason | What to do |
 | --- | --- |
