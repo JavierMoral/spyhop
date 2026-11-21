@@ -25,11 +25,13 @@ def test_example_configuration_is_valid(tmp_path: Path) -> None:
         "plan",
         "plan_review",
         "implement",
-        ChecksPhase(("regressions", "mutation", "security"), "fix", 3),
+        ChecksPhase(
+            ("format", "regressions", "verify-fix", "mutation", "variants", "security"), "fix", 3
+        ),
     )
     assert loaded.pipeline("technical_task") == (
         "implement",
-        ChecksPhase(("regressions", "security"), "fix", 3),
+        ChecksPhase(("format", "regressions", "security"), "fix", 3),
     )
 
 

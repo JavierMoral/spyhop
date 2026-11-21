@@ -323,7 +323,7 @@ pipelines:
     - plan
     - plan_review
     - implement
-    - checks: [regressions, mutation, security]
+    - checks: [format, regressions, verify-fix, mutation, variants, security]
       on_fail: fix                # the agent fixes the findings
       rounds: 3
 

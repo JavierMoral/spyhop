@@ -64,12 +64,12 @@ pipelines:                        # checkpoints are subagents in
     - plan
     - plan_review
     - implement
-    - checks: [regressions, mutation, security]
+    - checks: [format, regressions, verify-fix, mutation, variants, security]
       on_fail: fix                # the agent fixes the findings
       rounds: 3
   technical_task:
     - implement
-    - checks: [regressions, security]
+    - checks: [format, regressions, security]
       on_fail: fix
       rounds: 3
 
