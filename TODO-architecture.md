@@ -174,9 +174,12 @@ give the commit.
     `HostCommandError`, so that a tmux or headless host does not raise
     Orca errors. The database column needs a migration.
 
-14. [ ] **Split `repositories.py` (993 lines).** Put each repository in its
+14. [x] **Split `repositories.py` (993 lines).** Put each repository in its
     own module, and the row mappers and the pipeline JSON in
     `_mapping.py`. This is a move without a change of behavior.
+
+    Done: `persistence/repositories/` is a package. `__init__.py` exports
+    the repositories, so the imports did not change.
 
 15. [ ] **Move the worktree creation out of `AgentLauncher` (648 lines).**
     `_worktree`, `_scripted_worktree`, `_reopened`, `worktree_name` and the

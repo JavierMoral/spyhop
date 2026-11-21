@@ -126,7 +126,7 @@ def test_a_status_change_is_not_stored_without_its_event(
     def fail(*_: object) -> None:
         raise sqlite3.OperationalError("disk I/O error")
 
-    monkeypatch.setattr("spyhop.infrastructure.persistence.repositories._record_event", fail)
+    monkeypatch.setattr("spyhop.infrastructure.persistence.repositories.runs._record_event", fail)
 
     runs = RunRepository(connection)
 
