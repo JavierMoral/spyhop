@@ -5,7 +5,7 @@ import pytest
 
 from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import ChecksPhase, OrcaWorktree
-from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect
+from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect, transaction
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
@@ -105,6 +105,61 @@ def test_status_changes_are_timestamped(tmp_path: Path) -> None:
     assert resumed.waiting_reason is None and resumed.error_message is None
     assert resumed.status_changed_at is not None
     assert resumed.status_changed_at >= waiting.status_changed_at
+
+
+def _running_run(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "INSERT INTO automation_runs (id, issue_key, workflow_name, trigger_status, "
+        "trigger_history_id, triggered_at, status, created_at) "
+        "VALUES ('r1', 'LPD-1', 'bug_fix', 'In Progress', '7', '2026-11-01', 'RUNNING', "
+        "'2026-11-01')"
+    )
+
+
+def test_a_status_change_is_not_stored_without_its_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection = connect(tmp_path / "spyhop.db")
+
+    _running_run(connection)
+
+    def fail(*_: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr("spyhop.infrastructure.persistence.repositories._record_event", fail)
+
+    runs = RunRepository(connection)
+
+    with pytest.raises(sqlite3.OperationalError):
+        runs.mark_fix_requested("r1")
+
+    run = runs.get("r1")
+
+    assert run is not None and run.fix_requested_at is None
+    assert not connection.in_transaction
+
+
+def test_a_transaction_keeps_the_writes_of_another_process_out(tmp_path: Path) -> None:
+    database = tmp_path / "spyhop.db"
+    daemon = connect(database)
+    cli = connect(database)
+
+    _running_run(daemon)
+    cli.execute("PRAGMA busy_timeout = 0")
+
+    with transaction(daemon):
+        with transaction(daemon):
+            daemon.execute("UPDATE automation_runs SET restarts = 1")
+
+        assert daemon.in_transaction
+
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            RunRepository(cli).request_plan_changes("r1", "split the fix")
+
+    RunRepository(cli).request_plan_changes("r1", "split the fix")
+
+    assert RunRepository(daemon).take_plan_changes("r1") == "split the fix"
+    assert cli.execute("SELECT restarts FROM automation_runs").fetchone()[0] == 1
 
 
 def test_the_pipeline_of_a_run_is_stored_and_a_broken_one_is_ignored(tmp_path: Path) -> None:

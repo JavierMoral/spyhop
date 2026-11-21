@@ -1,6 +1,8 @@
 """SQLite storage. The schema is versioned with PRAGMA user_version."""
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 _MIGRATIONS = [
@@ -296,6 +298,30 @@ def connect(database_file: Path) -> sqlite3.Connection:
     _migrate(connection)
 
     return connection
+
+
+@contextmanager
+def transaction(connection: sqlite3.Connection) -> Iterator[None]:
+    """Makes the statements in the block one write: all of them or none.
+    BEGIN IMMEDIATE takes the write lock at the start, so another process
+    cannot write between a read and a write of the block. In a transaction
+    that is already open, the block is part of that transaction."""
+
+    if connection.in_transaction:
+        yield
+
+        return
+
+    connection.execute("BEGIN IMMEDIATE")
+
+    try:
+        yield
+    except BaseException:
+        connection.rollback()
+
+        raise
+
+    connection.commit()
 
 
 def _migrate(connection: sqlite3.Connection) -> None:

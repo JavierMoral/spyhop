@@ -21,6 +21,7 @@ from spyhop.domain.models import (
     Worktree,
     validate_pipeline,
 )
+from spyhop.infrastructure.persistence.database import transaction
 
 _log = logging.getLogger(__name__)
 
@@ -49,29 +50,30 @@ class RunRepository:
         run_id = str(uuid.uuid4())
 
         try:
-            self._connection.execute(
-                """
-                INSERT INTO automation_runs (
-                    id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                    triggered_at, status, created_at, status_changed_at, signals
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
-                """,
-                (
-                    run_id,
-                    entry.issue.key,
-                    entry.workflow.name,
-                    entry.to_status,
-                    entry.history_id,
-                    _to_text(entry.entered_at),
-                    RunStatus.DISCOVERED,
-                    _to_text(now),
-                    _to_text(now),
-                ),
-            )
+            with transaction(self._connection):
+                self._connection.execute(
+                    """
+                    INSERT INTO automation_runs (
+                        id, issue_key, workflow_name, trigger_status, trigger_history_id,
+                        triggered_at, status, created_at, status_changed_at, signals
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
+                    """,
+                    (
+                        run_id,
+                        entry.issue.key,
+                        entry.workflow.name,
+                        entry.to_status,
+                        entry.history_id,
+                        _to_text(entry.entered_at),
+                        RunStatus.DISCOVERED,
+                        _to_text(now),
+                        _to_text(now),
+                    ),
+                )
+
+                self._event(run_id, "created", f"{entry.to_status} ({entry.workflow.name})")
         except sqlite3.IntegrityError:
             return None
-
-        self._event(run_id, "created", f"{entry.to_status} ({entry.workflow.name})")
 
         return self.get(run_id)
 
@@ -137,20 +139,21 @@ class RunRepository:
         """Records why a pending run does not advance, without changing its
         status: it resumes by itself once the reason is gone."""
 
-        run = self.get(run_id)
+        with transaction(self._connection):
+            run = self.get(run_id)
 
-        self._connection.execute(
-            "UPDATE automation_runs SET waiting_reason = ?, error_message = ? WHERE id = ?",
-            (reason, message, run_id),
-        )
+            self._connection.execute(
+                "UPDATE automation_runs SET waiting_reason = ?, error_message = ? WHERE id = ?",
+                (reason, message, run_id),
+            )
 
-        # The launcher clears the reason and notes it again in each cycle of
-        # the same wait: only the first time is an event.
+            # The launcher clears the reason and notes it again in each cycle of
+            # the same wait: only the first time is an event.
 
-        last = self._last_status(run_id)
+            last = self._last_status(run_id)
 
-        if run is not None and not (last or "").startswith(f"{run.status} {reason}"):
-            self._event(run_id, "status", f"{run.status} {reason}: {message}")
+            if run is not None and not (last or "").startswith(f"{run.status} {reason}"):
+                self._event(run_id, "status", f"{run.status} {reason}: {message}")
 
     def mark_ready(self, run_id: str, worktree_id: str) -> None:
         self._update(run_id, RunStatus.READY, worktree_id=worktree_id)
@@ -199,30 +202,31 @@ class RunRepository:
         run_id = str(uuid.uuid4())
 
         try:
-            self._connection.execute(
-                """
-                INSERT INTO automation_runs (
-                    id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                    triggered_at, status, created_at, status_changed_at, retry_of, signals
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
-                """,
-                (
-                    run_id,
-                    original.issue_key,
-                    original.workflow_name,
-                    original.trigger_status,
-                    original.trigger_history_id,
-                    _to_text(original.triggered_at),
-                    RunStatus.DISCOVERED,
-                    _to_text(now),
-                    _to_text(now),
-                    original.id,
-                ),
-            )
+            with transaction(self._connection):
+                self._connection.execute(
+                    """
+                    INSERT INTO automation_runs (
+                        id, issue_key, workflow_name, trigger_status, trigger_history_id,
+                        triggered_at, status, created_at, status_changed_at, retry_of, signals
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
+                    """,
+                    (
+                        run_id,
+                        original.issue_key,
+                        original.workflow_name,
+                        original.trigger_status,
+                        original.trigger_history_id,
+                        _to_text(original.triggered_at),
+                        RunStatus.DISCOVERED,
+                        _to_text(now),
+                        _to_text(now),
+                        original.id,
+                    ),
+                )
+
+                self._event(run_id, "created", f"retry of {original.id[:8]}")
         except sqlite3.IntegrityError:
             return None
-
-        self._event(run_id, "created", f"retry of {original.id[:8]}")
 
         return self.get(run_id)
 
@@ -244,27 +248,31 @@ class RunRepository:
         return [_to_run(row) for row in rows]
 
     def set_phase(self, run_id: str, phase: int) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET phase = ?, fix_requested_at = NULL WHERE id = ?",
-            (phase, run_id),
-        )
+        with transaction(self._connection):
+            self._connection.execute(
+                "UPDATE automation_runs SET phase = ?, fix_requested_at = NULL WHERE id = ?",
+                (phase, run_id),
+            )
 
-        run = self.get(run_id)
-        phases = run.pipeline if run and run.pipeline else ()
+            run = self.get(run_id)
+            phases = run.pipeline if run and run.pipeline else ()
 
-        self._event(
-            run_id, "phase", _phase_name(phases[phase]) if phase < len(phases) else f"phase {phase}"
-        )
+            self._event(
+                run_id,
+                "phase",
+                _phase_name(phases[phase]) if phase < len(phases) else f"phase {phase}",
+            )
 
     def mark_fix_requested(self, run_id: str) -> None:
         """Back to RUNNING while the agent fixes the findings."""
 
-        self._connection.execute(
-            "UPDATE automation_runs SET fix_requested_at = ? WHERE id = ?",
-            (_to_text(utc_now()), run_id),
-        )
-        self._event(run_id, "fix", "the agent fixes the findings of the checkpoints")
-        self.mark_resumed(run_id)
+        with transaction(self._connection):
+            self._connection.execute(
+                "UPDATE automation_runs SET fix_requested_at = ? WHERE id = ?",
+                (_to_text(utc_now()), run_id),
+            )
+            self._event(run_id, "fix", "the agent fixes the findings of the checkpoints")
+            self.mark_resumed(run_id)
 
     def clear_fix_request(self, run_id: str) -> None:
         self._connection.execute(
@@ -297,23 +305,24 @@ class RunRepository:
         """The changes of the last `spyhop replan`. Consumes that request and
         the ones before it, but not one that arrives after the read."""
 
-        row = self._connection.execute(
-            "SELECT id, payload FROM run_commands "
-            "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL "
-            "ORDER BY id DESC LIMIT 1",
-            (run_id,),
-        ).fetchone()
+        with transaction(self._connection):
+            row = self._connection.execute(
+                "SELECT id, payload FROM run_commands "
+                "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL "
+                "ORDER BY id DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
 
-        if row is None:
-            return None
+            if row is None:
+                return None
 
-        self._connection.execute(
-            "UPDATE run_commands SET consumed_at = ? "
-            "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL AND id <= ?",
-            (_to_text(utc_now()), run_id, row["id"]),
-        )
+            self._connection.execute(
+                "UPDATE run_commands SET consumed_at = ? "
+                "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL AND id <= ?",
+                (_to_text(utc_now()), run_id, row["id"]),
+            )
 
-        return str(row["payload"])
+            return str(row["payload"])
 
     def consume_command(self, command_id: int) -> None:
         self._connection.execute(
@@ -325,11 +334,12 @@ class RunRepository:
         """The agent declares that the plan is ready (``plan``) or that the
         work is done (``done``)."""
 
-        self._connection.execute(
-            "UPDATE automation_runs SET declared = ?, declared_at = ? WHERE id = ?",
-            (what, _to_text(utc_now()), run_id),
-        )
-        self._event(run_id, "declared", what)
+        with transaction(self._connection):
+            self._connection.execute(
+                "UPDATE automation_runs SET declared = ?, declared_at = ? WHERE id = ?",
+                (what, _to_text(utc_now()), run_id),
+            )
+            self._event(run_id, "declared", what)
 
     def approve(self, run_id: str) -> None:
         """A person approves the plan. The supervisor consumes the request when
@@ -372,11 +382,12 @@ class RunRepository:
         ]
 
     def _command(self, run_id: str, kind: str, payload: str | None = None) -> None:
-        self._connection.execute(
-            "INSERT INTO run_commands (run_id, kind, payload, created_at) VALUES (?, ?, ?, ?)",
-            (run_id, kind, payload, _to_text(utc_now())),
-        )
-        self._event(run_id, "request", f"{kind}: {payload}" if payload else kind)
+        with transaction(self._connection):
+            self._connection.execute(
+                "INSERT INTO run_commands (run_id, kind, payload, created_at) VALUES (?, ?, ?, ?)",
+                (run_id, kind, payload, _to_text(utc_now())),
+            )
+            self._event(run_id, "request", f"{kind}: {payload}" if payload else kind)
 
     def _event(self, run_id: str, kind: str, detail: str | None = None) -> None:
         _record_event(self._connection, run_id, kind, detail)
@@ -418,10 +429,11 @@ class RunRepository:
         )
 
     def count_restart(self, run_id: str) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET restarts = restarts + 1 WHERE id = ?", (run_id,)
-        )
-        self._event(run_id, "restart", "the agent starts again")
+        with transaction(self._connection):
+            self._connection.execute(
+                "UPDATE automation_runs SET restarts = restarts + 1 WHERE id = ?", (run_id,)
+            )
+            self._event(run_id, "restart", "the agent starts again")
 
     def mark_failed(self, run_id: str, error_message: str) -> None:
         self._update(
@@ -433,34 +445,35 @@ class RunRepository:
         )
 
     def _update(self, run_id: str, status: RunStatus, **columns: str | None) -> None:
-        run = self.get(run_id)
-        reason = columns.get("waiting_reason")
-        message = columns.get("error_message")
+        with transaction(self._connection):
+            run = self.get(run_id)
+            reason = columns.get("waiting_reason")
+            message = columns.get("error_message")
 
-        # An event for a new status or a new waiting reason. A caller that does
-        # not give a reason leaves it as it is, and a clear of the reason with
-        # the same status is not an event.
+            # An event for a new status or a new waiting reason. A caller that does
+            # not give a reason leaves it as it is, and a clear of the reason with
+            # the same status is not an event.
 
-        changed = (
-            run is None
-            or run.status is not status
-            or (reason is not None and run.waiting_reason != reason)
-        )
-
-        columns["status_changed_at"] = _to_text(utc_now())
-        assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
-
-        self._connection.execute(
-            f"UPDATE automation_runs SET {assignments} WHERE id = ?",
-            (status, *columns.values(), run_id),
-        )
-
-        if changed:
-            self._event(
-                run_id,
-                "status",
-                f"{status}{f' {reason}' if reason else ''}{f': {message}' if message else ''}",
+            changed = (
+                run is None
+                or run.status is not status
+                or (reason is not None and run.waiting_reason != reason)
             )
+
+            columns["status_changed_at"] = _to_text(utc_now())
+            assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
+
+            self._connection.execute(
+                f"UPDATE automation_runs SET {assignments} WHERE id = ?",
+                (status, *columns.values(), run_id),
+            )
+
+            if changed:
+                self._event(
+                    run_id,
+                    "status",
+                    f"{status}{f' {reason}' if reason else ''}{f': {message}' if message else ''}",
+                )
 
     def _last_status(self, run_id: str) -> str | None:
         row = self._connection.execute(
@@ -593,46 +606,47 @@ class CheckpointRunRepository:
         the checkpoint twice. The result goes to a file named after the row in
         ``results_dir``."""
 
-        checkpoint_run_id = str(uuid.uuid4())
-        output_file = results_dir / f"{checkpoint_run_id}.json"
-        new_round = round_number > self.last_round(run_id, phase)
+        with transaction(self._connection):
+            checkpoint_run_id = str(uuid.uuid4())
+            output_file = results_dir / f"{checkpoint_run_id}.json"
+            new_round = round_number > self.last_round(run_id, phase)
 
-        self._connection.execute(
-            """
-            INSERT INTO checkpoint_runs (
-                id, run_id, phase, round, name, inputs, base, head, output_file,
-                status, started_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)
-            """,
-            (
-                checkpoint_run_id,
-                run_id,
-                phase,
-                round_number,
-                name,
-                inputs,
-                base,
-                head,
-                str(output_file),
-                _to_text(utc_now()),
-            ),
-        )
-
-        # A new round consumes the requests for a round of the run. A later
-        # stage of the same round does not.
-
-        if new_round:
             self._connection.execute(
-                "UPDATE run_commands SET consumed_at = ? "
-                "WHERE run_id = ? AND kind = 'checks' AND consumed_at IS NULL",
-                (_to_text(utc_now()), run_id),
+                """
+                INSERT INTO checkpoint_runs (
+                    id, run_id, phase, round, name, inputs, base, head, output_file,
+                    status, started_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)
+                """,
+                (
+                    checkpoint_run_id,
+                    run_id,
+                    phase,
+                    round_number,
+                    name,
+                    inputs,
+                    base,
+                    head,
+                    str(output_file),
+                    _to_text(utc_now()),
+                ),
             )
 
-        checkpoint_run = self.get(checkpoint_run_id)
+            # A new round consumes the requests for a round of the run. A later
+            # stage of the same round does not.
 
-        assert checkpoint_run is not None
+            if new_round:
+                self._connection.execute(
+                    "UPDATE run_commands SET consumed_at = ? "
+                    "WHERE run_id = ? AND kind = 'checks' AND consumed_at IS NULL",
+                    (_to_text(utc_now()), run_id),
+                )
 
-        return checkpoint_run
+            checkpoint_run = self.get(checkpoint_run_id)
+
+            assert checkpoint_run is not None
+
+            return checkpoint_run
 
     def get(self, checkpoint_run_id: str) -> CheckpointRun | None:
         row = self._connection.execute(
@@ -689,21 +703,22 @@ class CheckpointRunRepository:
         )
 
     def finish(self, checkpoint_run_id: str, verdict: str, detail: str | None) -> None:
-        self._connection.execute(
-            "UPDATE checkpoint_runs SET status = 'DONE', verdict = ?, detail = ?, finished_at = ? "
-            "WHERE id = ?",
-            (verdict, detail, _to_text(utc_now()), checkpoint_run_id),
-        )
-
-        row = self.get(checkpoint_run_id)
-
-        if row is not None:
-            _record_event(
-                self._connection,
-                row.run_id,
-                "checkpoint",
-                f"{row.name} round {row.round}: {verdict}",
+        with transaction(self._connection):
+            self._connection.execute(
+                "UPDATE checkpoint_runs SET status = 'DONE', verdict = ?, detail = ?, "
+                "finished_at = ? WHERE id = ?",
+                (verdict, detail, _to_text(utc_now()), checkpoint_run_id),
             )
+
+            row = self.get(checkpoint_run_id)
+
+            if row is not None:
+                _record_event(
+                    self._connection,
+                    row.run_id,
+                    "checkpoint",
+                    f"{row.name} round {row.round}: {verdict}",
+                )
 
 
 class SessionRepository:

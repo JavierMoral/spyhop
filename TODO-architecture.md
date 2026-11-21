@@ -148,13 +148,17 @@ give the commit.
     `AgentStarter` that returns the result, and let each caller handle the
     error.
 
-12. [ ] **Transactions in the repositories.** The connection commits each
+12. [x] **Transactions in the repositories.** The connection commits each
     statement (`isolation_level=None`), and the CLI writes to the same
     database from another process. Some operations have more than one
     statement: `take_plan_changes` (read and consume), `_update` (status
     and event), and `CheckpointRunRepository.create` (row and consumed
     request). Add `with repository.transaction():` (`BEGIN IMMEDIATE`) and
     use it for these operations.
+
+    Done: `transaction(connection)` in `database.py`. Each write of the
+    repositories with more than one statement uses it, also the writes of a
+    row and its event. A block in an open transaction is part of it.
 
 13. [ ] **Remove the name of Orca from the domain.** The protocols are
     neutral, but `orca_worktree_id` (40 uses) and the exceptions
