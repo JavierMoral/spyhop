@@ -339,10 +339,13 @@ def cleanup(
         raise typer.Exit(1)
 
     try:
+        orca = orca_client(settings)
         remover = WorktreeRemover(
             RunRepository(connection),
             worktrees,
-            orca_client(settings),
+            orca,
+            orca,
+            orca,
             SystemdUnits(),
             settings.repositories,
         )

@@ -204,7 +204,8 @@ def _agents(
     )
     supervisor_session = SupervisorSession(
         worktrees=worktrees,
-        orca=orca,
+        terminal_host=orca,
+        board=orca,
         context=context,
         spyhop=spyhop_executable(),
         model=settings.agents.model,
@@ -213,7 +214,8 @@ def _agents(
         runs=runs,
         worktrees=worktrees,
         sessions=sessions,
-        orca=orca,
+        worktree_host=orca,
+        terminal_host=orca,
         context=context,
         agents=settings.agents,
         plan_review_status=settings.orca.plan_review_status,
@@ -246,7 +248,8 @@ def _agents(
         resolver=resolver,
         jira=jira,
         jira_settings=settings.jira,
-        orca=orca,
+        worktree_host=orca,
+        terminal_host=orca,
         context=context,
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,
@@ -256,11 +259,13 @@ def _agents(
     )
 
     janitor = WorktreeJanitor(
-        remover=WorktreeRemover(runs, worktrees, orca, SystemdUnits(), settings.repositories),
+        remover=WorktreeRemover(
+            runs, worktrees, orca, orca, orca, SystemdUnits(), settings.repositories
+        ),
         runs=runs,
         worktrees=worktrees,
         jira=jira,
-        orca=orca,
+        worktree_host=orca,
         settings=settings.cleanup,
     )
 

@@ -45,7 +45,7 @@ from spyhop.domain.models import (
     TicketRef,
     Worktree,
 )
-from spyhop.domain.protocols import OrcaGateway, TicketGateway
+from spyhop.domain.protocols import TerminalHost, TicketGateway, WorktreeHost
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.git import branch_exists
 from spyhop.infrastructure.jira.mapping import (
@@ -128,7 +128,8 @@ class AgentLauncher:
         resolver: WorkflowResolver,
         jira: TicketGateway,
         jira_settings: JiraSettings,
-        orca: OrcaGateway,
+        worktree_host: WorktreeHost,
+        terminal_host: TerminalHost,
         context: ContextBuilder,
         agents: AgentSettings,
         max_concurrent_agents: int,
@@ -149,7 +150,8 @@ class AgentLauncher:
         self._resolver = resolver
         self._jira = jira
         self._jira_settings = jira_settings
-        self._orca = orca
+        self._worktree_host = worktree_host
+        self._terminal_host = terminal_host
         self._context = context
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
@@ -168,7 +170,7 @@ class AgentLauncher:
             return []
 
         try:
-            await self._orca.ensure_ready()
+            await self._worktree_host.ensure_ready()
         except OrcaUnavailableError as error:
             _log.info("%d run(s) waiting for Orca: %s", len(pending), error)
 
@@ -244,7 +246,7 @@ class AgentLauncher:
         workflow = self._workflow(run)
 
         try:
-            location = await self._orca.worktree_base_path(workflow.repository_path)
+            location = await self._worktree_host.worktree_base_path(workflow.repository_path)
         except OrcaCommandError:
             location = None
 
@@ -358,7 +360,7 @@ class AgentLauncher:
         assert session.launch_operation_id is not None
 
         try:
-            result = await self._orca.launch_agent(
+            result = await self._terminal_host.launch_agent(
                 prepared.worktree.orca_worktree_id,
                 self._context.launch_goal(run.issue_key, prepared.workflow),
                 session.launch_operation_id,
@@ -372,7 +374,7 @@ class AgentLauncher:
 
         self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_running(run.id)
-        await label_agent(self._orca, run.issue_key, result.agent_handle, session)
+        await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
 
         _log.info(
             "%s: agent %s started in %s (branch %s, %s, %s)",
@@ -479,7 +481,7 @@ class AgentLauncher:
                 self._worktrees.mark_active(current.id)
 
             try:
-                await self._orca.show_worktree(current.orca_worktree_id)
+                await self._worktree_host.show_worktree(current.orca_worktree_id)
 
                 return current
             except OrcaCommandError as error:
@@ -494,7 +496,7 @@ class AgentLauncher:
 
                 self._worktrees.mark_removed(current.id, "not found in Orca")
 
-        orca_worktree = await self._orca.find_worktree_by_reference(issue_key)
+        orca_worktree = await self._worktree_host.find_worktree_by_reference(issue_key)
         base_branch = workflow.base_branch
 
         if orca_worktree is None:
@@ -524,7 +526,7 @@ class AgentLauncher:
                     name = previous.path.name
                     base_branch = previous.branch_name
 
-                orca_worktree = await self._orca.create_worktree(
+                orca_worktree = await self._worktree_host.create_worktree(
                     workflow.repository_path,
                     name,
                     base_branch,
@@ -563,7 +565,7 @@ class AgentLauncher:
             raise _RunFailed(str(error)) from error
 
         try:
-            return await self._orca.link_worktree(path, request.issue_key)
+            return await self._worktree_host.link_worktree(path, request.issue_key)
         except OrcaCommandError as error:
             if error.code != "selector_not_found":
                 raise
@@ -612,7 +614,7 @@ def worktree_name(issue_key: str, summary: str) -> str:
 
 
 async def label_agent(
-    orca: OrcaGateway, issue_key: str, terminal: str, session: AgentSession
+    terminal_host: TerminalHost, issue_key: str, terminal: str, session: AgentSession
 ) -> None:
     """Gives the tab and the session of the agent its role and model, for
     example "plan opus", and gives the session the color of its role. An
@@ -621,11 +623,11 @@ async def label_agent(
     title = " ".join(value for value in (session.role, session.model) if value)
 
     try:
-        await orca.rename_terminal(terminal, title)
-        await orca.send_prompt(terminal, f"/rename {title}")
+        await terminal_host.rename_terminal(terminal, title)
+        await terminal_host.send_prompt(terminal, f"/rename {title}")
 
         if session.role in ROLE_COLORS:
-            await orca.send_prompt(terminal, f"/color {ROLE_COLORS[session.role]}")
+            await terminal_host.send_prompt(terminal, f"/color {ROLE_COLORS[session.role]}")
     except OrcaError as error:
         _log.warning("%s: agent %s not labeled: %s", issue_key, terminal, error)
 

@@ -26,9 +26,8 @@ class TicketGateway(Protocol):
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]: ...
 
 
-class OrcaGateway(Protocol):
-    @property
-    def executable(self) -> Path: ...
+class WorktreeHost(Protocol):
+    """Creates, finds and removes the worktrees of the runs."""
 
     async def ensure_ready(self) -> None: ...
 
@@ -49,6 +48,14 @@ class OrcaGateway(Protocol):
 
     async def link_worktree(self, path: Path, reference: str) -> OrcaWorktree: ...
 
+    async def remove_worktree(self, orca_worktree_id: str) -> RemoveResult: ...
+
+
+class TerminalHost(Protocol):
+    """Runs the agents and the supervisor sessions in terminals of a worktree."""
+
+    async def ensure_ready(self) -> None: ...
+
     async def launch_agent(
         self,
         orca_worktree_id: str,
@@ -62,10 +69,6 @@ class OrcaGateway(Protocol):
 
     async def close_terminals(self, orca_worktree_id: str) -> int: ...
 
-    async def remove_worktree(self, orca_worktree_id: str) -> RemoveResult: ...
-
-    async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...
-
     async def create_terminal(
         self, orca_worktree_id: str, title: str, command: str
     ) -> OrcaTerminal: ...
@@ -75,6 +78,13 @@ class OrcaGateway(Protocol):
     async def close_terminal(self, terminal: str) -> None: ...
 
     async def rename_terminal(self, terminal: str, title: str) -> None: ...
+
+
+class BoardMirror(Protocol):
+    """Shows the progress of the runs on a board. Spyhop does not read it back,
+    except the card of a run from before `spyhop declare`."""
+
+    async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...
 
 
 class UnitGateway(Protocol):

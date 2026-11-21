@@ -19,7 +19,7 @@ from pathlib import Path
 from spyhop.application.context_builder import ContextBuilder
 from spyhop.domain.exceptions import OrcaCommandError, OrcaError
 from spyhop.domain.models import Worktree
-from spyhop.domain.protocols import OrcaGateway
+from spyhop.domain.protocols import BoardMirror, TerminalHost
 from spyhop.infrastructure.persistence.repositories import WorktreeRepository
 
 _log = logging.getLogger(__name__)
@@ -48,13 +48,15 @@ class SupervisorSession:
     def __init__(
         self,
         worktrees: WorktreeRepository,
-        orca: OrcaGateway,
+        terminal_host: TerminalHost,
+        board: BoardMirror,
         context: ContextBuilder,
         spyhop: Path,
         model: str,
     ) -> None:
         self._worktrees = worktrees
-        self._orca = orca
+        self._terminal_host = terminal_host
+        self._board = board
         self._context = context
         self._spyhop = spyhop
         self._model = model
@@ -75,7 +77,7 @@ class SupervisorSession:
 
         if current.supervisor_terminal is not None:
             try:
-                await self._orca.send_prompt(current.supervisor_terminal, message)
+                await self._terminal_host.send_prompt(current.supervisor_terminal, message)
 
                 return True
             except OrcaCommandError as error:
@@ -101,7 +103,7 @@ class SupervisorSession:
         delivered = await self.tell(worktree, f"ESPERA: {text}")
 
         try:
-            await self._orca.mark_card(worktree.orca_worktree_id, f"{worktree.issue_key}: {text}")
+            await self._board.mark_card(worktree.orca_worktree_id, f"{worktree.issue_key}: {text}")
         except OrcaError as error:
             _log.warning("%s: could not mark the Orca card: %s", worktree.issue_key, error)
 
@@ -132,7 +134,9 @@ class SupervisorSession:
         )
 
         try:
-            terminal = await self._orca.create_terminal(worktree.orca_worktree_id, TITLE, command)
+            terminal = await self._terminal_host.create_terminal(
+                worktree.orca_worktree_id, TITLE, command
+            )
         except OrcaError as error:
             _log.warning("%s: supervisor session not started: %s", worktree.issue_key, error)
 
@@ -148,7 +152,7 @@ class SupervisorSession:
         _log.info("%s: supervisor session %s started", worktree.issue_key, terminal.handle)
 
         try:
-            await self._orca.send_prompt(terminal.handle, f"/color {COLOR}")
+            await self._terminal_host.send_prompt(terminal.handle, f"/color {COLOR}")
         except OrcaError as error:
             _log.warning("%s: supervisor session without color: %s", worktree.issue_key, error)
 
@@ -162,7 +166,7 @@ class SupervisorSession:
 
         if handle is not None:
             try:
-                await self._orca.close_terminal(handle)
+                await self._terminal_host.close_terminal(handle)
             except OrcaError as error:
                 _log.warning(
                     "%s: supervisor session %s without a pane not closed: %s",

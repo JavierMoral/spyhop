@@ -29,7 +29,13 @@ from spyhop.domain.exceptions import (
     UnitError,
 )
 from spyhop.domain.models import Worktree
-from spyhop.domain.protocols import JiraGateway, OrcaGateway, UnitGateway
+from spyhop.domain.protocols import (
+    BoardMirror,
+    JiraGateway,
+    TerminalHost,
+    UnitGateway,
+    WorktreeHost,
+)
 from spyhop.infrastructure.git import has_changes
 from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
 from spyhop.infrastructure.worktree_script import WorktreeScriptError, run_cleanup_script
@@ -55,7 +61,7 @@ class WorktreeJanitor:
         runs: RunRepository,
         worktrees: WorktreeRepository,
         jira: JiraGateway,
-        orca: OrcaGateway,
+        worktree_host: WorktreeHost,
         settings: CleanupSettings,
         has_changes: Callable[[Path], bool] = has_changes,
     ) -> None:
@@ -63,7 +69,7 @@ class WorktreeJanitor:
         self._runs = runs
         self._worktrees = worktrees
         self._jira = jira
-        self._orca = orca
+        self._worktree_host = worktree_host
         self._settings = settings
         self._has_changes = has_changes
 
@@ -112,7 +118,7 @@ class WorktreeJanitor:
             return []
 
         try:
-            await self._orca.ensure_ready()
+            await self._worktree_host.ensure_ready()
         except OrcaUnavailableError as error:
             _log.info("%d worktree(s) waiting for Orca to be removed: %s", len(due), error)
 
@@ -166,14 +172,18 @@ class WorktreeRemover:
         self,
         runs: RunRepository,
         worktrees: WorktreeRepository,
-        orca: OrcaGateway,
+        worktree_host: WorktreeHost,
+        terminal_host: TerminalHost,
+        board: BoardMirror,
         units: UnitGateway,
         repositories: Mapping[str, RepositorySettings] | None = None,
         cleanup_script: Callable[[Path, Worktree, float], Awaitable[None]] = run_cleanup_script,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
-        self._orca = orca
+        self._worktree_host = worktree_host
+        self._terminal_host = terminal_host
+        self._board = board
         self._units = units
         self._repositories = {
             repository.path: repository for repository in (repositories or {}).values()
@@ -202,9 +212,9 @@ class WorktreeRemover:
                 _log.warning("%s: checkpoints not stopped: %s", run.issue_key, error)
 
         try:
-            await self._orca.close_terminals(worktree.orca_worktree_id)
+            await self._terminal_host.close_terminals(worktree.orca_worktree_id)
 
-            result = await self._orca.remove_worktree(worktree.orca_worktree_id)
+            result = await self._worktree_host.remove_worktree(worktree.orca_worktree_id)
         except OrcaCommandError as error:
             if error.code == "selector_not_found":
                 await self._run_cleanup_script(worktree)
@@ -266,7 +276,7 @@ class WorktreeRemover:
         )
 
         try:
-            await self._orca.mark_card(
+            await self._board.mark_card(
                 worktree.orca_worktree_id,
                 f"{worktree.issue_key} cerrado: Spyhop no pudo borrar el worktree "
                 "porque tiene cambios sin commitear",

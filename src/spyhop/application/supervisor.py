@@ -72,7 +72,7 @@ from spyhop.domain.models import (
     ResolvedWorkflow,
     Worktree,
 )
-from spyhop.domain.protocols import OrcaGateway
+from spyhop.domain.protocols import TerminalHost, WorktreeHost
 from spyhop.infrastructure.agent_state import read_state
 from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
@@ -178,7 +178,8 @@ class AgentSupervisor:
         runs: RunRepository,
         worktrees: WorktreeRepository,
         sessions: SessionRepository,
-        orca: OrcaGateway,
+        worktree_host: WorktreeHost,
+        terminal_host: TerminalHost,
         context: ContextBuilder,
         agents: AgentSettings,
         plan_review_status: str,
@@ -197,7 +198,8 @@ class AgentSupervisor:
         self._check_runner = check_runner
         self._worktrees = worktrees
         self._sessions = sessions
-        self._orca = orca
+        self._worktree_host = worktree_host
+        self._terminal_host = terminal_host
         self._context = context
         self._agents = agents
         self._plan_review_status = plan_review_status
@@ -218,9 +220,9 @@ class AgentSupervisor:
             return
 
         try:
-            await self._orca.ensure_ready()
+            await self._terminal_host.ensure_ready()
 
-            agents = await self._orca.worktree_agents()
+            agents = await self._terminal_host.worktree_agents()
         except OrcaUnavailableError as error:
             # Nothing is concluded while Orca cannot be read.
 
@@ -263,7 +265,7 @@ class AgentSupervisor:
 
         if run.signals == "card" or worktree.orca_worktree_id not in agents:
             try:
-                card = await self._orca.show_worktree(worktree.orca_worktree_id)
+                card = await self._worktree_host.show_worktree(worktree.orca_worktree_id)
             except OrcaCommandError as error:
                 if error.code != "selector_not_found":
                     raise
@@ -497,7 +499,7 @@ class AgentSupervisor:
             return False
 
         try:
-            await self._orca.send_prompt(session.agent_handle, CONTINUE_PROMPT)
+            await self._terminal_host.send_prompt(session.agent_handle, CONTINUE_PROMPT)
         except OrcaError as error:
             _log.warning("%s: stopped agent not prompted: %s", run.issue_key, error)
 
@@ -634,7 +636,7 @@ class AgentSupervisor:
         assert session.launch_operation_id is not None
 
         try:
-            result = await self._orca.launch_agent(
+            result = await self._terminal_host.launch_agent(
                 worktree.orca_worktree_id,
                 goal,
                 session.launch_operation_id,
@@ -656,7 +658,7 @@ class AgentSupervisor:
 
         self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_resumed(run.id)
-        await label_agent(self._orca, run.issue_key, result.agent_handle, session)
+        await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
 
         _log.info(
             "%s: %s agent %s started (%s)", run.issue_key, role, result.agent_handle, session.model
@@ -720,7 +722,7 @@ class AgentSupervisor:
         self._runs.mark_fix_requested(run.id)
 
         try:
-            await self._orca.send_prompt(
+            await self._terminal_host.send_prompt(
                 session.agent_handle, self._context.fix_prompt(run.issue_key, failed)
             )
         except (OrcaCommandError, OrcaUncertainError) as error:

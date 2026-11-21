@@ -43,7 +43,7 @@ give the commit.
    it. The table also gives an audit trail for `status` and `stats`. Do this
    item together with item 6.
 
-4. [ ] **Split `OrcaGateway` by responsibility.** Split its 15 methods into
+4. [x] **Split `OrcaGateway` by responsibility.** Split its 15 methods into
    three protocols:
    - `WorktreeHost`: create, link and remove worktrees.
    - `TerminalHost`: launch an agent, list agents and panes, `send_prompt`,
@@ -53,6 +53,12 @@ give the commit.
 
    A tmux or headless host then implements only `TerminalHost`, and
    `BoardMirror` can be a no-op.
+
+   Done in the branch `split-orca-gateway`. Each component gets only the
+   roles that it uses, and `daemon.py` gives the same `OrcaClient` to each
+   role. `show_worktree` is in `WorktreeHost`, because the supervisor uses
+   it to find a removed worktree. `mark_card` is the only method of
+   `BoardMirror`, because the CLI moves the card through `OrcaClient`.
 
 5. [x] **Remove the per-run Orca calls in each cycle.** `_supervise` calls
    `show_worktree` for each run in each cycle. It needs the call only for the
