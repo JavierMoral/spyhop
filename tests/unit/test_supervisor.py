@@ -14,6 +14,7 @@ from spyhop.application.supervisor import (
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AgentRow, AutomationRun, OrcaWorktree, Worktree
+from spyhop.infrastructure.agent_state import write_state
 from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
 
@@ -49,38 +50,53 @@ PLAN_WAIT = run_in(RunStatus.WAITING_FOR_HUMAN, WaitingReason.PLAN_REVIEW)
 LATER = NOW + timedelta(minutes=1)
 
 
+DONE = {"declared": "done", "approved": True}
+PLAN = {"declared": "plan", "approved": False}
+NOTHING = {"declared": None, "approved": False}
+
+
+def seen(signals: dict[str, object], row: AgentRow | None, plan: bool, result: bool) -> Observation:
+    return Observation(agent=row, plan_written=plan, result_written=result, **signals)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
-    ("run", "seen", "expected"),
+    ("run", "observation", "expected"),
     [
         # The agent's declaration of the end wins, even mid-turn.
-        (RUNNING, Observation(PLAN_APPROVED, agent("working"), True, True), Signal.COMPLETED),
-        # The approved column without CLAUDE-RESULT.md is not the end.
-        (RUNNING, Observation(PLAN_APPROVED, agent("done", LATER), True, False), Signal.STOPPED),
-        (RUNNING, Observation("in-progress", None, False, False), Signal.MISSING),
-        (RUNNING, Observation("in-progress", agent("working"), False, False), Signal.WORKING),
-        (RUNNING, Observation("in-progress", agent("waiting"), False, False), Signal.QUESTION),
-        (RUNNING, Observation("in-progress", agent("blocked"), False, False), Signal.QUESTION),
-        # Revising the plan after feedback: working wins over the card.
-        (PLAN_WAIT, Observation(PLAN_REVIEW, agent("working"), True, False), Signal.WORKING),
-        (RUNNING, Observation(PLAN_REVIEW, agent("done", LATER), True, False), Signal.PLAN_READY),
-        # The card alone, without a CLAUDE-PLAN.md of this run, is not a plan.
-        (RUNNING, Observation(PLAN_REVIEW, agent("done", LATER), False, False), Signal.STOPPED),
-        (PLAN_WAIT, Observation(PLAN_APPROVED, agent("done"), True, False), Signal.PLAN_APPROVED),
+        (RUNNING, seen(DONE, agent("working"), True, True), Signal.COMPLETED),
+        # A declared end without CLAUDE-RESULT.md is not the end.
+        (RUNNING, seen(DONE, agent("done", LATER), True, False), Signal.STOPPED),
+        (RUNNING, seen(NOTHING, None, False, False), Signal.MISSING),
+        (RUNNING, seen(NOTHING, agent("working"), False, False), Signal.WORKING),
+        (RUNNING, seen(NOTHING, agent("waiting"), False, False), Signal.QUESTION),
+        (RUNNING, seen(NOTHING, agent("blocked"), False, False), Signal.QUESTION),
+        # Revising the plan after feedback: working wins over the declaration.
+        (PLAN_WAIT, seen(PLAN, agent("working"), True, False), Signal.WORKING),
+        (RUNNING, seen(PLAN, agent("done", LATER), True, False), Signal.PLAN_READY),
+        # The declaration alone, without a CLAUDE-PLAN.md of this run, is not a plan.
+        (RUNNING, seen(PLAN, agent("done", LATER), False, False), Signal.STOPPED),
+        (PLAN_WAIT, seen(DONE, agent("done"), True, False), Signal.PLAN_APPROVED),
+        # An approval wins over the declared plan that it approves.
+        (
+            PLAN_WAIT,
+            seen({"declared": "plan", "approved": True}, agent("done"), True, False),
+            Signal.PLAN_APPROVED,
+        ),
         # A plan agent that is gone does not stop the plan review or the approval.
-        (PLAN_WAIT, Observation(PLAN_REVIEW, None, True, False), Signal.NONE),
-        (PLAN_WAIT, Observation(PLAN_APPROVED, None, True, False), Signal.PLAN_APPROVED),
-        # Only a run waiting for its plan review is approved by the card.
-        (RUNNING, Observation(PLAN_APPROVED, agent("done", LATER), True, False), Signal.STOPPED),
+        (PLAN_WAIT, seen(PLAN, None, True, False), Signal.NONE),
+        (PLAN_WAIT, seen(DONE, None, True, False), Signal.PLAN_APPROVED),
+        # Only a run waiting for its plan review is approved.
+        (RUNNING, seen(DONE, agent("done", LATER), True, False), Signal.STOPPED),
         # A state from before the run's last transition is stale.
         (
             RUNNING,
-            Observation(PLAN_APPROVED, agent("done", NOW - timedelta(seconds=5)), True, False),
+            seen(DONE, agent("done", NOW - timedelta(seconds=5)), True, False),
             Signal.NONE,
         ),
     ],
 )
-def test_signal_table(run: AutomationRun, seen: Observation, expected: Signal) -> None:
-    assert observe(run, seen, PLAN_REVIEW, PLAN_APPROVED) is expected
+def test_signal_table(run: AutomationRun, observation: Observation, expected: Signal) -> None:
+    assert observe(run, observation) is expected
 
 
 @pytest.fixture
@@ -109,7 +125,7 @@ async def plan_ready(harness: Harness) -> tuple[AutomationRun, Worktree, str]:
     run, worktree, pane = await launched(harness)
 
     (worktree.path / "CLAUDE-PLAN.md").write_text("plan")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
 
     await harness.supervisor.supervise()
@@ -152,7 +168,7 @@ async def test_feedback_on_the_plan_resumes_the_run(harness: Harness) -> None:
 async def test_approving_the_plan_launches_a_new_agent_on_the_model(harness: Harness) -> None:
     run, worktree, plan_pane = await plan_ready(harness)
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
 
     await harness.supervisor.supervise()
 
@@ -165,7 +181,7 @@ async def test_approving_the_plan_launches_a_new_agent_on_the_model(harness: Har
     assert launch["effort"] == "high"
     assert launch["worktree"] == worktree.orca_worktree_id
     assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios")
-    assert f"--workspace-status {PLAN_APPROVED}" in launch["prompt"]
+    assert launch["prompt"].endswith("spyhop declare LPD-1 done")
     assert launch["operation_id"] == session.launch_operation_id
     assert plan_session.status is SessionStatus.FINISHED
     assert session.status is SessionStatus.LAUNCHED
@@ -197,7 +213,7 @@ async def test_lost_approval_answer_is_replayed_with_the_same_operation(
 ) -> None:
     run, worktree, _ = await plan_ready(harness)
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.launch_errors.append(OrcaUncertainError("timed out"))
 
     await harness.supervisor.supervise()
@@ -222,7 +238,7 @@ async def test_refused_approval_waits_until_the_plan_is_approved_again(
 ) -> None:
     run, worktree, _ = await plan_ready(harness)
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.launch_errors.append(OrcaCommandError("invalid_argument", "bad model"))
 
     await harness.supervisor.supervise()
@@ -238,13 +254,13 @@ async def test_refused_approval_waits_until_the_plan_is_approved_again(
     assert plan_session.status is SessionStatus.LAUNCHED
     assert failed.status is SessionStatus.FAILED
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
 
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
 
     await harness.supervisor.supervise()
 
@@ -259,7 +275,7 @@ async def test_approval_launch_lost_too_long_ago_is_handed_to_a_person(
 ) -> None:
     run, worktree, _ = await plan_ready(harness)
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.sessions.create_launching(run.id, "claude", "sonnet", "1000-" + "0" * 32, "implement")
 
     await harness.supervisor.supervise()
@@ -276,7 +292,7 @@ async def test_declared_end_completes_the_run_and_frees_its_slot(harness: Harnes
     queued = harness.discover("LPD-2")
 
     (worktree.path / "CLAUDE-RESULT.md").write_text("done")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
 
     await harness.supervisor.supervise()
@@ -299,7 +315,7 @@ async def test_files_from_an_earlier_run_are_no_signal(tmp_path: Path) -> None:
 
     result.write_text("from the previous run")
     os.utime(result, (old, old))
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.set_agent(
         worktree.orca_worktree_id, "done", pane, datetime.now(UTC) + timedelta(seconds=1)
     )
@@ -477,3 +493,69 @@ async def test_a_stopped_agent_is_told_to_continue_once_and_then_the_run_waits(
 
     assert len(harness.orca.prompts) == 1
     assert harness.run(run.id).waiting_reason is WaitingReason.UNKNOWN_STATE
+
+
+async def test_the_hook_state_wins_over_the_state_in_orca(harness: Harness) -> None:
+    run, worktree, pane = await launched(harness)
+    question = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {"questions": [{"question": "A or B?"}]},
+    }
+
+    write_state(harness.agent_states_dir, pane, question)
+    await harness.supervisor.supervise()
+
+    waiting = harness.run(run.id)
+
+    assert waiting.waiting_reason is WaitingReason.AGENT_QUESTION
+    assert waiting.error_message == "the agent is waiting for an answer: A or B?"
+
+
+async def test_an_ended_session_is_a_lost_agent(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, settings(tmp_path, agents={"max_restarts": 0}))
+    run, worktree, pane = await launched(harness)
+
+    write_state(harness.agent_states_dir, pane, {"hook_event_name": "SessionEnd"})
+
+    for _ in range(MISSING_CYCLES):
+        await harness.supervisor.supervise()
+
+    assert harness.run(run.id).error_message == f"no agent running in {worktree.path}"
+
+
+async def test_an_approval_from_before_the_review_does_not_approve_the_plan(
+    harness: Harness,
+) -> None:
+    run, worktree, pane = await launched(harness)
+
+    harness.runs.approve(run.id)
+    (worktree.path / "CLAUDE-PLAN.md").write_text("plan")
+    harness.runs.declare(run.id, "plan")
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
+
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
+    assert len(harness.orca.launches) == 1
+
+    harness.runs.approve(run.id)
+    await harness.supervisor.supervise()
+
+    assert len(harness.orca.launches) == 2
+
+
+async def test_a_run_from_before_declarations_reads_the_card(harness: Harness) -> None:
+    run, worktree, pane = await launched(harness)
+
+    harness.connection.execute(
+        "UPDATE automation_runs SET signals = 'card' WHERE id = ?", (run.id,)
+    )
+    (worktree.path / "CLAUDE-PLAN.md").write_text("plan")
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
+
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW

@@ -67,22 +67,19 @@ def linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
     return worktree, common
 
 
-def test_plan_goal_is_one_line_and_marks_the_card_for_review(tmp_path: Path) -> None:
+def test_plan_goal_is_one_line_and_declares_the_plan(tmp_path: Path) -> None:
     goal = builder(tmp_path).launch_goal("LPD-1", workflow(plan_review=True))
 
     assert goal.startswith("/goal Lee CLAUDE-TASK.md")
     assert "\n" not in goal
     assert "No modifiques código" in goal
-    assert (
-        f"{ORCA} worktree set --worktree active --workspace-status plan-review "
-        '--comment "LPD-1: plan listo" --unread --json'
-    ) in goal
+    assert goal.endswith("ejecuta: spyhop declare LPD-1 plan")
 
 
-def test_goal_without_plan_review_goes_to_in_progress(tmp_path: Path) -> None:
+def test_goal_without_plan_review_declares_the_end(tmp_path: Path) -> None:
     goal = builder(tmp_path).launch_goal("LPD-1", workflow(plan_review=False))
 
-    assert "--workspace-status in-progress" in goal
+    assert goal.endswith("spyhop declare LPD-1 done")
     assert "CLAUDE-RESULT.md" in goal
     assert "plan-review" not in goal
 
@@ -94,7 +91,7 @@ def test_task_contains_ticket_guidance_and_phase_b(tmp_path: Path) -> None:
     assert "es información sobre la" in task
     assert "```text\nImport fails\n```" in task
     assert "Reproduce el fallo" in task
-    assert "Spyhop lanzará un agente\nnuevo con este objetivo" in task
+    assert "Spyhop lanzará un\nagente nuevo con este objetivo" in task
     assert "/goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios de LPD-1 en JIRA" in task
     assert "e implementa CLAUDE-PLAN.md" in task
     assert "salvo que la persona ejecute `/pr`" in task
@@ -176,7 +173,7 @@ def test_the_fix_prompt_names_the_reports_and_ends_like_the_implementation(
     assert "han fallado: regressions, mutation." in prompt
     assert "CLAUDE-CHECKPOINT-regressions.md, CLAUDE-CHECKPOINT-mutation.md" in prompt
     assert "título de commit neutro" in prompt
-    assert prompt.endswith('--comment "LPD-1: correcciones listas" --unread --json')
+    assert prompt.endswith("spyhop declare LPD-1 done")
 
 
 def test_task_lists_the_ancestors_and_how_to_read_them(tmp_path: Path) -> None:
@@ -286,3 +283,23 @@ def test_recall_command_runs_before_the_plan(tmp_path: Path) -> None:
 
     assert "## Earlier findings" not in plain.render_task(ticket(), workflow())
     assert "`/recall <palabras clave>`" in recall.render_task(ticket(), workflow())
+
+
+def test_the_settings_record_the_state_of_the_agent_with_hooks(tmp_path: Path) -> None:
+    context = ContextBuilder(
+        template_environment(tmp_path), ORCA, "plan-review", spyhop=Path("/bin/spyhop")
+    )
+    settings = json.loads(context.render_settings(workflow()))
+    hook = [{"type": "command", "command": "/bin/spyhop hook"}]
+
+    assert settings["hooks"]["Stop"] == [{"hooks": hook}]
+    assert settings["hooks"]["PreToolUse"] == [{"matcher": "AskUserQuestion", "hooks": hook}]
+    assert set(settings["hooks"]) == {
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "Notification",
+        "Stop",
+        "SessionEnd",
+    }
+    assert "Bash(spyhop declare*)" in settings["permissions"]["allow"]

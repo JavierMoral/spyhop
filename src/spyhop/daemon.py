@@ -35,6 +35,7 @@ from spyhop.domain.exceptions import (
     JiraRateLimitedError,
     OrcaError,
 )
+from spyhop.infrastructure.agent_state import AGENT_STATES
 from spyhop.infrastructure.desktop import notify
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.client import OrcaClient
@@ -176,6 +177,7 @@ def _agents(
         settings.orca.plan_approved_status,
         settings.agents.review_command,
         settings.knowledge.recall_command,
+        spyhop_executable(),
     )
     supervisor_session = SupervisorSession(
         worktrees=worktrees,
@@ -205,6 +207,7 @@ def _agents(
             supervisor_session=supervisor_session,
         ),
         supervisor_session=supervisor_session,
+        agent_states_dir=state_dir() / AGENT_STATES,
         knowledge=KnowledgeWriter(
             CheckpointRunRepository(connection),
             settings.knowledge.write_script,

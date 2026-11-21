@@ -181,6 +181,18 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs DROP COLUMN implement_request_id;
     """,
+    # Spyhop data instead of the Orca card: what the agent declared and when,
+    # when a person approved the plan, and whether the run still reads the
+    # card ("card", the runs from before) or the declarations ("declare").
+    """
+    ALTER TABLE automation_runs ADD COLUMN declared TEXT;
+
+    ALTER TABLE automation_runs ADD COLUMN declared_at TEXT;
+
+    ALTER TABLE automation_runs ADD COLUMN approved_at TEXT;
+
+    ALTER TABLE automation_runs ADD COLUMN signals TEXT NOT NULL DEFAULT 'card';
+    """,
 ]
 
 

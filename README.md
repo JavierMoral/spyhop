@@ -44,8 +44,9 @@ it runs the Spyhop commands that you ask for.
    [pipeline](#pipelines-and-checkpoints) starts with checks, the agent starts
    after they pass. The agent gets the ticket and its parents in
    `CLAUDE-TASK.md`.
-2. The agent writes `CLAUDE-PLAN.md` and moves its Orca card to *In review*.
-   The supervisor session gives you a summary of the plan. **Read the plan**,
+2. The agent writes `CLAUDE-PLAN.md` and declares it with
+   `spyhop declare KEY plan`. Its Orca card moves to *In review*. The
+   supervisor session gives you a summary of the plan. **Read the plan**,
    then do one of these:
    - **Approve it.** Tell the supervisor session that you approve the plan.
    - **Change it.** Give the changes to the supervisor session. It sends them
@@ -54,12 +55,13 @@ it runs the Spyhop commands that you ask for.
    The implementation agent reads only `CLAUDE-PLAN.md`, so make sure that
    each change goes into that file. You can close the tab of the plan agent:
    the approval still starts the implementation, and the supervisor session
-   starts a new plan agent for the changes (`spyhop replan`).
+   starts a new plan agent for the changes (`spyhop replan`). The card only
+   shows the state: moving it does not approve the plan.
 3. Spyhop starts a new agent on `agents.model`. It implements the plan, makes
-   local commits, writes `CLAUDE-RESULT.md` and leaves its card in
-   *In progress*. If the workflow has [checkpoints](#pipelines-and-checkpoints)
-   after the implementation, Spyhop runs them, and the agent fixes what they
-   find. **Review the commits, then push and open the pull request**, yourself
+   local commits, writes `CLAUDE-RESULT.md` and declares the end with
+   `spyhop declare KEY done`. If the workflow has
+   [checkpoints](#pipelines-and-checkpoints) after the implementation, Spyhop
+   runs them, and the agent fixes what they find. **Review the commits, then push and open the pull request**, yourself
    or with `/pr` in the agent's terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree. See
    [When the ticket closes](#when-the-ticket-closes).
@@ -88,6 +90,11 @@ Each worktree gets one Claude session in an Orca tab named `spyhop`. Spyhop
 sends it a message that starts with `[spyhop]` for each event: the new
 worktree, the start of an agent or a checkpoint, each verdict, a run that
 fails to start, the end of the run, and each reason why the run waits for you.
+Spyhop knows what each agent does from the Claude Code hooks that it writes to
+`.claude/settings.local.json` in the worktree: the hooks run `spyhop hook`,
+which records the state of the agent. Orca tells whether the terminal of the
+agent still exists.
+
 A run that has no worktree yet has no session: for example, a run that waits
 for disk space or for its worktree script, or that fails before its worktree
 exists. Spyhop shows a desktop notification (`notify-send`) for it, and tells
@@ -375,6 +382,7 @@ knowledge:
 | --- | --- |
 | `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
+| `spyhop declare KEY plan\|done` | Declare that the plan or the work is ready. The agents run it at the end of their goal. |
 | `spyhop replan KEY TEXT` | Start a new plan agent that changes `CLAUDE-PLAN.md`, for a plan in review whose agent is closed. |
 | `spyhop tell KEY TEXT` | Send a message to the current agent of the run, in its Orca terminal. |
 | `spyhop ticket KEY` | Show all the fields of a JIRA ticket, also the custom fields, and its comments. The agents and the checkpoints read the ticket with it. |

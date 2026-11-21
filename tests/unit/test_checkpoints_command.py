@@ -731,3 +731,27 @@ def test_replan_asks_for_a_new_plan_agent_only_for_a_plan_in_review(
 
     assert result.exit_code == 0
     assert runs.list(issue_key="LPD-1")[0].plan_changes == "Add a test."
+
+
+def test_declare_and_approve_are_stored_without_orca(
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", "/nonexistent")
+
+    runs = RunRepository(connect(database_file(dry_run=False)))
+    [automation_run] = runs.list(issue_key="LPD-1")
+
+    declared = CliRunner().invoke(app, ["declare", "LPD-1", "plan", "--config", str(config_file)])
+    wrong = CliRunner().invoke(app, ["declare", "LPD-1", "maybe", "--config", str(config_file)])
+
+    runs.mark_waiting(automation_run.id, WaitingReason.PLAN_REVIEW)
+
+    approved = CliRunner().invoke(app, ["approve", "LPD-1", "--config", str(config_file)])
+    current = runs.list(issue_key="LPD-1")[0]
+
+    assert declared.exit_code == 0, declared.output
+    assert "the card did not move" in declared.output
+    assert wrong.exit_code == 1
+    assert approved.exit_code == 0, approved.output
+    assert current.declared == "plan" and current.declared_at is not None
+    assert current.approved_at is not None

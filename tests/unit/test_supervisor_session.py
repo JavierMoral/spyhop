@@ -250,7 +250,7 @@ async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Pa
     assert session is not None and session.pane_key is not None
 
     written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
     await harness.supervisor.supervise()
     harness.orca.agents.clear()
@@ -266,7 +266,7 @@ async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Pa
     assert session_prompts(harness, "term_check_1").count(closed) == 1
     assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     await harness.supervisor.supervise()
 
     assert len(harness.orca.launches) == 2

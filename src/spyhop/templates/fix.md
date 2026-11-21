@@ -8,5 +8,4 @@ Una corrección de seguridad lleva un título de commit neutro, que dice qué ha
 Si un hallazgo no es correcto, no cambies el código y explica el motivo en CLAUDE-RESULT.md.
 No edites CLAUDE-CHECKPOINTS.md ni los informes. No hagas push.
 Después reescribe CLAUDE-RESULT.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ plan_approved_status }}
---comment "{{ issue_key }}: correcciones listas" --unread --json
+{{ spyhop }} declare {{ issue_key }} done

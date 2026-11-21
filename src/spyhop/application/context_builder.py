@@ -78,6 +78,7 @@ class ContextBuilder:
         plan_approved_status: str = "in-progress",
         review_command: str | None = None,
         recall_command: str | None = None,
+        spyhop: Path = Path("spyhop"),
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
@@ -85,6 +86,7 @@ class ContextBuilder:
         self._plan_approved_status = plan_approved_status
         self._review_command = review_command
         self._recall_command = recall_command
+        self._spyhop = spyhop
 
     def prepare(
         self, worktree_path: Path, ticket: TicketDetails, workflow: ResolvedWorkflow
@@ -125,6 +127,7 @@ class ContextBuilder:
             "settings.local.json.j2",
             build_commands=list(workflow.build_commands),
             orca_commands=self._orca_commands(),
+            spyhop=str(self._spyhop),
         )
 
         try:
@@ -144,6 +147,7 @@ class ContextBuilder:
             "goal.md",
             phase=phase,
             changes=oneline(changes),
+            spyhop=str(self._spyhop),
             issue_key=issue_key,
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,
@@ -155,6 +159,7 @@ class ContextBuilder:
     def fix_prompt(self, issue_key: str, failed: Sequence[str]) -> str:
         text = self._render(
             "fix.md",
+            spyhop=str(self._spyhop),
             issue_key=issue_key,
             failed=list(failed),
             orca=str(self._orca_executable),

@@ -18,6 +18,7 @@ from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import Settings
+from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
 from spyhop.domain.models import (
     AgentRow,
@@ -413,7 +414,11 @@ class Harness:
         self.measured: list[Path] = []
         self.dirty: set[Path] = set()
         self.context = ContextBuilder(
-            template_environment(tmp_path / "templates"), ORCA, PLAN_REVIEW, PLAN_APPROVED
+            template_environment(tmp_path / "templates"),
+            ORCA,
+            PLAN_REVIEW,
+            PLAN_APPROVED,
+            spyhop=SPYHOP,
         )
         self.supervisor_session = (
             SupervisorSession(
@@ -464,6 +469,7 @@ class Harness:
             has_changes=lambda path: path in self.dirty,
         )
         self.agents_dir = tmp_path / "agents"
+        self.agent_states_dir = tmp_path / "agent-states"
         self.results_dir = tmp_path / "results"
         self.checkpoint_runs = CheckpointRunRepository(self.connection)
         self.check_runner = CheckRunner(
@@ -488,6 +494,7 @@ class Harness:
             resolver=WorkflowResolver(self.config),
             check_runner=self.check_runner,
             supervisor_session=self.supervisor_session,
+            agent_states_dir=self.agent_states_dir,
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:
@@ -495,6 +502,26 @@ class Harness:
             raise self.cleanup_errors.pop(0)
 
         self.cleaned.append(worktree.path)
+
+    def set_card(self, orca_worktree_id: str, status: str) -> None:
+        """What a move of the card meant before `spyhop declare`: the review
+        column is the plan declared, and the approved column is the end
+        declared and the plan approved. The card also moves."""
+
+        self.orca.set_card(orca_worktree_id, status)
+
+        worktree = next(
+            row
+            for row in self.worktrees.list_by_status(WorktreeStatus.ACTIVE)
+            if row.orca_worktree_id == orca_worktree_id
+        )
+        [run] = self.runs.list(issue_key=worktree.issue_key)
+
+        if status == PLAN_REVIEW:
+            self.runs.declare(run.id, "plan")
+        elif status == PLAN_APPROVED:
+            self.runs.declare(run.id, "done")
+            self.runs.approve(run.id)
 
     async def notify(self, title: str, body: str) -> None:
         self.notifications.append((title, body))

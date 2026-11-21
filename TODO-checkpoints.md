@@ -243,6 +243,9 @@ R4. [x] **Checks before the plan.** The plan agent reads their reports.
 
 ## Optional
 
+- [ ] Remove the fallback of `signals = 'card'` in `AgentSupervisor._supervise`
+  and in `spyhop approve` once no run from before `spyhop declare` is active.
+
 - [ ] From the code review: while a run waits on a failed checkpoint with the
   `ticket` input, each cycle sends one JIRA request and parses the agent
   files again. Cache the parsed checkpoints in `advance`, and read the

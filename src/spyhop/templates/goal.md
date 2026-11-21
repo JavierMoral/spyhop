@@ -8,22 +8,18 @@
 {%- if phase == "plan" -%}
 /goal Lee CLAUDE-TASK.md, obtén de JIRA el contexto que indica, analiza el código y escribe CLAUDE-PLAN.md con el enfoque, los ficheros
 afectados, los tests previstos y los casos similares del código que sigue, según la sección Patterns. No modifiques código. Al terminar ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ plan_review_status }}
---comment "{{ issue_key }}: plan listo" --unread --json
+{{ spyhop }} declare {{ issue_key }} plan
 {%- elif phase == "replan" -%}
 /goal Lee CLAUDE-TASK.md y CLAUDE-PLAN.md, y cambia CLAUDE-PLAN.md con estos cambios de la persona que revisa el plan: {{ changes }}
 No modifiques código. Al terminar ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ plan_review_status }}
---comment "{{ issue_key }}: plan listo" --unread --json
+{{ spyhop }} declare {{ issue_key }} plan
 {%- elif phase == "implement" -%}
 /goal Lee CLAUDE-TASK.md, vuelve a leer los comentarios de {{ issue_key }} en JIRA e implementa CLAUDE-PLAN.md hasta tener commits locales limpios y los tests del módulo
 en verde. Después sigue la sección Review de CLAUDE-TASK.md, si la tiene. Escribe CLAUDE-RESULT.md según CLAUDE-TASK.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ plan_approved_status }}
---comment "{{ issue_key }}: listo para revisión" --unread --json
+{{ spyhop }} declare {{ issue_key }} done
 {%- else -%}
 /goal Lee CLAUDE-TASK.md, obtén de JIRA el contexto que indica, analiza el código, escribe CLAUDE-PLAN.md con el enfoque, los tests
 previstos y los casos similares del código que sigue, según la sección Patterns, e impleméntalo hasta tener commits locales limpios y los tests del módulo
 en verde. Después sigue la sección Review de CLAUDE-TASK.md, si la tiene. Escribe CLAUDE-RESULT.md según CLAUDE-TASK.md y ejecuta:
-{{ orca }} worktree set --worktree active --workspace-status {{ plan_approved_status }}
---comment "{{ issue_key }}: listo para revisión" --unread --json
+{{ spyhop }} declare {{ issue_key }} done
 {%- endif -%}

@@ -1,17 +1,19 @@
-"""Follows each launched run through Orca until its agent declares the end.
+"""Follows each launched run until its agent declares the end.
 
-Orca emits no event when Claude reaches its /goal, so the agent declares its
-own progress: it moves its card to the plan review column with CLAUDE-PLAN.md written,
-or to the approved column with CLAUDE-RESULT.md written. Each cycle reads the agents
-of every worktree (`worktree ps`), the run's card (`worktree show`) and those two
-files, and applies the signal table in `observe`.
+Claude emits no event when it reaches its /goal, so the agent declares its own
+progress with `spyhop declare KEY plan` once CLAUDE-PLAN.md is written, or
+`spyhop declare KEY done` once CLAUDE-RESULT.md is written. Each cycle reads
+the declarations of the run, the agents of every worktree, and those two files,
+and applies the signal table in `observe`. The state of an agent comes from the
+Claude Code hooks of the worktree (see agent_state), and from Orca when there
+is no hook state; Orca still tells whether the agent's pane exists.
 
-Plan approval: a person moves the card from the plan review column to the
-approved column, and Spyhop launches a new agent on agents.model with the
-implementation /goal. CLAUDE-PLAN.md is all that agent gets from the plan. The
-launch follows the launcher's rules: the operation id is stored before calling
-Orca, so a launch whose answer was lost is replayed rather than repeated. The
-plan agent stays open and idle; its session is finished.
+Plan approval: a person approves with `spyhop approve`, and Spyhop launches a
+new agent on agents.model with the implementation /goal. CLAUDE-PLAN.md is all
+that agent gets from the plan. The launch follows the launcher's rules: the
+operation id is stored before calling Orca, so a launch whose answer was lost
+is replayed rather than repeated. The plan agent stays open and idle; its
+session is finished.
 
 A new agent, and not /model in the plan agent's session, because /model asks
 for a confirmation and saves the model as the user's default for every session.
@@ -38,6 +40,7 @@ and each reason why the run waits for a person. A wait that does not reach the
 session goes again on the next cycle. Its pane is not an agent of the run.
 """
 
+import dataclasses
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -70,6 +73,7 @@ from spyhop.domain.models import (
     Worktree,
 )
 from spyhop.domain.protocols import OrcaGateway
+from spyhop.infrastructure.agent_state import read_state
 from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
@@ -92,8 +96,8 @@ MISSING_CYCLES = 3
 MAX_QUESTION_LENGTH = 1500
 
 CONTINUE_PROMPT = (
-    "Continúa con la tarea de CLAUDE-TASK.md. Si ya has terminado, declara el plan o el fin "
-    "como dice CLAUDE-TASK.md: escribe CLAUDE-PLAN.md o CLAUDE-RESULT.md y mueve la tarjeta."
+    "Continúa con la tarea de CLAUDE-TASK.md. Si ya has terminado, escribe CLAUDE-PLAN.md o "
+    "CLAUDE-RESULT.md y declara el plan o el fin con el comando spyhop declare de tu /goal."
 )
 
 
@@ -110,25 +114,22 @@ class Signal(StrEnum):
 
 @dataclass(frozen=True)
 class Observation:
-    card_status: str | None
+    declared: str | None  # "plan" or "done", declared by this run's agent
+    approved: bool  # a person approved the plan after it went to review
     agent: AgentRow | None
     plan_written: bool  # CLAUDE-PLAN.md written by this run's agent
     result_written: bool  # CLAUDE-RESULT.md written by this run's agent
 
 
-def observe(
-    run: AutomationRun, seen: Observation, plan_review_status: str, plan_approved_status: str
-) -> Signal:
+def observe(run: AutomationRun, seen: Observation) -> Signal:
     """The signal table. Order matters: the agent's explicit declaration of
-    the end wins, then what the agent is doing right now, then the card."""
+    the end wins, then what the agent is doing right now, then the plan."""
 
-    if seen.card_status == plan_approved_status and seen.result_written:
+    if seen.declared == "done" and seen.result_written:
         return Signal.COMPLETED
 
     agent = seen.agent
-    approved = (
-        run.waiting_reason is WaitingReason.PLAN_REVIEW and seen.card_status == plan_approved_status
-    )
+    approved = run.waiting_reason is WaitingReason.PLAN_REVIEW and seen.approved
 
     # The implementation agent needs only CLAUDE-PLAN.md, not the plan agent:
     # a person can close the plan agent before or after the approval.
@@ -148,11 +149,14 @@ def observe(
     if agent.state in ("waiting", "blocked"):
         return Signal.QUESTION
 
-    if seen.card_status == plan_review_status and seen.plan_written and not seen.result_written:
-        return Signal.PLAN_READY
+    # An approval wins over the plan that it approves: the declaration of the
+    # plan stays after `spyhop approve`.
 
     if approved:
         return Signal.PLAN_APPROVED
+
+    if seen.declared == "plan" and seen.plan_written and not seen.result_written:
+        return Signal.PLAN_READY
 
     # A state older than the run's last transition was already accounted for:
     # right after a launch or a prompt the agent still shows its previous turn.
@@ -183,8 +187,10 @@ class AgentSupervisor:
         check_runner: CheckRunner | None = None,
         supervisor_session: SupervisorSession | None = None,
         knowledge: KnowledgeWriter | None = None,
+        agent_states_dir: Path | None = None,
     ) -> None:
         self._runs = runs
+        self._agent_states_dir = agent_states_dir
         self._knowledge = knowledge
         self._supervisor_session = supervisor_session
         self._resolver = resolver
@@ -287,13 +293,36 @@ class AgentSupervisor:
         # after the request counts.
 
         since = run.fix_requested_at or _since(run, session)
+
+        if run.signals == "card":
+            # Fallback for the runs from before `spyhop declare`, whose agent
+            # moves its card. Remove it once no such run is active.
+
+            declared = {
+                self._plan_review_status: "plan",
+                self._plan_approved_status: "done",
+            }.get(card.workspace_status or "")
+            approved = card.workspace_status == self._plan_approved_status
+        else:
+            declared = (
+                run.declared
+                if run.declared_at is not None and (since is None or run.declared_at >= since)
+                else None
+            )
+            approved = (
+                run.approved_at is not None
+                and run.status_changed_at is not None
+                and run.approved_at >= run.status_changed_at
+            )
+
         seen = Observation(
-            card_status=card.workspace_status,
-            agent=_run_agent(rows, session),
+            declared=declared,
+            approved=approved,
+            agent=self._with_hook_state(_run_agent(rows, session)),
             plan_written=_written_since(worktree.path / PLAN_FILE, since),
             result_written=_written_since(worktree.path / RESULT_FILE, since),
         )
-        signal = observe(run, seen, self._plan_review_status, self._plan_approved_status)
+        signal = observe(run, seen)
 
         if signal is Signal.MISSING:
             await self._on_missing(run, worktree, workflow, session)
@@ -334,8 +363,8 @@ class AgentSupervisor:
         elif signal is Signal.PLAN_READY:
             await self._wait(run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}")
         elif signal is Signal.PLAN_APPROVED:
-            # Without plan_review in the pipeline, a person moved the card of
-            # a plan that the agent wrote by itself: as before, a new agent
+            # Without plan_review in the pipeline, a person approved a plan
+            # that the agent wrote by itself: as before, a new agent
             # implements it.
 
             phases = workflow.phases
@@ -386,6 +415,28 @@ class AgentSupervisor:
             return
 
         await self._wait(run, WaitingReason.UNKNOWN_STATE, f"no agent running in {worktree.path}")
+
+    def _with_hook_state(self, agent: AgentRow | None) -> AgentRow | None:
+        """The agent with the state that its hooks recorded, when there is
+        one. Orca still tells whether its pane exists."""
+
+        if agent is None or agent.pane_key is None or self._agent_states_dir is None:
+            return agent
+
+        recorded = read_state(self._agent_states_dir, agent.pane_key)
+
+        if recorded is None:
+            return agent
+
+        if recorded.state == "ended":
+            return None
+
+        return dataclasses.replace(
+            agent,
+            state=recorded.state,
+            question=recorded.question,
+            state_started_at=recorded.at,
+        )
 
     async def _change_plan(
         self, run: AutomationRun, worktree: Worktree, session: AgentSession | None

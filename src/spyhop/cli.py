@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from datetime import timedelta
 from importlib.resources import files
 from pathlib import Path
@@ -34,6 +35,7 @@ from spyhop.config.paths import (
     database_file,
     default_config_file,
     spyhop_executable,
+    state_dir,
     systemd_user_unit_file,
 )
 from spyhop.config.settings import Settings, load_settings
@@ -42,6 +44,7 @@ from spyhop.doctor import Level, run_checks
 from spyhop.domain.enums import WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import ConfigurationError, OrcaCommandError, SpyhopError
 from spyhop.domain.models import ChecksPhase, ResolvedWorkflow
+from spyhop.infrastructure.agent_state import AGENT_STATES, pane_key, write_state
 from spyhop.infrastructure.git import top_level
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.jira.mapping import ticket_text
@@ -61,6 +64,12 @@ from spyhop.infrastructure.service.systemd import (
     render_unit,
     uninstall_unit,
 )
+
+# What an agent declares: the board column and the comment of its card.
+DECLARATIONS = {
+    "plan": ("plan_review_status", "plan listo"),
+    "done": ("plan_approved_status", "listo para revisión"),
+}
 
 app = typer.Typer(
     help="Watches JIRA and feeds tickets to Claude Code agents running in Orca.",
@@ -363,12 +372,14 @@ def approve(
 ) -> None:
     """Approve the plan of a run that waits for its review.
 
-    Moves the card to orca.plan_approved_status, as a person does on the
-    board. The running daemon starts the next phase on its next cycle."""
+    The running daemon starts the next phase on its next cycle. The card of
+    the worktree also moves to orca.plan_approved_status, to show it on the
+    board."""
 
     settings = _load(config)
     connection = connect(_existing_database(config, dry_run, settings))
-    active = RunRepository(connection).list(issue_key=issue_key.upper())
+    runs = RunRepository(connection)
+    active = runs.list(issue_key=issue_key.upper())
 
     if not active or active[0].waiting_reason is not WaitingReason.PLAN_REVIEW:
         typer.echo(f"{issue_key.upper()} has no plan that waits for a review.", err=True)
@@ -387,6 +398,8 @@ def approve(
 
         raise typer.Exit(1)
 
+    runs.approve(automation_run.id)
+
     try:
         asyncio.run(
             orca_client(settings).set_card_status(
@@ -394,13 +407,77 @@ def approve(
             )
         )
     except SpyhopError as error:
-        typer.echo(f"{automation_run.issue_key}: plan not approved: {error}", err=True)
+        # A run from before `spyhop declare` reads the approval from the card.
 
-        raise typer.Exit(1) from None
+        if automation_run.signals == "card":
+            typer.echo(f"{automation_run.issue_key}: plan not approved: {error}", err=True)
+
+            raise typer.Exit(1) from None
+
+        typer.echo(f"{automation_run.issue_key}: the card did not move: {error}", err=True)
 
     typer.echo(
         f"{automation_run.issue_key}: plan approved; the next phase starts on the next cycle."
     )
+
+
+@app.command()
+def declare(
+    issue_key: Annotated[str, typer.Argument(help="Ticket of the agent")],
+    what: Annotated[
+        str, typer.Argument(help="plan: CLAUDE-PLAN.md is ready. done: CLAUDE-RESULT.md is ready")
+    ],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Declare that the plan or the work of the run is ready.
+
+    The agent of the run runs this command at the end of its /goal. The card
+    of the worktree also moves, to show it on the board."""
+
+    if what not in DECLARATIONS:
+        typer.echo(f"Declare one of: {', '.join(DECLARATIONS)}.", err=True)
+
+        raise typer.Exit(1)
+
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+    runs = RunRepository(connection)
+    active = runs.list(issue_key=issue_key.upper())
+
+    if not active:
+        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
+
+        raise typer.Exit(1)
+
+    automation_run = active[0]
+
+    runs.declare(automation_run.id, what)
+
+    worktree = (
+        WorktreeRepository(connection).get(automation_run.worktree_id)
+        if automation_run.worktree_id
+        else None
+    )
+
+    if worktree is not None:
+        status, comment = DECLARATIONS[what]
+
+        try:
+            orca = orca_client(settings)
+
+            asyncio.run(
+                orca.set_card_status(worktree.orca_worktree_id, getattr(settings.orca, status))
+            )
+            asyncio.run(
+                orca.mark_card(worktree.orca_worktree_id, f"{automation_run.issue_key}: {comment}")
+            )
+        except SpyhopError as error:
+            typer.echo(f"{automation_run.issue_key}: the card did not move: {error}", err=True)
+
+    typer.echo(f"{automation_run.issue_key}: {what} declared.")
 
 
 @app.command()
@@ -526,6 +603,22 @@ def doctor(config: ConfigOption = None) -> None:
 
     if any(check.level is Level.ERROR for check in checks):
         raise typer.Exit(1)
+
+
+@app.command(hidden=True)
+def hook() -> None:
+    """Record the state of the Claude agent of this terminal. The Claude Code
+    hooks of each worktree run this command with the event on stdin."""
+
+    # A hook must never stop Claude: any problem here is ignored.
+
+    try:
+        pane = pane_key(dict(os.environ))
+
+        if pane is not None:
+            write_state(state_dir() / AGENT_STATES, pane, json.loads(sys.stdin.read() or "{}"))
+    except Exception as error:  # noqa: BLE001
+        logging.getLogger("spyhop").debug("hook ignored: %s", error)
 
 
 @app.command()

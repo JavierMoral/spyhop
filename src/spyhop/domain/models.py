@@ -199,6 +199,15 @@ class AutomationRun:
     restarts: int = 0
     # The changes to the plan that a new plan agent makes on the next cycle.
     plan_changes: str | None = None
+    # "declare": the agent declares with `spyhop declare`. "card": a run from
+    # before, whose agent moves its Orca card. Remove "card" once no such run
+    # is active.
+    signals: str = "declare"
+    # What the agent declared last ("plan" or "done"), and when.
+    declared: str | None = None
+    declared_at: datetime | None = None
+    # When a person approved the plan with `spyhop approve`.
+    approved_at: datetime | None = None
 
 
 @dataclass(frozen=True)

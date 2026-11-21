@@ -116,13 +116,12 @@ hagas push.
 ## Phases
 
 Fase A: escribir CLAUDE-PLAN.md y esperar la revisión de una persona. Si te
-responde con cambios, actualiza CLAUDE-PLAN.md y vuelve a marcar la tarjeta como en la
-fase A. La fase B la hace otro agente, que no ve esta conversación: deja en
+responde con cambios, actualiza CLAUDE-PLAN.md y vuelve a declarar el plan como en
+la fase A. La fase B la hace otro agente, que no ve esta conversación: deja en
 CLAUDE-PLAN.md todo lo que hayas acordado con la persona.
 
-Fase B: cuando la persona apruebe el plan (moviendo la tarjeta de
-`{{ plan_review_status }}` a `{{ plan_approved_status }}`), Spyhop lanzará un agente
-nuevo con este objetivo. El agente de la fase A no la empieza por su cuenta:
+Fase B: cuando la persona apruebe el plan (`spyhop approve`), Spyhop lanzará un
+agente nuevo con este objetivo. El agente de la fase A no la empieza por su cuenta:
 
 ```
 {{ implement_goal }}

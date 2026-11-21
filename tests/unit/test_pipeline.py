@@ -246,7 +246,7 @@ async def implemented(harness: Harness) -> tuple[AutomationRun, Worktree, str]:
     (worktree.path / "App.java").write_text("class App { int fixed; }\n")
     git(worktree.path, "commit", "--quiet", "-am", "LPD-1 Fix")
     written(worktree.path / "CLAUDE-RESULT.md", "done")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
 
     await harness.supervisor.supervise()
@@ -318,6 +318,7 @@ async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
 
     git(worktree.path, "commit", "--quiet", "--allow-empty", "-m", "LPD-1 Fix the caller")
     written(worktree.path / "CLAUDE-RESULT.md", "fixed", ahead=1)
+    harness.runs.declare(run.id, "done")
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
     await harness.supervisor.supervise()
 
@@ -527,13 +528,13 @@ async def test_an_approved_plan_without_plan_review_starts_a_new_agent(tmp_path:
     assert session is not None and session.pane_key is not None
 
     written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
 
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     await harness.supervisor.supervise()
 
     assert len(harness.orca.launches) == 2
@@ -551,6 +552,7 @@ async def test_a_fix_whose_next_round_is_blocked_runs_the_round_once_unblocked(
     await harness.supervisor.supervise()
     (worktree.path / "Notes.java").write_text("class Notes {}\n")
     written(worktree.path / "CLAUDE-RESULT.md", "fixed", ahead=1)
+    harness.runs.declare(run.id, "done")
     harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
     await harness.supervisor.supervise()
 
@@ -587,10 +589,10 @@ async def test_each_agent_has_the_title_the_name_and_the_color_of_its_role(tmp_p
     assert session is not None and session.pane_key is not None
 
     written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
     await harness.supervisor.supervise()
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
+    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
     await harness.supervisor.supervise()
 
     assert harness.orca.titles == {
@@ -609,7 +611,7 @@ async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path:
     assert session is not None and session.pane_key is not None
 
     written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
     harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
     await harness.supervisor.supervise()
     harness.orca.agents.clear()
@@ -628,6 +630,7 @@ async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path:
     assert new_session.role == "plan"
 
     written(worktree.path / "CLAUDE-PLAN.md", "new plan", ahead=1)
+    harness.runs.declare(run.id, "plan")
     harness.orca.set_agent(
         worktree.orca_worktree_id,
         "done",

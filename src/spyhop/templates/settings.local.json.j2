@@ -4,7 +4,7 @@
 {%- set allow = [] -%}
 {%- for command in [
     "git status", "git diff", "git log", "git show", "git add", "git commit",
-    "spyhop checkpoints check", "spyhop ticket"] -%}
+    "spyhop checkpoints check", "spyhop ticket", "spyhop declare"] -%}
 {%- do allow.append("Bash(" ~ command ~ "*)") -%}
 {%- endfor -%}
 {%- for command in build_commands -%}
@@ -25,4 +25,15 @@
 {%- do deny.append("Bash(" ~ orca ~ " jira comment add*)") -%}
 {%- do deny.append("Bash(" ~ orca ~ " worktree rm*)") -%}
 {%- endfor -%}
-{{ {"permissions": {"defaultMode": "acceptEdits", "allow": allow, "deny": deny}} | tojson(indent=2) }}
+{#- The hooks record the state of the agent for the supervisor of Spyhop. -#}
+{%- set hook = [{"type": "command", "command": spyhop ~ " hook"}] -%}
+{%- set question = [{"matcher": "AskUserQuestion", "hooks": hook}] -%}
+{%- set hooks = {
+    "UserPromptSubmit": [{"hooks": hook}],
+    "PreToolUse": question,
+    "PostToolUse": question,
+    "Notification": [{"hooks": hook}],
+    "Stop": [{"hooks": hook}],
+    "SessionEnd": [{"hooks": hook}]} -%}
+{{ {"permissions": {"defaultMode": "acceptEdits", "allow": allow, "deny": deny}, "hooks": hooks}
+    | tojson(indent=2) }}

@@ -45,8 +45,8 @@ class RunRepository:
                 """
                 INSERT INTO automation_runs (
                     id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                    triggered_at, status, created_at, status_changed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    triggered_at, status, created_at, status_changed_at, signals
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
                 """,
                 (
                     run_id,
@@ -185,8 +185,8 @@ class RunRepository:
                 """
                 INSERT INTO automation_runs (
                     id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                    triggered_at, status, created_at, status_changed_at, retry_of
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    triggered_at, status, created_at, status_changed_at, retry_of, signals
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
                 """,
                 (
                     run_id,
@@ -273,6 +273,21 @@ class RunRepository:
         )
 
         return list(json.loads(row["notices"])) if row and row["notices"] else []
+
+    def declare(self, run_id: str, what: str) -> None:
+        """The agent declares that the plan is ready (``plan``) or that the
+        work is done (``done``)."""
+
+        self._connection.execute(
+            "UPDATE automation_runs SET declared = ?, declared_at = ? WHERE id = ?",
+            (what, _to_text(utc_now()), run_id),
+        )
+
+    def approve(self, run_id: str) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET approved_at = ? WHERE id = ?",
+            (_to_text(utc_now()), run_id),
+        )
 
     def request_plan_changes(self, run_id: str, changes: str | None) -> None:
         self._connection.execute(
@@ -689,6 +704,10 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         checks_failed_only=bool(row["checks_failed_only"]),
         restarts=row["restarts"],
         plan_changes=row["plan_changes"],
+        signals=row["signals"],
+        declared=row["declared"],
+        declared_at=_to_datetime(row["declared_at"]),
+        approved_at=_to_datetime(row["approved_at"]),
     )
 
 
