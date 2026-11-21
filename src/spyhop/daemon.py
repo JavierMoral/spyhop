@@ -50,16 +50,12 @@ from spyhop.infrastructure.persistence.repositories import (
     WorktreeRepository,
 )
 from spyhop.infrastructure.process.units import SystemdUnits
+from spyhop.infrastructure.service.systemd import WAKE_SIGNAL
 
 _log = logging.getLogger(__name__)
 
 
 async def run_daemon(settings: Settings, once: bool = False, database: Path | None = None) -> None:
-    # SIGUSR1 stops a process by default: until the wake handler is in place,
-    # a wake from a command must not stop the daemon.
-
-    signal.signal(signal.SIGUSR1, signal.SIG_IGN)
-
     dry_run = settings.application.dry_run
     database = database or database_file(dry_run)
 
@@ -107,7 +103,9 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
             # A wake from a local command runs the agents part now. JIRA
             # stays on the poll interval.
 
-            if loop.time() >= next_poll:
+            polled = loop.time() >= next_poll
+
+            if polled:
                 delay = float(settings.application.polling_interval)
 
                 try:
@@ -141,14 +139,16 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 janitor, supervisor, launcher = agents
 
                 # Cleaning up and supervising first free the slots of closed and
-                # finished runs for the launches of this same cycle.
+                # finished runs for the launches of this same cycle. The cleanup
+                # reads JIRA, so it runs only with the poll.
 
-                try:
-                    await janitor.sweep()
-                except JiraAuthenticationError:
-                    raise
-                except (JiraError, OrcaError) as error:
-                    _log.warning("Cleanup failed, will retry: %s", error)
+                if polled:
+                    try:
+                        await janitor.sweep()
+                    except JiraAuthenticationError:
+                        raise
+                    except (JiraError, OrcaError) as error:
+                        _log.warning("Cleanup failed, will retry: %s", error)
 
                 try:
                     await supervisor.supervise()
@@ -275,8 +275,8 @@ def orca_client(settings: Settings) -> OrcaClient:
 
 
 def _signal_events() -> tuple[asyncio.Event, asyncio.Event]:
-    """SIGINT and SIGTERM stop the daemon. SIGUSR1, from wake_service, starts
-    a cycle now. A stop also wakes the daemon from its wait."""
+    """SIGINT and SIGTERM stop the daemon. WAKE_SIGNAL, from wake_service,
+    starts a cycle now. A stop also wakes the daemon from its wait."""
 
     stop = asyncio.Event()
     wake = asyncio.Event()
@@ -289,6 +289,6 @@ def _signal_events() -> tuple[asyncio.Event, asyncio.Event]:
     for signal_number in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signal_number, on_stop)
 
-    loop.add_signal_handler(signal.SIGUSR1, wake.set)
+    loop.add_signal_handler(WAKE_SIGNAL, wake.set)
 
     return stop, wake

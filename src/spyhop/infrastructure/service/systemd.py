@@ -2,6 +2,7 @@
 
 import getpass
 import shlex
+import signal
 import subprocess
 from contextlib import suppress
 from importlib.resources import files
@@ -12,6 +13,12 @@ from jinja2 import Environment
 from spyhop.config.settings import ServiceSettings
 
 UNIT_NAME = "spyhop.service"
+
+# The default action of SIGWINCH is to ignore it. A wake that comes before the
+# daemon has its handler, for example while the login shell starts, or after
+# the daemon stops, does nothing.
+
+WAKE_SIGNAL = signal.SIGWINCH
 
 
 def render_unit(executable: Path, config_file: Path, service: ServiceSettings) -> str:
@@ -81,17 +88,28 @@ def unit_active() -> bool:
 
 def wake_service() -> None:
     """Asks the running service to start a cycle now. Without the service, or
-    when the signal fails, the next cycle starts at the poll interval."""
+    when the signal fails, the next cycle starts at the poll interval.
+
+    The command does not wait for systemctl: the Claude Code hooks run it, and
+    a slow user bus must not stop the agent."""
 
     # Only the main process: the Orca and git commands of the service are in
-    # the same unit, and SIGUSR1 stops them.
+    # the same unit.
 
-    with suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(
-            ["systemctl", "--user", "kill", "--kill-whom=main", "--signal=SIGUSR1", UNIT_NAME],
-            capture_output=True,
-            check=False,
-            timeout=5,
+    with suppress(OSError):
+        subprocess.Popen(
+            [
+                "systemctl",
+                "--user",
+                "kill",
+                "--kill-whom=main",
+                f"--signal={WAKE_SIGNAL.name}",
+                UNIT_NAME,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
 
 

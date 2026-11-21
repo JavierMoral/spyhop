@@ -15,11 +15,14 @@ give the commit.
 ## Pending, in this order
 
 1. [x] **Wake the daemon on local commands.** Today, `approve`, `declare`,
-   `replan`, `tell`, `checkpoints rerun` and the hooks wait for the next poll,
+   `replan`, `checkpoints rerun` and the hooks wait for the next poll,
    which can be `polling_interval` seconds later. Add a wake event to the
-   daemon loop with `loop.add_signal_handler(SIGUSR1, wake.set)`. Let the
-   commands send `systemctl --user kill -s USR1 spyhop`. A failure of the
-   signal is not an error. JIRA stays on the poll interval.
+   daemon loop with `loop.add_signal_handler(SIGWINCH, wake.set)`. Let the
+   commands send `systemctl --user kill --kill-whom=main -s WINCH spyhop`.
+   The default action of SIGWINCH is to ignore it, so an early wake does not
+   stop the service. A failure of the signal is not an error. JIRA stays on
+   the poll interval, and the cleanup runs only with the poll. Done in the
+   branch `wake-daemon`.
 
 2. [ ] **Store the pipeline of the run, not only an index.** `run.phase` is an
    index into the pipeline of the current configuration, and

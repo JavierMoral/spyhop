@@ -1,4 +1,4 @@
-"""The daemon loop: a wake starts the agents part now, and JIRA keeps its interval."""
+"""The daemon loop: a wake supervises and launches now, and JIRA keeps its interval."""
 
 import asyncio
 import os
@@ -10,6 +10,7 @@ import pytest
 
 from spyhop import daemon
 from spyhop.domain.models import JiraUser
+from spyhop.infrastructure.service.systemd import WAKE_SIGNAL
 from tests.factories import settings
 
 
@@ -74,7 +75,7 @@ async def test_a_wake_runs_the_agents_now_and_not_the_poll(
 
     await asyncio.wait_for(cycles.get(), 5)
 
-    os.kill(os.getpid(), signal.SIGUSR1)
+    os.kill(os.getpid(), WAKE_SIGNAL)
 
     await asyncio.wait_for(cycles.get(), 5)
 
@@ -82,4 +83,6 @@ async def test_a_wake_runs_the_agents_now_and_not_the_poll(
 
     await asyncio.wait_for(task, 5)
 
-    assert calls == ["poll", "sweep", "supervise", "launch", "sweep", "supervise", "launch"]
+    # The cleanup reads JIRA, so a wake skips it too.
+
+    assert calls == ["poll", "sweep", "supervise", "launch", "supervise", "launch"]

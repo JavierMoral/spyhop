@@ -363,6 +363,7 @@ def cleanup(
 
         raise typer.Exit(1)
 
+    wake_service()
     typer.echo(f"{worktree.issue_key}: {worktree.path} removed")
 
 
