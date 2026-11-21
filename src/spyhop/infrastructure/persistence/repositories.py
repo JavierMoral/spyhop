@@ -273,18 +273,46 @@ class RunRepository:
     def add_notice(self, run_id: str, text: str) -> None:
         self._command(run_id, "notice", text)
 
-    def take_notices(self, run_id: str) -> builtins.list[str]:
-        """The notices of the run, oldest first. They are consumed."""
+    def pending_notices(self, run_id: str) -> builtins.list[tuple[int, str]]:
+        """The notices of the run that did not reach the session, oldest first,
+        with the id that `consume_command` takes."""
 
-        rows = self._connection.execute(
-            "SELECT payload FROM run_commands "
-            "WHERE run_id = ? AND kind = 'notice' AND consumed_at IS NULL ORDER BY id",
+        return [
+            (row["id"], row["payload"])
+            for row in self._connection.execute(
+                "SELECT id, payload FROM run_commands "
+                "WHERE run_id = ? AND kind = 'notice' AND consumed_at IS NULL ORDER BY id",
+                (run_id,),
+            )
+        ]
+
+    def take_plan_changes(self, run_id: str) -> str | None:
+        """The changes of the last `spyhop replan`. Consumes that request and
+        the ones before it, but not one that arrives after the read."""
+
+        row = self._connection.execute(
+            "SELECT id, payload FROM run_commands "
+            "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL "
+            "ORDER BY id DESC LIMIT 1",
             (run_id,),
-        ).fetchall()
+        ).fetchone()
 
-        self.consume(run_id, "notice")
+        if row is None:
+            return None
 
-        return [row["payload"] for row in rows]
+        self._connection.execute(
+            "UPDATE run_commands SET consumed_at = ? "
+            "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL AND id <= ?",
+            (_to_text(utc_now()), run_id, row["id"]),
+        )
+
+        return str(row["payload"])
+
+    def consume_command(self, command_id: int) -> None:
+        self._connection.execute(
+            "UPDATE run_commands SET consumed_at = ? WHERE id = ?",
+            (_to_text(utc_now()), command_id),
+        )
 
     def declare(self, run_id: str, what: str) -> None:
         """The agent declares that the plan is ready (``plan``) or that the
@@ -401,7 +429,13 @@ class RunRepository:
         run = self.get(run_id)
         reason = columns.get("waiting_reason")
 
-        if run is None or run.status is not status or run.waiting_reason != reason:
+        # A caller that does not give a waiting reason leaves it as it is.
+
+        if (
+            run is None
+            or run.status is not status
+            or ("waiting_reason" in columns and run.waiting_reason != reason)
+        ):
             message = columns.get("error_message")
 
             self._event(

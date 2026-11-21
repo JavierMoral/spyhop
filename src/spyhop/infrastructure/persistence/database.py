@@ -254,7 +254,7 @@ _MIGRATIONS = [
     INSERT INTO run_commands (run_id, kind, payload, created_at)
     SELECT runs.id, 'notice', notice.value, COALESCE(runs.status_changed_at, runs.created_at)
     FROM automation_runs AS runs, json_each(runs.notices) AS notice
-    WHERE runs.notices IS NOT NULL;
+    WHERE runs.notices IS NOT NULL AND json_valid(runs.notices);
 
     ALTER TABLE automation_runs DROP COLUMN approved_at;
 

@@ -164,5 +164,21 @@ def test_the_requests_in_columns_move_to_run_commands(tmp_path: Path) -> None:
     assert run.plan_changes == "Add a test"
     assert run.checks_requested_at is not None and run.checks_requested_at.day == 3
     assert run.checks_failed_only
-    assert runs.take_notices("r1") == ["first", "second"]
-    assert runs.take_notices("r1") == []
+    [(first_id, first), (_, second)] = runs.pending_notices("r1")
+
+    runs.consume_command(first_id)
+
+    assert (first, second) == ("first", "second")
+    assert [text for _, text in runs.pending_notices("r1")] == ["second"]
+
+    # The last replan wins, and a replan after the read stays for later.
+
+    runs.request_plan_changes("r1", "Add another test")
+
+    assert runs.take_plan_changes("r1") == "Add another test"
+
+    runs.request_plan_changes("r1", "Rename the class")
+
+    assert runs.get("r1").plan_changes == "Rename the class"  # type: ignore[union-attr]
+    assert runs.take_plan_changes("r1") == "Rename the class"
+    assert runs.take_plan_changes("r1") is None

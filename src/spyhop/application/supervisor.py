@@ -482,9 +482,7 @@ class AgentSupervisor:
         """Starts a new plan agent with the changes that a person asked for
         with `spyhop replan`, while the plan waits for its review."""
 
-        changes = run.plan_changes or ""
-
-        self._runs.consume(run.id, "replan")
+        changes = self._runs.take_plan_changes(run.id) or ""
 
         if run.waiting_reason is not WaitingReason.PLAN_REVIEW:
             _log.warning("%s: plan changes ignored: no plan waits for a review", run.issue_key)

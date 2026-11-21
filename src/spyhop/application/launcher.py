@@ -413,8 +413,13 @@ class AgentLauncher:
         if self._supervisor_session is None:
             return
 
-        for text in self._runs.take_notices(run.id):
-            await self._tell(worktree, f"antes del worktree: {text}")
+        # Each notice is consumed only when it reaches the session.
+
+        for command_id, text in self._runs.pending_notices(run.id):
+            if not await self._supervisor_session.tell(worktree, f"antes del worktree: {text}"):
+                return
+
+            self._runs.consume_command(command_id)
 
     def _workflow(self, run: AutomationRun) -> ResolvedWorkflow:
         workflow = self._resolver.resolve_for_run(run)
