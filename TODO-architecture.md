@@ -181,11 +181,15 @@ give the commit.
     Done: `persistence/repositories/` is a package. `__init__.py` exports
     the repositories, so the imports did not change.
 
-15. [ ] **Move the worktree creation out of `AgentLauncher` (648 lines).**
+15. [x] **Move the worktree creation out of `AgentLauncher` (648 lines).**
     `_worktree`, `_scripted_worktree`, `_reopened`, `worktree_name` and the
     wait for disk space get a worktree for a run. Move them to a
     `WorktreeProvisioner`, so that the launcher only prepares the run and
     starts the agent.
+
+    Done: `application/worktree_provisioner.py`. `disk_shortage` gives the
+    reason of a wait for disk space, and the launcher records the wait. The
+    exceptions `RunFailed`, `NotYet` and `Waiting` moved with it.
 
 16. [ ] **Move the checkpoint reports out of `CheckRunner` (695 lines).**
     `_validate`, `_contract_problem`, `_append_report` and

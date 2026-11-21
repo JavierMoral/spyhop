@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.application.launcher import worktree_name
 from spyhop.application.workflow_resolver import WorkflowResolver
+from spyhop.application.worktree_provisioner import worktree_name
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
     OrcaCommandError,
@@ -323,7 +323,7 @@ def scripted(tmp_path: Path) -> tuple[Harness, FakeWorktreeScript]:
     )
     harness = Harness(tmp_path, config)
     worktree_script = FakeWorktreeScript(tmp_path)
-    harness.launcher._worktree_script = worktree_script
+    harness.launcher._provisioner._worktree_script = worktree_script
 
     return harness, worktree_script
 

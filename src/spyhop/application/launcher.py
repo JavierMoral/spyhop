@@ -13,10 +13,7 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
   retry FAILED runs by itself.
 """
 
-import asyncio
 import logging
-import re
-import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +23,12 @@ from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.context_builder import ContextBuilder, ContextError
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
+from spyhop.application.worktree_provisioner import (
+    NotYet,
+    RunFailed,
+    Waiting,
+    WorktreeProvisioner,
+)
 from spyhop.config.settings import AgentSettings, JiraSettings
 from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
@@ -38,14 +41,13 @@ from spyhop.domain.exceptions import (
 from spyhop.domain.models import (
     AutomationRun,
     ChecksPhase,
-    OrcaWorktree,
     ResolvedWorkflow,
     TicketDetails,
     TicketRef,
     Worktree,
 )
 from spyhop.domain.protocols import TerminalHost, TicketGateway, WorktreeHost, ensure_ready
-from spyhop.infrastructure.disk import GIB, free_bytes
+from spyhop.infrastructure.disk import free_bytes
 from spyhop.infrastructure.git import branch_exists
 from spyhop.infrastructure.jira.mapping import (
     ANCESTOR_FIELDS,
@@ -61,8 +63,6 @@ from spyhop.infrastructure.persistence.repositories import (
 )
 from spyhop.infrastructure.worktree_script import (
     WorktreeRequest,
-    WorktreeScriptError,
-    WorktreeScriptTryAgainError,
     run_worktree_script,
 )
 
@@ -78,26 +78,6 @@ BUSY = (RunStatus.RUNNING, RunStatus.WAITING_FOR_HUMAN)
 # Safety bound on the parent chain; JIRA hierarchies are a few levels deep.
 
 MAX_ANCESTORS = 10
-
-# Characters of the ticket title kept in a worktree's name, cut at a word.
-
-MAX_SLUG_LENGTH = 50
-
-
-class _RunFailed(Exception):
-    pass
-
-
-class _NotYet(Exception):
-    """The run cannot advance now but may next cycle."""
-
-
-class _Waiting(Exception):
-    """Like _NotYet, but the reason is recorded on the run for `status`."""
-
-    def __init__(self, reason: WaitingReason, message: str) -> None:
-        super().__init__(message)
-        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -142,10 +122,9 @@ class AgentLauncher:
         self._context = context
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
-        self._min_free_bytes = int(min_free_disk_gb * GIB)
-        self._branch_exists = branch_exists
-        self._free_bytes = free_bytes
-        self._worktree_script = worktree_script
+        self._provisioner = WorktreeProvisioner(
+            worktrees, worktree_host, min_free_disk_gb, branch_exists, free_bytes, worktree_script
+        )
         self._starter = AgentStarter(sessions, terminal_host, agents)
 
     async def launch_pending(self) -> list[AutomationRun]:
@@ -192,7 +171,7 @@ class AgentLauncher:
             prepared = await self._prepare(run)
 
             return await self._launch(run, prepared)
-        except _RunFailed as error:
+        except RunFailed as error:
             _log.error("%s: run %s failed: %s", run.issue_key, run.id, error)
 
             self._runs.mark_failed(run.id, str(error))
@@ -207,7 +186,7 @@ class AgentLauncher:
                 await self._tell(worktree, text)
             else:
                 await self._notice(run, text, queue=False)
-        except _Waiting as waiting:
+        except Waiting as waiting:
             if run.waiting_reason is not waiting.reason:
                 _log.warning("%s: will retry every cycle: %s", run.issue_key, waiting)
 
@@ -216,38 +195,22 @@ class AgentLauncher:
             self._runs.note_wait(run.id, waiting.reason, str(waiting))
         except JiraAuthenticationError:
             raise
-        except (JiraError, OrcaUnavailableError, OrcaUncertainError, _NotYet) as error:
+        except (JiraError, OrcaUnavailableError, OrcaUncertainError, NotYet) as error:
             _log.warning("%s: will retry next cycle: %s", run.issue_key, error)
 
         return False
 
     async def _waiting_for_disk(self, run: AutomationRun) -> bool:
-        """Whether the run needs a new worktree and the disk that would hold
-        it is below min_free_disk_gb. Checked before reading the ticket, so a
-        waiting run costs no JIRA request. The run keeps its pending status:
-        it holds no agent slot and resumes by itself once space is freed,
-        for example when a closed ticket's worktree is removed."""
+        """Whether the run waits for disk space for a new worktree. Checked
+        before the ticket is read, so a waiting run costs no JIRA request.
+        The run keeps its pending status: it holds no agent slot and resumes
+        by itself once space is freed, for example when a closed ticket's
+        worktree is removed."""
 
-        if self._min_free_bytes <= 0 or self._worktrees.find_current(run.issue_key):
+        message = await self._provisioner.disk_shortage(run.issue_key, self._workflow(run))
+
+        if message is None:
             return False
-
-        workflow = self._workflow(run)
-
-        try:
-            location = await self._worktree_host.worktree_base_path(workflow.repository_path)
-        except OrcaCommandError:
-            location = None
-
-        location = location or workflow.repository_path
-        free = self._free_bytes(location)
-
-        if free >= self._min_free_bytes:
-            return False
-
-        message = (
-            f"waiting for disk space: {free / GIB:.1f} GB free in {location}, "
-            f"{self._min_free_bytes / GIB:g} GB required to create a worktree"
-        )
 
         if run.waiting_reason is not WaitingReason.DISK_SPACE:
             _log.warning("%s: %s", run.issue_key, message)
@@ -272,11 +235,11 @@ class AgentLauncher:
         ticket = await self._read_ticket(run.issue_key)
 
         try:
-            worktree = await self._worktree(ticket, workflow)
+            worktree = await self._provisioner.worktree(ticket, workflow)
 
             self._context.prepare(worktree.path, ticket, workflow)
         except (OrcaCommandError, ContextError) as error:
-            raise _RunFailed(str(error)) from error
+            raise RunFailed(str(error)) from error
 
         # CLAUDE-TASK.md describes this pipeline, and run.phase is an index
         # into it from now on.
@@ -335,7 +298,7 @@ class AgentLauncher:
 
             return False
         except OrcaCommandError as error:
-            raise _RunFailed(f"Orca refused the launch: {error}") from error
+            raise RunFailed(f"Orca refused the launch: {error}") from error
 
         self._runs.mark_running(run.id)
         await self._starter.label(run, session)
@@ -389,7 +352,7 @@ class AgentLauncher:
         workflow = self._resolver.resolve_for_run(run)
 
         if workflow is None:
-            raise _RunFailed(f"workflow {run.workflow_name!r} is no longer configured")
+            raise RunFailed(f"workflow {run.workflow_name!r} is no longer configured")
 
         return workflow
 
@@ -398,7 +361,7 @@ class AgentLauncher:
             issue = await self._jira.issue(issue_key, TICKET_FIELDS)
         except JiraError as error:
             if error.status_code == 404:
-                raise _RunFailed(f"{issue_key} no longer exists or is not visible") from error
+                raise RunFailed(f"{issue_key} no longer exists or is not visible") from error
 
             raise
 
@@ -427,158 +390,3 @@ class AgentLauncher:
             key = parent_key(parent)
 
         return tuple(ancestors)
-
-    async def _worktree(self, ticket: TicketDetails, workflow: ResolvedWorkflow) -> Worktree:
-        """The ticket's worktree: SQLite first, then Orca's reference to the
-        ticket, and only then a new one."""
-
-        issue_key = ticket.key
-        current = self._worktrees.find_current(issue_key)
-
-        if current is not None:
-            if current.status is WorktreeStatus.REMOVING:
-                raise _NotYet(f"its worktree {current.path} is being removed")
-
-            if current.status is WorktreeStatus.CLEANUP_BLOCKED:
-                # Reopened before its changes were dealt with: the worktree
-                # still holds them, so the work goes on there.
-
-                _log.info(
-                    "%s: reopened; reusing %s, which could not be removed", issue_key, current.path
-                )
-
-                self._worktrees.mark_active(current.id)
-
-            try:
-                await self._worktree_host.show_worktree(current.orca_worktree_id)
-
-                return current
-            except OrcaCommandError as error:
-                if error.code != "selector_not_found":
-                    raise
-
-                _log.warning(
-                    "%s: worktree %s is gone from Orca; looking for another one",
-                    issue_key,
-                    current.path,
-                )
-
-                self._worktrees.mark_removed(current.id, "not found in Orca")
-
-        orca_worktree = await self._worktree_host.find_worktree_by_reference(issue_key)
-        base_branch = workflow.base_branch
-
-        if orca_worktree is None:
-            name = worktree_name(issue_key, ticket.summary)
-            branch = name
-            previous = await self._reopened(issue_key, workflow)
-
-            if previous is not None:
-                branch = previous.branch_name
-
-            # The script checks the kept branch out by its name. It gets the
-            # base branch of the workflow, which it can use for more than the
-            # start of the branch.
-
-            if workflow.worktree_script is not None:
-                orca_worktree = await self._scripted_worktree(
-                    WorktreeRequest(issue_key, name, branch, base_branch, workflow.repository_path),
-                    workflow.worktree_script,
-                    workflow.worktree_script_timeout,
-                )
-            else:
-                if previous is not None:
-                    # The same name makes Orca check the kept branch out
-                    # again instead of creating a new one, even if the
-                    # title changed.
-
-                    name = previous.path.name
-                    base_branch = previous.branch_name
-
-                orca_worktree = await self._worktree_host.create_worktree(
-                    workflow.repository_path,
-                    name,
-                    base_branch,
-                    issue_key,
-                    workflow.setup,
-                )
-
-            _log.info(
-                "%s: created worktree %s on branch %s from %s",
-                issue_key,
-                orca_worktree.path,
-                orca_worktree.branch,
-                base_branch,
-            )
-        else:
-            _log.info("%s: reusing worktree %s linked in Orca", issue_key, orca_worktree.path)
-
-        return self._worktrees.create(
-            issue_key, orca_worktree, workflow.repository_path, base_branch
-        )
-
-    async def _scripted_worktree(
-        self, request: WorktreeRequest, script: Path, time_limit: float
-    ) -> OrcaWorktree:
-        """Creates the worktree with the repository's script and links it to
-        the ticket in Orca. Until Orca has seen the new worktree in Git, the
-        run waits; next cycle the script runs again and answers with the
-        worktree it already created. A script that asks to try again runs
-        again next cycle too."""
-
-        try:
-            path = await self._worktree_script(script, request, time_limit)
-        except WorktreeScriptTryAgainError as error:
-            raise _Waiting(WaitingReason.WORKTREE_SCRIPT, str(error)) from error
-        except WorktreeScriptError as error:
-            raise _RunFailed(str(error)) from error
-
-        try:
-            return await self._worktree_host.link_worktree(path, request.issue_key)
-        except OrcaCommandError as error:
-            if error.code != "selector_not_found":
-                raise
-
-            raise _NotYet(f"Orca does not list {path} yet") from error
-
-    async def _reopened(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree | None:
-        """The removed worktree a reopened ticket continues from, when Git
-        still has its branch (Orca keeps unmerged branches)."""
-
-        previous = self._worktrees.find_last_removed(issue_key)
-
-        if (
-            previous is None
-            or previous.repository_path != workflow.repository_path
-            or not await asyncio.to_thread(
-                self._branch_exists, previous.repository_path, previous.branch_name
-            )
-        ):
-            return None
-
-        _log.info(
-            "%s: reopened; continuing from its previous branch %s", issue_key, previous.branch_name
-        )
-
-        return previous
-
-
-def worktree_name(issue_key: str, summary: str) -> str:
-    """The ticket key followed by its title as a slug: LPD-1234-fix-the-import."""
-
-    ascii_summary = unicodedata.normalize("NFKD", summary).encode("ascii", "ignore").decode()
-    words = re.findall(r"[a-z0-9]+", ascii_summary.lower())
-    slug = ""
-
-    for word in words:
-        longer = f"{slug}-{word}" if slug else word
-
-        if len(longer) > MAX_SLUG_LENGTH:
-            break
-
-        slug = longer
-
-    if not slug and words:
-        slug = words[0][:MAX_SLUG_LENGTH]
-
-    return f"{issue_key}-{slug}" if slug else issue_key
