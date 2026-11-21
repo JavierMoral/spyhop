@@ -346,7 +346,7 @@ checkpoints of a workflow.
 | `spyhop checkpoints rerun KEY` | Run the current checks phase again. |
 | `spyhop checkpoints plan` / `check` | Show the checkpoints of the current worktree, or check their verdicts. |
 | `spyhop run` | Run in the foreground. `--once` polls one time. `-v` shows debug logs. |
-| `spyhop doctor` | Check the configuration, JIRA, the repositories, Orca and the service. |
+| `spyhop doctor` | Check the configuration, JIRA, the repositories, the checkpoints, Orca and the service. |
 | `spyhop config init` | Create the configuration and the credentials file. |
 | `spyhop service install` / `uninstall` | Install and start, or remove, the systemd user service. |
 

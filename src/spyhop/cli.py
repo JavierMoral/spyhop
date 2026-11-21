@@ -427,7 +427,7 @@ def ticket(
 
 @app.command()
 def doctor(config: ConfigOption = None) -> None:
-    """Check configuration, credentials, JIRA, repositories, Orca and the service."""
+    """Check configuration, credentials, JIRA, repositories, checkpoints, Orca and the service."""
 
     checks = asyncio.run(run_checks(config or default_config_file()))
     symbols = {Level.OK: "✓", Level.WARNING: "!", Level.ERROR: "✗"}

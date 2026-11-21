@@ -4,11 +4,13 @@ from spyhop.config.settings import ProjectSettings
 from spyhop.doctor import (
     Level,
     _check_board,
+    _check_checkpoints,
     _check_project,
     _check_templates,
     _check_worktree_script,
 )
 from tests.factories import orca_dir, settings
+from tests.unit.test_checkpoint_planner import checkpoint
 
 
 def project(tmp_path: Path) -> ProjectSettings:
@@ -102,3 +104,29 @@ def test_worktree_script_must_be_executable(tmp_path: Path) -> None:
     script.chmod(0o755)
 
     assert _check_worktree_script("main", script).level is Level.OK
+
+
+def test_valid_checkpoints_of_a_pipeline_are_ok(tmp_path: Path) -> None:
+    checkpoint(tmp_path / "agents", "regressions")
+    checkpoint(tmp_path / "agents", "security", mode="read")
+    config = settings(
+        tmp_path, pipelines={"bug": ["implement", {"checks": ["regressions", "security"]}]}
+    )
+
+    [check] = _check_checkpoints(config, tmp_path / "agents")
+
+    assert check.level is Level.OK
+    assert check.name == "pipeline bug"
+    assert check.detail == "2 checkpoints are valid"
+
+
+def test_missing_checkpoint_file_is_an_error(tmp_path: Path) -> None:
+    checkpoint(tmp_path / "agents", "regressions")
+    config = settings(
+        tmp_path, pipelines={"bug": ["implement", {"checks": ["regressions", "security"]}]}
+    )
+
+    [check] = _check_checkpoints(config, tmp_path / "agents")
+
+    assert check.level is Level.ERROR
+    assert "security" in check.detail

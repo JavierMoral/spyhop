@@ -11,12 +11,19 @@ from pathlib import Path
 
 from jinja2 import TemplateError
 
+from spyhop.application.checkpoint_planner import CheckpointPlanner
 from spyhop.application.context_builder import template_environment
 from spyhop.application.janitor import closed_tickets_jql
 from spyhop.config.credentials import JiraCredentials, read_env_file
-from spyhop.config.paths import orca_config_dir, systemd_user_unit_file, user_templates_dir
+from spyhop.config.paths import (
+    claude_agents_dir,
+    orca_config_dir,
+    systemd_user_unit_file,
+    user_templates_dir,
+)
 from spyhop.config.settings import ProjectSettings, Settings, load_settings
 from spyhop.domain.exceptions import JiraError, SpyhopError
+from spyhop.domain.models import ChecksPhase
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.board import read_board_columns
@@ -51,6 +58,7 @@ async def run_checks(config_file: Path) -> list[Check]:
     checks.extend(await _check_jira(settings, credentials))
     checks.extend(_check_repositories(settings))
     checks.append(_check_templates(settings))
+    checks.extend(_check_checkpoints(settings))
     checks.append(await _check_orca(settings))
     checks.append(_check_board(settings))
     checks.extend(_check_service())
@@ -290,6 +298,33 @@ def _check_templates(settings: Settings, user_templates: Path | None = None) -> 
         "templates",
         f"{len(names)} found; customized in {user_templates}: {', '.join(custom) or 'none'}",
     )
+
+
+def _check_checkpoints(settings: Settings, agents_dir: Path | None = None) -> list[Check]:
+    """Plans each checks phase of each pipeline, so that a missing or invalid
+    checkpoint file shows here and not in the middle of a run."""
+
+    planner = CheckpointPlanner(agents_dir or claude_agents_dir())
+    checks = []
+
+    for name in settings.pipelines:
+        phases = [phase for phase in settings.pipeline(name) if isinstance(phase, ChecksPhase)]
+        problems = []
+
+        for phase in phases:
+            try:
+                planner.plan(phase.checkpoints)
+            except SpyhopError as error:
+                problems.append(str(error))
+
+        if problems:
+            checks.append(Check(Level.ERROR, f"pipeline {name}", "; ".join(problems)))
+        else:
+            count = sum(len(phase.checkpoints) for phase in phases)
+
+            checks.append(Check(Level.OK, f"pipeline {name}", f"{count} checkpoints are valid"))
+
+    return checks
 
 
 async def _check_orca(settings: Settings) -> Check:
