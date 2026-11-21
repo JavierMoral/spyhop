@@ -284,6 +284,25 @@ async def test_checks_after_the_implementation_run_in_stages_and_complete_the_ru
     assert table.index("| security | PASS") < table.index("| mutation | PASS")
 
 
+async def test_a_run_in_progress_keeps_its_pipeline_when_the_configuration_changes(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
+    run, _, _ = await implemented(harness)
+
+    # A checks phase before implement moves implement to index 1.
+
+    harness.config.pipelines["bug"] = settings(
+        tmp_path,
+        pipelines={"bug": [{"checks": ["ticket-info"]}, "implement", {"checks": ["regressions"]}]},
+    ).pipelines["bug"]
+
+    answer(harness, run, "regressions")
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).status is RunStatus.COMPLETED
+
+
 async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
     tmp_path: Path,
 ) -> None:

@@ -288,17 +288,18 @@ class AgentLauncher:
         except (OrcaCommandError, ContextError) as error:
             raise _RunFailed(str(error)) from error
 
+        # CLAUDE-TASK.md describes this pipeline, and run.phase is an index
+        # into it from now on.
+
+        if run.pipeline is None:
+            self._runs.set_pipeline(run.id, workflow.phases)
+
         self._runs.mark_ready(run.id, worktree.id)
         await self._tell_notices(run, worktree)
 
         return _Prepared(workflow, worktree)
 
     async def _launch(self, run: AutomationRun, prepared: _Prepared) -> bool:
-        # From here on, run.phase is an index into this pipeline.
-
-        if run.pipeline is None:
-            self._runs.set_pipeline(run.id, prepared.workflow.phases)
-
         # The implementation of a plan comes later, from a new agent on
         # agents.model (see AgentSupervisor).
 

@@ -1,10 +1,10 @@
 import builtins
+import dataclasses
 import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import (
@@ -720,24 +720,30 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         declared=row["declared"],
         declared_at=_to_datetime(row["declared_at"]),
         approved_at=_to_datetime(row["approved_at"]),
-        pipeline=tuple(_phase_from_json(phase) for phase in json.loads(row["pipeline"]))
-        if row["pipeline"]
-        else None,
+        pipeline=_pipeline_from_json(row["pipeline"]),
     )
 
 
 def _phase_to_json(phase: Phase) -> object:
-    if isinstance(phase, str):
-        return phase
-
-    return {"checks": list(phase.checkpoints), "on_fail": phase.on_fail, "rounds": phase.rounds}
+    return phase if isinstance(phase, str) else dataclasses.asdict(phase)
 
 
-def _phase_from_json(data: Any) -> Phase:
-    if isinstance(data, str):
-        return data
+def _pipeline_from_json(text: str | None) -> tuple[Phase, ...] | None:
+    """None when the run has no pipeline, or when the stored one does not
+    parse: the run then uses the pipeline of the configuration."""
 
-    return ChecksPhase(tuple(data["checks"]), data["on_fail"], data["rounds"])
+    if not text:
+        return None
+
+    try:
+        return tuple(
+            phase
+            if isinstance(phase, str)
+            else ChecksPhase(**{**phase, "checkpoints": tuple(phase["checkpoints"])})
+            for phase in json.loads(text)
+        )
+    except (ValueError, TypeError, KeyError):
+        return None
 
 
 def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:

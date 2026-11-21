@@ -335,7 +335,9 @@ projects:
 ```
 
 A run keeps the pipeline that it started with. A change of `pipelines:`
-applies to the runs that start after the change.
+applies to the runs that start after the change. The workflow of the run and
+the checkpoint files stay in use: a run whose workflow or checkpoint is
+removed waits for you.
 
 After a fix, or a change of the ticket, the failed checks run again. To run
 them again yourself, use `spyhop checkpoints rerun KEY`. Add `--failed` to run

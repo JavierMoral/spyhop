@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
-from spyhop.domain.models import OrcaWorktree
+from spyhop.domain.models import ChecksPhase, OrcaWorktree
 from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
@@ -105,3 +105,28 @@ def test_status_changes_are_timestamped(tmp_path: Path) -> None:
     assert resumed.waiting_reason is None and resumed.error_message is None
     assert resumed.status_changed_at is not None
     assert resumed.status_changed_at >= waiting.status_changed_at
+
+
+def test_the_pipeline_of_a_run_is_stored_and_a_broken_one_is_ignored(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "spyhop.db")
+
+    connection.execute(
+        "INSERT INTO automation_runs (id, issue_key, workflow_name, trigger_status, "
+        "trigger_history_id, triggered_at, status, created_at) "
+        "VALUES ('r1', 'LPD-1', 'bug_fix', 'In Progress', '7', '2026-11-01', 'READY', "
+        "'2026-11-01')"
+    )
+
+    runs = RunRepository(connection)
+    pipeline = ("implement", ChecksPhase(("regressions", "security"), "fix", 2))
+
+    runs.set_pipeline("r1", pipeline)
+
+    stored = runs.get("r1")
+
+    connection.execute("UPDATE automation_runs SET pipeline = '[{\"checks\": 1}]'")
+
+    broken = runs.get("r1")
+
+    assert stored is not None and stored.pipeline == pipeline
+    assert broken is not None and broken.pipeline is None
