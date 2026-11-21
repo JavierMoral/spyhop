@@ -1,4 +1,5 @@
 import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -415,6 +416,20 @@ async def test_only_a_run_that_reads_its_card_asks_orca_for_the_worktree(
     assert harness.orca.shown == [worktree.orca_worktree_id]
 
 
+async def test_a_deleted_worktree_folder_is_handed_to_a_person(harness: Harness) -> None:
+    run, worktree, _ = await launched(harness)
+
+    shutil.rmtree(worktree.path)
+
+    await harness.supervisor.supervise()
+
+    gone = harness.run(run.id)
+
+    assert gone.waiting_reason is WaitingReason.UNKNOWN_STATE
+    assert gone.error_message == f"worktree {worktree.path} is gone"
+    assert harness.orca.shown == []
+
+
 async def test_worktree_removed_in_orca_is_handed_to_a_person(harness: Harness) -> None:
     run, worktree, _ = await launched(harness)
 
@@ -457,6 +472,11 @@ async def test_one_failing_run_does_not_stop_the_others(harness: Harness) -> Non
 
         return await show(orca_worktree_id)
 
+    # Only a card run asks Orca for its worktree in each cycle.
+
+    harness.connection.execute(
+        "UPDATE automation_runs SET signals = 'card' WHERE id = ?", (first.id,)
+    )
     harness.orca.show_worktree = broken_first  # type: ignore[method-assign]
     harness.orca.set_agent(second_worktree.orca_worktree_id, "waiting", second_pane)
 

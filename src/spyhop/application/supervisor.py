@@ -250,10 +250,16 @@ class AgentSupervisor:
             return
 
         # `worktree ps` lists every worktree of Orca, also one without agents.
-        # Orca is asked for the worktree only when it is not in that list, or
-        # for the card of a run from before `spyhop declare`.
+        # The supervisor asks Orca for the worktree only when the worktree is
+        # not in that list, or for the card of a run from before
+        # `spyhop declare`.
 
         card = None
+
+        if not worktree.path.exists():
+            await self._wait(run, WaitingReason.UNKNOWN_STATE, f"worktree {worktree.path} is gone")
+
+            return
 
         if run.signals == "card" or worktree.orca_worktree_id not in agents:
             try:
@@ -307,7 +313,11 @@ class AgentSupervisor:
             # Fallback for the runs from before `spyhop declare`, whose agent
             # moves its card. Remove it once no such run is active.
 
-            status = card.workspace_status if card else None
+            # A card run always asks Orca for its worktree above.
+
+            assert card is not None
+
+            status = card.workspace_status
             declared = {
                 self._plan_review_status: "plan",
                 self._plan_approved_status: "done",
