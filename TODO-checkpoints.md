@@ -74,7 +74,7 @@ Done:
    that gives false stale verdicts, so decide first.
 6. [x] **Replaced by R2.** Spyhop starts the checks itself, and
    `spyhop checkpoints rerun KEY` starts a failed round again.
-7. [ ] **`spyhop doctor`.** Make sure that each checkpoint of each pipeline
+7. [x] **`spyhop doctor`.** Make sure that each checkpoint of each pipeline
    has a valid file (`CheckpointPlanner.plan` over each checks phase).
 
 ## Workflow redesign
