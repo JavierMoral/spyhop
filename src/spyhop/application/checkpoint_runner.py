@@ -10,7 +10,8 @@ cycle:
   stage starts only when the worktree has no uncommitted change. A
   checkpoint that comes after a failed one in the same round is skipped.
 - When a result file appears, Spyhop validates the result, adds a section to
-  CLAUDE-CHECKPOINT-<name>.md and writes CLAUDE-CHECKPOINTS.md again.
+  CLAUDE-CHECKPOINT-<name>.md and writes CLAUDE-CHECKPOINTS.md again (see
+  checkpoint_reports).
 - After an exclusive checkpoint, HEAD must not change and the worktree must
   have no uncommitted change.
 - A failed round starts again when someone asks for it (a person, or the
@@ -33,17 +34,24 @@ runs twice.
 
 import asyncio
 import fcntl
-import json
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from spyhop.application.checkpoint_inputs import input_values
-from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner, Stage
-from spyhop.application.checkpoint_verdicts import VERDICTS_FILE, fingerprint
+from spyhop.application.checkpoint_planner import CheckpointPlanner, Stage
+from spyhop.application.checkpoint_reports import (
+    REPORT_FILE,
+    CheckpointResult,
+    append_report,
+    read_output,
+    validate,
+    write_verdicts,
+)
+from spyhop.application.checkpoint_verdicts import fingerprint
 from spyhop.application.context_builder import EXCLUDED_PATHS, add_exclusions, git_exclude_file
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.domain.exceptions import UnitError
@@ -60,8 +68,6 @@ from spyhop.infrastructure.persistence.repositories import CheckpointRunReposito
 
 _log = logging.getLogger(__name__)
 
-REPORT_FILE = "CLAUDE-CHECKPOINT-{name}.md"
-
 UNIT_PREFIX = "spyhop-checkpoint-"
 
 
@@ -73,41 +79,6 @@ def unit_pattern(run_id: str) -> str:
 
 def log_file(row: CheckpointRun) -> Path:
     return row.output_file.with_suffix(".log")
-
-
-_SEVERITIES = ("high", "medium", "low")
-
-# The JSON object that each checkpoint gives, as `claude --json-schema` takes it.
-RESULT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "required": ["verdict", "head", "commands", "findings"],
-    "properties": {
-        "verdict": {"enum": ["PASS", "FAIL"]},
-        "head": {"type": "string"},
-        "commands": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["command", "result"],
-                "properties": {"command": {"type": "string"}, "result": {"type": "string"}},
-            },
-        },
-        "findings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["severity", "summary"],
-                "properties": {
-                    "severity": {"enum": list(_SEVERITIES)},
-                    "file": {"type": ["string", "null"]},
-                    "line": {"type": ["integer", "null"]},
-                    "summary": {"type": "string"},
-                    "evidence": {"type": "string"},
-                },
-            },
-        },
-    },
-}
 
 
 def checkpoint_prompt(base: str, head_sha: str, root: Path) -> str:
@@ -124,13 +95,6 @@ class PhaseOutcome:
     message: str
     round: int = 0
     failed: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class _Result:
-    verdict: Literal["PASS", "FAIL"]
-    validation: str | None
-    data: dict[str, Any] | None
 
 
 class CheckRunner:
@@ -362,7 +326,7 @@ class CheckRunner:
                 run,
                 worktree,
                 workflow,
-                _Result("FAIL", f"the checkpoint did not start: {error}", None),
+                CheckpointResult("FAIL", f"the checkpoint did not start: {error}", None),
             )
 
             return
@@ -382,7 +346,7 @@ class CheckRunner:
 
         if row.output_file.is_file():
             result = await self._after_exclusive(
-                row, worktree, _validate(read_output(row.output_file), row.head)
+                row, worktree, validate(read_output(row.output_file), row.head)
             )
 
             await self._record(row, run, worktree, workflow, result)
@@ -409,21 +373,21 @@ class CheckRunner:
                 run,
                 worktree,
                 workflow,
-                _Result("FAIL", f"no result after {self._timeout}", None),
+                CheckpointResult("FAIL", f"no result after {self._timeout}", None),
             )
 
         return None
 
     async def _after_exclusive(
-        self, row: CheckpointRun, worktree: Worktree, result: _Result
-    ) -> _Result:
+        self, row: CheckpointRun, worktree: Worktree, result: CheckpointResult
+    ) -> CheckpointResult:
         if self._planner.read(row.name).mode != "exclusive":
             return result
 
         current_head = await asyncio.to_thread(head, worktree.path)
 
         if current_head != row.head or await asyncio.to_thread(has_changes, worktree.path):
-            return _Result(
+            return CheckpointResult(
                 "FAIL",
                 "the checkpoint changed HEAD or left uncommitted changes in the worktree",
                 result.data,
@@ -437,12 +401,12 @@ class CheckRunner:
         run: AutomationRun,
         worktree: Worktree,
         workflow: ResolvedWorkflow,
-        result: _Result,
+        result: CheckpointResult,
     ) -> None:
         self._checkpoint_runs.finish(row.id, result.verdict, result.validation)
 
-        _append_report(worktree.path, row, result, self._now())
-        _write_verdicts(worktree.path, workflow.checkpoints, self._checkpoint_runs.latest(run.id))
+        append_report(worktree.path, row, result, self._now())
+        write_verdicts(worktree.path, workflow.checkpoints, self._checkpoint_runs.latest(run.id))
 
         _log.info(
             "%s: checkpoint %s: %s%s",
@@ -550,151 +514,3 @@ def _still_runs(output_file: Path) -> bool:
         fcntl.flock(lock, fcntl.LOCK_UN)
 
     return False
-
-
-def read_output(output_file: Path) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(output_file.read_text())
-    except (OSError, ValueError):
-        return None
-
-    return payload if isinstance(payload, dict) else None
-
-
-def _validate(payload: dict[str, Any] | None, expected_head: str) -> _Result:
-    """The verdict of a checkpoint. A result that does not follow the
-    contract is a FAIL, with the reason in ``validation``."""
-
-    if payload is None:
-        return _Result("FAIL", "the result file is not valid JSON", None)
-
-    output = payload.get("output")
-
-    if not isinstance(output, dict):
-        return _Result(
-            "FAIL", f"claude exited with {payload.get('exit_code')} without a result", None
-        )
-
-    if output.get("is_error"):
-        return _Result("FAIL", f"claude ended with an error: {output.get('subtype')}", None)
-
-    data = output.get("structured_output")
-
-    if data is None:
-        data = _json_object(str(output.get("result") or ""))
-
-    if not isinstance(data, dict):
-        return _Result("FAIL", "the result has no JSON object", None)
-
-    problem = _contract_problem(data, expected_head)
-
-    if problem:
-        return _Result("FAIL", problem, data)
-
-    return _Result(data["verdict"], None, data)
-
-
-def _contract_problem(data: dict[str, Any], expected_head: str) -> str | None:
-    for key in ("verdict", "head", "commands", "findings"):
-        if key not in data:
-            return f"the result has no {key}"
-
-    if data["verdict"] not in ("PASS", "FAIL"):
-        return f"verdict {data['verdict']!r} is not PASS or FAIL"
-
-    if data["head"] != expected_head:
-        return f"head {data['head']!r} is not the HEAD of the stage {expected_head}"
-
-    if not isinstance(data["commands"], list) or not isinstance(data["findings"], list):
-        return "commands and findings must be lists"
-
-    if data["verdict"] == "PASS" and not data["commands"]:
-        return "a PASS needs commands as evidence"
-
-    if data["verdict"] == "PASS" and any(
-        isinstance(finding, dict) and finding.get("severity") in ("high", "medium")
-        for finding in data["findings"]
-    ):
-        return "a PASS cannot have a high or medium finding"
-
-    return None
-
-
-def _json_object(text: str) -> Any:
-    """The JSON object of a text answer, also inside a code fence."""
-
-    text = text.strip()
-
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1].rsplit("```", 1)[0]
-
-    try:
-        return json.loads(text)
-    except ValueError:
-        return None
-
-
-def _append_report(root: Path, row: CheckpointRun, result: _Result, now: datetime) -> None:
-    data = result.data or {}
-    lines = [
-        f"## {now.astimezone():%Y-%m-%d %H:%M}, phase {row.phase}, round {row.round}: "
-        f"{result.verdict}",
-        "",
-        f"- Agent: {AGENT_PREFIX}{row.name}. Inputs: {row.inputs}.",
-        f"- Validation: {result.validation or 'OK'}.",
-        "",
-        "### Commands",
-        "",
-    ]
-
-    for command in data.get("commands") or []:
-        if isinstance(command, dict):
-            lines.append(f"- `{command.get('command', '')}`: {command.get('result', '')}")
-
-    lines += ["", "### Findings", ""]
-
-    for number, finding in enumerate(data.get("findings") or [], 1):
-        if not isinstance(finding, dict):
-            continue
-
-        location = finding.get("file") or ""
-
-        if finding.get("line") is not None:
-            location += f":{finding['line']}"
-
-        lines.append(
-            f"{number}. **{finding.get('severity', '')}** `{location}`: "
-            f"{finding.get('summary', '')}"
-        )
-
-        if finding.get("evidence"):
-            lines.append(f"   Evidence: {finding['evidence']}")
-
-    report = root / REPORT_FILE.format(name=row.name)
-    existing = report.read_text() if report.is_file() else f"# Checkpoint {row.name}\n"
-
-    report.write_text(existing.rstrip("\n") + "\n\n" + "\n".join(lines) + "\n")
-
-
-def _write_verdicts(
-    root: Path, checkpoints: Sequence[str], latest: dict[str, CheckpointRun]
-) -> None:
-    lines = [
-        "# Checkpoints",
-        "",
-        "Spyhop writes this file. Do not edit it.",
-        "",
-        "| Checkpoint | Verdict | Inputs | Round | Report |",
-        "| --- | --- | --- | --- | --- |",
-    ]
-
-    for name in checkpoints:
-        row = latest.get(name)
-
-        if row is not None:
-            lines.append(
-                f"| {name} | {row.verdict} | {row.inputs} | {row.round} | "
-                f"{REPORT_FILE.format(name=name)} |"
-            )
-
-    (root / VERDICTS_FILE).write_text("\n".join(lines) + "\n")

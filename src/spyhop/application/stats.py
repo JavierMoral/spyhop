@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from spyhop.application.checkpoint_runner import read_output
+from spyhop.application.checkpoint_reports import read_output
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.models import AgentSession, AutomationRun, CheckpointRun, RunEvent
 

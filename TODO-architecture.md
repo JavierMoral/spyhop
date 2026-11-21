@@ -191,11 +191,14 @@ give the commit.
     reason of a wait for disk space, and the launcher records the wait. The
     exceptions `RunFailed`, `NotYet` and `Waiting` moved with it.
 
-16. [ ] **Move the checkpoint reports out of `CheckRunner` (695 lines).**
+16. [x] **Move the checkpoint reports out of `CheckRunner` (695 lines).**
     `_validate`, `_contract_problem`, `_append_report` and
     `_write_verdicts` check the JSON of a checkpoint and write the files.
     Move them to `checkpoint_verdicts.py` or to a new
     `checkpoint_reports.py`, so that `CheckRunner` only runs the rounds.
+
+    Done: `application/checkpoint_reports.py` has the result schema,
+    `read_output`, `validate`, `append_report` and `write_verdicts`.
 
 17. [ ] **Inject a clock.** 32 calls read the time directly (`utc_now()`,
     `datetime.now`) in the repositories, the launcher, the Orca client and

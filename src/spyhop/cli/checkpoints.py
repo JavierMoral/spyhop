@@ -9,7 +9,8 @@ from typing import Annotated
 import typer
 
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner
-from spyhop.application.checkpoint_runner import RESULT_SCHEMA, checkpoint_prompt
+from spyhop.application.checkpoint_reports import RESULT_SCHEMA
+from spyhop.application.checkpoint_runner import checkpoint_prompt
 from spyhop.application.checkpoint_verdicts import (
     VERDICTS_FILE,
     check_verdicts,

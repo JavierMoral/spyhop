@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from spyhop.application.checkpoint_runner import read_output
+from spyhop.application.checkpoint_reports import read_output
 from spyhop.domain.models import AutomationRun, CheckpointRun
 from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository
 from spyhop.infrastructure.process.command_runner import (
