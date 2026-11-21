@@ -5,12 +5,15 @@ from spyhop.doctor import (
     Level,
     _check_board,
     _check_checkpoints,
+    _check_claude_links,
     _check_project,
     _check_templates,
     _check_worktree_script,
 )
+from spyhop.infrastructure.claude_links import link_claude_files
 from tests.factories import orca_dir, settings
 from tests.unit.test_checkpoint_planner import checkpoint
+from tests.unit.test_claude_links import bundled
 
 
 def project(tmp_path: Path) -> ProjectSettings:
@@ -130,3 +133,28 @@ def test_missing_checkpoint_file_is_an_error(tmp_path: Path) -> None:
 
     assert check.level is Level.ERROR
     assert "security" in check.detail
+
+
+def test_linked_claude_files_are_ok(tmp_path: Path) -> None:
+    root = bundled(tmp_path)
+
+    link_claude_files(root, tmp_path / "claude")
+
+    check = _check_claude_links(root, tmp_path / "claude")
+
+    assert check.level is Level.OK
+    assert check.detail == "2 subagents and skills are linked"
+
+
+def test_a_claude_file_that_is_not_linked_is_an_error(tmp_path: Path) -> None:
+    root = bundled(tmp_path)
+    target = tmp_path / "claude" / "agents" / "checkpoint-security.md"
+
+    link_claude_files(root, tmp_path / "claude")
+    target.unlink()
+    target.write_text("mine")
+
+    check = _check_claude_links(root, tmp_path / "claude")
+
+    assert check.level is Level.ERROR
+    assert check.detail == (f"not linked to Spyhop: {target}; run `spyhop claude install`")
