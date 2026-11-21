@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from typer.core import TyperGroup
 
 from spyhop.application.checkpoint_inputs import input_values
 from spyhop.application.run_commands import CommandResult, RunCommandError, RunCommands
@@ -38,17 +39,32 @@ from spyhop.infrastructure.service.systemd import (
     wake_service,
 )
 
+
+class SortedGroup(TyperGroup):
+    """Lists the commands in alphabetical order in the help."""
+
+    def list_commands(self, ctx: typer.Context) -> list[str]:
+        return sorted(self.commands)
+
+
 app = typer.Typer(
+    cls=SortedGroup,
     help="Watches JIRA and feeds tickets to Claude Code agents running in Orca.",
     no_args_is_help=True,
 )
 checkpoints_app = typer.Typer(
-    help="Plan, check and run again the checkpoints of a run.", no_args_is_help=True
+    cls=SortedGroup,
+    help="Plan, check and run again the checkpoints of a run.",
+    no_args_is_help=True,
 )
-config_app = typer.Typer(help="Manage the configuration.", no_args_is_help=True)
-service_app = typer.Typer(help="Manage the systemd user service.", no_args_is_help=True)
+config_app = typer.Typer(cls=SortedGroup, help="Manage the configuration.", no_args_is_help=True)
+service_app = typer.Typer(
+    cls=SortedGroup, help="Manage the systemd user service.", no_args_is_help=True
+)
 claude_app = typer.Typer(
-    help="Manage the Claude Code subagents and skills of Spyhop.", no_args_is_help=True
+    cls=SortedGroup,
+    help="Manage the Claude Code subagents and skills of Spyhop.",
+    no_args_is_help=True,
 )
 
 app.add_typer(checkpoints_app, name="checkpoints")
