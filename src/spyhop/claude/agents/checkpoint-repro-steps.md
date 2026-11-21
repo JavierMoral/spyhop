@@ -1,7 +1,7 @@
 ---
 name: checkpoint-repro-steps
 description: "Checkpoint of the Spyhop pipelines. Do not use it for other tasks. Makes sure that the steps to reproduce of the JIRA ticket are valid for the code at the base of the branch, without running them."
-model: opus
+model: sonnet
 tools: Bash, Read, Glob, Grep, StructuredOutput
 mode: read
 after: [ticket-info]
