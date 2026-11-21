@@ -38,8 +38,10 @@ and opens a pull request only when you run `/pr` in its terminal.
 What you do is in **bold**. The rest happens by itself.
 
 1. **Move a ticket assigned to you to a start status in JIRA.** Spyhop creates
-   a worktree for the ticket and starts an agent on `agents.plan_model`. The
-   agent gets the ticket and its parents in `CLAUDE-TASK.md`.
+   a worktree for the ticket and starts an agent on `agents.plan_model`. If the
+   [pipeline](#pipelines-and-checkpoints) starts with checks, the agent starts
+   after they pass. The agent gets the ticket and its parents in
+   `CLAUDE-TASK.md`.
 2. The agent writes `CLAUDE-PLAN.md` and moves its Orca card to *In review*.
    **Read the plan**, then do one of these:
    - **Approve it.** Drag the card to *In progress*, run `spyhop approve KEY`,
@@ -96,11 +98,11 @@ each checkpoint of each round. Each row gives the state, the result, a link to
 the file that the step wrote, and the cause of a failure or a problem. The
 session shows the full table again for each message, and after `retry`,
 `fail` or `checkpoints rerun`. When the run completes, the session shows a
-report: a description of the branch in 50 words or less, then the table. The
-session cannot edit
-files, and it runs a command only when you ask it to. Claude Code does not ask
-for permission when the session runs `spyhop status`, `approve`, `tell`,
-`fail`, `retry` or `checkpoints rerun`. It asks for other commands.
+report: a description of the branch in 50 words or less, then the table.
+
+The session starts without permission prompts and without the Edit, Write and
+NotebookEdit tools. Its instructions tell it not to change files, and to run a
+command only when you ask for it.
 
 ### When the ticket closes
 
@@ -114,13 +116,17 @@ removes the worktree. It never forces the removal:
   comment on its Orca card. Commit or discard the changes, and the next cycle
   removes it.
 
-`CLAUDE-TASK.md`, `CLAUDE-PLAN.md` and `CLAUDE-RESULT.md` are excluded from
-Git, so they are lost with the worktree.
+`CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md`,
+`CLAUDE-CHECKPOINTS.md`, `CLAUDE-CHECKPOINT-*.md` and
+`.claude/settings.local.json` are excluded from Git, so they are lost with the
+worktree.
 
 ## Requirements
 
 - Linux with systemd.
 - Python 3.12 or later, and [uv](https://docs.astral.sh/uv/).
+- [Claude Code](https://docs.claude.com/en/docs/claude-code), as `claude` in
+  the `PATH`. The agents, the supervisor session and the checkpoints run on it.
 - [Orca](https://www.onorca.dev) with its CLI. Install the CLI from the
   settings of Orca. On Linux, its name is `orca-ide`.
 - A JIRA Cloud account and an
@@ -276,7 +282,8 @@ echo "$worktree"
 
 To remove what the script creates next to the worktree, such as a bundle,
 set `repositories.<alias>.worktree_cleanup_script`. Spyhop runs it after Orca
-removes a worktree, with `SPYHOP_WORKTREE_PATH`. It runs for each worktree of
+removes a worktree, with `SPYHOP_ISSUE_KEY`, `SPYHOP_WORKTREE_PATH`,
+`SPYHOP_BRANCH` and `SPYHOP_REPOSITORY_PATH`. It runs for each worktree of
 the repository, so it must ignore paths that are not its own. It must also
 succeed when there is nothing to remove.
 
@@ -333,10 +340,11 @@ inputs: [head]           # ticket, base, head: a change makes the verdict stale
 
 The checkpoint gets the base and head SHAs and the worktree root. It must
 give a `verdict` (`PASS` or `FAIL`), the `head`, the `commands` that it ran
-and its `findings`. A `PASS` with a high or medium finding is a `FAIL`.
-Spyhop writes the verdicts to `CLAUDE-CHECKPOINTS.md`, and each report to
-`CLAUDE-CHECKPOINT-<name>.md`. `spyhop checkpoints plan` validates the
-checkpoints of a workflow.
+and its `findings`. A `PASS` without commands, or with a high or medium
+finding, is a `FAIL`. Spyhop writes the verdicts to `CLAUDE-CHECKPOINTS.md`,
+and each report to `CLAUDE-CHECKPOINT-<name>.md`. `spyhop checkpoints plan`
+validates the checkpoints of a workflow, and `spyhop doctor` validates the
+checkpoints of each pipeline.
 
 ### Earlier findings
 
@@ -371,9 +379,10 @@ knowledge:
 | `spyhop checkpoints plan` / `check` | Show the checkpoints of the current worktree, or check their verdicts. |
 | `spyhop run` | Run in the foreground. `--once` polls one time. `-v` shows debug logs. |
 | `spyhop stats [--days N]` | Show the runs, agents and checkpoints of the last days: counts, times, PASS rate and the cost of the checkpoints. |
-| `spyhop doctor` | Check the configuration, JIRA, the repositories, the checkpoints, Orca and the service. |
+| `spyhop doctor` | Check the configuration and everything that Spyhop needs to run. |
 | `spyhop config init` | Create the configuration and the credentials file. |
 | `spyhop service install` / `uninstall` | Install and start, or remove, the systemd user service. |
+| `spyhop version` | Print the version of Spyhop. |
 
 To follow the logs of the service:
 
@@ -425,8 +434,12 @@ stops.
 
 - Spyhop only reads from JIRA. The token does not go into logs, the database
   or command lines.
-- The ticket content is data, not instructions. The agent cannot change JIRA,
-  force-push, merge or close pull requests, or remove worktrees.
+- The ticket content is data, not instructions. A deny list in
+  `.claude/settings.local.json` blocks some commands of the agent: `orca jira`
+  commands that change the ticket, `git push --force`, `gh pr merge`,
+  `gh pr close`, `git reset --hard` and `git worktree remove`. The list
+  compares the start of each command, so it is a limit and not a guarantee.
+  It does not cover MCP tools, such as a JIRA connector of Claude Code.
 - Orca starts Claude Code without permission prompts, so only the deny list
   stops a command.
 - A worktree is not a sandbox. The agents run with the permissions of your
