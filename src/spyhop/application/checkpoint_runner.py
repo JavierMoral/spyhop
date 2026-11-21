@@ -65,9 +65,7 @@ from spyhop.domain.models import (
 )
 from spyhop.domain.protocols import TicketGateway, UnitGateway
 from spyhop.infrastructure.git import has_changes, head
-from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
-)
+from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository
 
 _log = logging.getLogger(__name__)
 

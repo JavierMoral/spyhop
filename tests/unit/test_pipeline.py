@@ -507,16 +507,17 @@ async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path
     # Spyhop stopped after it stored the row and before it started the
     # unit, for longer than the timeout.
 
-    [row] = running(harness, run)
-    harness.clock.advance(timedelta(hours=4))
+    running(harness, run)
+    late = harness.clock.advance(timedelta(hours=4))
     harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL")
     await harness.supervisor.supervise()
+    after = harness.clock()
 
     first, second = harness.units.started
     [restarted] = running(harness, run)
 
     assert first == second
-    assert restarted.started_at >= row.started_at + timedelta(hours=4)
+    assert late <= restarted.started_at <= after
 
     # The timeout counts from the start of the unit.
 

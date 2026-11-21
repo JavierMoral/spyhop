@@ -14,9 +14,7 @@ from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaError
 from spyhop.domain.models import AgentSession, AutomationRun, ResolvedWorkflow, Worktree
 from spyhop.domain.protocols import TerminalHost
-from spyhop.infrastructure.persistence.repositories import (
-    RunRepository,
-)
+from spyhop.infrastructure.persistence.repositories import RunRepository
 
 _log = logging.getLogger(__name__)
 

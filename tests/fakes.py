@@ -20,6 +20,7 @@ from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import Settings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
 from spyhop.domain.models import (
@@ -144,7 +145,8 @@ class FakeUnits:
 
 
 class FakeOrca:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, clock: Clock = utc_now) -> None:
+        self.clock = clock
         self.root = root
         self.worktrees: dict[str, OrcaWorktree] = {}
         self.references: dict[str, str] = {}
@@ -400,7 +402,7 @@ class FakeOrca:
             pane_key=pane_key,
             has_live_pty=True,
             prompt=None,
-            state_started_at=since or datetime.now(UTC),
+            state_started_at=since or self.clock(),
             question=question,
         )
 
@@ -409,9 +411,9 @@ class FakeOrca:
 
 class FakeClock:
     """The real time, moved forward by the sum of the advance() calls. The
-    time keeps its order, so the newest row stays the newest. The files and
-    the agent states of FakeOrca keep the real time: after an advance(), a
-    file that a test writes is older than the rows of the database."""
+    time keeps its order, so the newest row stays the newest. The files keep
+    the real time: after an advance(), a file that a test writes is older
+    than the rows of the database."""
 
     def __init__(self) -> None:
         self.offset = timedelta(0)
@@ -438,7 +440,7 @@ class Harness:
         self.runs = RunRepository(self.connection, self.clock)
         self.worktrees = WorktreeRepository(self.connection, self.clock)
         self.sessions = SessionRepository(self.connection, self.clock)
-        self.orca = FakeOrca(tmp_path)
+        self.orca = FakeOrca(tmp_path, self.clock)
         self.tickets = FakeTickets()
         self.history = 0
         self.branches: set[str] = set()
