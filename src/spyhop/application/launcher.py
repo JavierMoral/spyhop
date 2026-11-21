@@ -413,7 +413,7 @@ class AgentLauncher:
         if self._supervisor_session is None:
             return
 
-        # Each notice is consumed only when it reaches the session.
+        # The loop consumes a notice only when the notice reaches the session.
 
         for command_id, text in self._runs.pending_notices(run.id):
             if not await self._supervisor_session.tell(worktree, f"antes del worktree: {text}"):

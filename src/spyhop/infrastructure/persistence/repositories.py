@@ -139,13 +139,18 @@ class RunRepository:
 
         run = self.get(run_id)
 
-        if run is not None and run.waiting_reason is not reason:
-            self._event(run_id, "status", f"{run.status} {reason}: {message}")
-
         self._connection.execute(
             "UPDATE automation_runs SET waiting_reason = ?, error_message = ? WHERE id = ?",
             (reason, message, run_id),
         )
+
+        # The launcher clears the reason and notes it again in each cycle of
+        # the same wait: only the first time is an event.
+
+        last = self._last_status(run_id)
+
+        if run is not None and not (last or "").startswith(f"{run.status} {reason}"):
+            self._event(run_id, "status", f"{run.status} {reason}: {message}")
 
     def mark_ready(self, run_id: str, worktree_id: str) -> None:
         self._update(run_id, RunStatus.READY, worktree_id=worktree_id)
@@ -247,7 +252,9 @@ class RunRepository:
         run = self.get(run_id)
         phases = run.pipeline if run and run.pipeline else ()
 
-        self._event(run_id, "phase", _phase_name(phases[phase]) if phase < len(phases) else "end")
+        self._event(
+            run_id, "phase", _phase_name(phases[phase]) if phase < len(phases) else f"phase {phase}"
+        )
 
     def mark_fix_requested(self, run_id: str) -> None:
         """Back to RUNNING while the agent fixes the findings."""
@@ -428,21 +435,17 @@ class RunRepository:
     def _update(self, run_id: str, status: RunStatus, **columns: str | None) -> None:
         run = self.get(run_id)
         reason = columns.get("waiting_reason")
+        message = columns.get("error_message")
 
-        # A caller that does not give a waiting reason leaves it as it is.
+        # An event for a new status or a new waiting reason. A caller that does
+        # not give a reason leaves it as it is, and a clear of the reason with
+        # the same status is not an event.
 
-        if (
+        changed = (
             run is None
             or run.status is not status
-            or ("waiting_reason" in columns and run.waiting_reason != reason)
-        ):
-            message = columns.get("error_message")
-
-            self._event(
-                run_id,
-                "status",
-                f"{status}{f' {reason}' if reason else ''}{f': {message}' if message else ''}",
-            )
+            or (reason is not None and run.waiting_reason != reason)
+        )
 
         columns["status_changed_at"] = _to_text(utc_now())
         assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
@@ -451,6 +454,22 @@ class RunRepository:
             f"UPDATE automation_runs SET {assignments} WHERE id = ?",
             (status, *columns.values(), run_id),
         )
+
+        if changed:
+            self._event(
+                run_id,
+                "status",
+                f"{status}{f' {reason}' if reason else ''}{f': {message}' if message else ''}",
+            )
+
+    def _last_status(self, run_id: str) -> str | None:
+        row = self._connection.execute(
+            "SELECT detail FROM run_events WHERE run_id = ? AND kind = 'status' "
+            "ORDER BY id DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+
+        return row["detail"] if row else None
 
 
 class WorktreeRepository:

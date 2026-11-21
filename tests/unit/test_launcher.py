@@ -382,11 +382,19 @@ async def test_failed_worktree_script_fails_the_run(tmp_path: Path) -> None:
 async def test_worktree_script_that_asks_to_try_again_keeps_the_run(tmp_path: Path) -> None:
     harness, worktree_script = scripted(tmp_path)
     run = harness.discover()
-    worktree_script.errors.append(WorktreeScriptTryAgainError("asked to try again: locked"))
+    worktree_script.errors.extend(
+        WorktreeScriptTryAgainError("asked to try again: locked") for _ in range(3)
+    )
 
-    await harness.launcher.launch_pending()
+    # Each cycle of the same wait: only the first one is an event.
+
+    for _ in range(3):
+        await harness.launcher.launch_pending()
 
     waiting = harness.run(run.id)
+    statuses = [event.detail for event in harness.runs.events(run.id) if event.kind == "status"]
+
+    assert statuses == ["PREPARING", "PREPARING worktree_script: asked to try again: locked"]
 
     assert waiting.status is RunStatus.PREPARING
     assert waiting.waiting_reason is WaitingReason.WORKTREE_SCRIPT
@@ -400,7 +408,7 @@ async def test_worktree_script_that_asks_to_try_again_keeps_the_run(tmp_path: Pa
     assert resumed.status is RunStatus.RUNNING
     assert resumed.waiting_reason is None
     assert resumed.error_message is None
-    assert len(worktree_script.requests) == 2
+    assert len(worktree_script.requests) == 4
 
 
 async def test_reopened_ticket_asks_the_script_for_its_kept_branch(tmp_path: Path) -> None:
