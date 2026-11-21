@@ -4,6 +4,7 @@ database, the launcher and the supervisor."""
 import dataclasses
 import shutil
 import subprocess
+import threading
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -425,6 +426,8 @@ class Harness:
         self.notifications: list[tuple[str, str]] = []
         self.measured: list[Path] = []
         self.dirty: set[Path] = set()
+        # The threads of the Git questions, to check that none blocks the loop.
+        self.git_threads: list[threading.Thread] = []
         self.context = ContextBuilder(
             template_environment(tmp_path / "templates"),
             ORCA,
@@ -457,7 +460,7 @@ class Harness:
             agents=self.config.agents,
             max_concurrent_agents=self.config.application.max_concurrent_agents,
             min_free_disk_gb=self.config.application.min_free_disk_gb,
-            branch_exists=lambda repository, branch: branch in self.branches,
+            branch_exists=lambda repository, branch: self._git(branch in self.branches),
             free_bytes=lambda path: self.free_bytes(path),
             supervisor_session=self.supervisor_session,
             notify=self.notify,
@@ -481,7 +484,7 @@ class Harness:
             worktrees=self.worktrees,
             jira=self.tickets,
             settings=self.config.cleanup,
-            has_changes=lambda path: path in self.dirty,
+            has_changes=lambda path: self._git(path in self.dirty),
         )
         self.agents_dir = tmp_path / "agents"
         self.agent_states_dir = tmp_path / "agent-states"
@@ -554,6 +557,11 @@ class Harness:
         self.measured.append(path)
 
         return int(self.free_gb * 1024**3)
+
+    def _git(self, answer: bool) -> bool:
+        self.git_threads.append(threading.current_thread())
+
+        return answer
 
     def discover(self, key: str = "LPD-1") -> AutomationRun:
         self.history += 1

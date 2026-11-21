@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 import pytest
@@ -134,6 +135,7 @@ async def test_uncommitted_changes_block_the_removal(harness: Harness) -> None:
 
     assert removed.id == worktree.id
     assert worktree_status(harness, worktree) is WorktreeStatus.REMOVED
+    assert harness.git_threads and threading.main_thread() not in harness.git_threads
 
 
 async def test_removal_left_halfway_is_resumed(harness: Harness) -> None:

@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -431,3 +432,4 @@ async def test_reopened_ticket_asks_the_script_for_its_kept_branch(tmp_path: Pat
 
     assert reopened.branch == worktree.branch_name
     assert reopened.base_branch == worktree.base_branch
+    assert harness.git_threads and threading.main_thread() not in harness.git_threads
