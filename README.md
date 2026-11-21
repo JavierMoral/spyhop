@@ -35,106 +35,62 @@ and opens a pull request only when you run `/pr` in its terminal.
 
 ## A ticket, step by step
 
-What you do is in **bold**. The rest happens by itself. Follow the run in its
-[supervisor session](#the-supervisor-session): it tells you what happens, and
-it runs the Spyhop commands that you ask for.
+What you do is in **bold**. Spyhop does the rest. Follow the run in its
+[supervisor session](#the-supervisor-session).
 
 1. **Move a ticket assigned to you to a start status in JIRA.** Spyhop creates
-   a worktree for the ticket and starts an agent on `agents.plan_model`. If the
-   [pipeline](#pipelines-and-checkpoints) starts with checks, the agent starts
-   after they pass. The agent gets the ticket and its parents in
-   `CLAUDE-TASK.md`.
-2. The agent writes `CLAUDE-PLAN.md` and declares it with
-   `spyhop declare KEY plan`. Its Orca card moves to *In review*. The
-   supervisor session gives you a summary of the plan. **Read the plan**,
-   then do one of these:
-   - **Approve it.** Tell the supervisor session that you approve the plan.
-   - **Change it.** Give the changes to the supervisor session. It sends them
-     to the plan agent.
-
-   The implementation agent reads only `CLAUDE-PLAN.md`, so make sure that
-   each change goes into that file. You can close the tab of the plan agent:
-   the approval still starts the implementation, and the supervisor session
-   starts a new plan agent for the changes (`spyhop replan`). The card only
-   shows the state: moving it does not approve the plan.
-3. Spyhop starts a new agent on `agents.model`. It implements the plan, makes
-   local commits, writes `CLAUDE-RESULT.md` and declares the end with
-   `spyhop declare KEY done`. If the workflow has
-   [checkpoints](#pipelines-and-checkpoints) after the implementation, Spyhop
-   runs them, and the agent fixes what they find. **Review the commits, then push and open the pull request**, yourself
-   or with `/pr` in the agent's terminal.
+   a worktree for the ticket and starts a plan agent.
+2. The agent writes `CLAUDE-PLAN.md`, and the supervisor session gives you a
+   summary of it. **Read the plan**, then tell the supervisor session to
+   approve it, or give it the changes. Make sure that each change goes into
+   `CLAUDE-PLAN.md`, because the next agent reads only that file.
+3. Spyhop starts an agent that implements the plan, makes local commits and
+   writes `CLAUDE-RESULT.md`. If the workflow has
+   [checkpoints](#pipelines-and-checkpoints), Spyhop runs them, and the agent
+   fixes what they find. **Review the commits, then push and open the pull
+   request**, yourself or with `/pr` in the agent's terminal.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree. See
    [When the ticket closes](#when-the-ticket-closes).
 
-When a run is `WAITING_FOR_HUMAN`, the supervisor session tells you why and
-gives the options. `spyhop status` also shows where each ticket is. The reason
-tells you what to do:
+When a run needs you, its status is `WAITING_FOR_HUMAN`. The supervisor
+session and `spyhop status` tell you the reason:
 
 | Reason | What to do |
 | --- | --- |
 | `plan_review` | Review the plan (step 2). |
 | `checkpoints_failed` | Read `CLAUDE-CHECKPOINTS.md` and the reports. Fix the cause, then run `spyhop checkpoints rerun KEY`. |
-| `agent_question` | Give your answer to the supervisor session. It shows the question of the agent when Orca gives it. |
+| `agent_question` | Give your answer to the supervisor session. |
 | `unknown_state` | Tell the agent to go on in its terminal, or stop the run with `spyhop fail KEY`. |
 
-Before a run waits with `unknown_state`, Spyhop tries once by itself
-(`agents.max_restarts`). It starts an agent that Orca no longer lists again,
-and it tells an agent that stopped without the plan or the end to continue.
-
 To start a run again, stop it with `spyhop fail KEY`, then run
-`spyhop retry KEY`. `retry` accepts only a finished run.
+`spyhop retry KEY`.
 
 ### The supervisor session
 
-Each worktree gets one Claude session in an Orca tab named `spyhop`. Spyhop
-sends it a message that starts with `[spyhop]` for each event: the new
-worktree, the start of an agent or a checkpoint, each verdict, a run that
-fails to start, the end of the run, and each reason why the run waits for you.
-Spyhop knows what each agent does from the Claude Code hooks that it writes to
-`.claude/settings.local.json` in the worktree: the hooks run `spyhop hook`,
-which records the state of the agent. Orca tells whether the terminal of the
-agent still exists. The hooks, the end of each checkpoint, and the commands
-that change a run (`approve`, `declare`, `replan`, `retry`, `fail`, `cleanup`
-and `checkpoints rerun`) wake the service, so the next cycle starts at once.
-The JIRA poll and the cleanup of closed tickets stay on `polling_interval`.
+Each worktree has a Claude session in an Orca tab named `spyhop`. It tells you
+each event of the run and why the run waits, with the options and their
+commands. It keeps a table with the state and the result of each agent and
+each checkpoint. When the run completes, it shows a short description of the
+branch.
 
-A run that has no worktree yet has no session: for example, a run that waits
-for disk space or for its worktree script, or that fails before its worktree
-exists. Spyhop shows a desktop notification (`notify-send`) for it, and tells
-the session about it once the worktree exists.
+Ask the session to approve the plan, to send changes to an agent, or to run
+other Spyhop commands. The session does not change files, and runs a command
+only when you ask for it.
 
-When the run waits, the session tells you what happened and gives the options
-with their commands. When a plan waits for its review, the session gives a
-summary of the plan and asks if you approve it. When you ask for changes to
-the plan, the session sends them to the plan agent with `spyhop tell`.
-
-The session keeps a table of the run: one row for each agent, each wait and
-each checkpoint of each round. Each row gives the state, the result, a link to
-the file that the step wrote, and the cause of a failure or a problem. The
-session shows the full table again for each message, and after `retry`,
-`fail` or `checkpoints rerun`. When the run completes, the session shows a
-report: a description of the branch in 50 words or less, then the table.
-
-The session starts without permission prompts and without the Edit, Write and
-NotebookEdit tools. Its instructions tell it not to change files, and to run a
-command only when you ask for it.
+Before the worktree exists, a run has no session. Spyhop shows a desktop
+notification for it instead.
 
 ### When the ticket closes
 
-When a ticket with a worktree closes, Spyhop stops the run and its agents and
-removes the worktree. It never forces the removal:
+When a ticket closes, Spyhop stops its agents and removes the worktree:
 
 - A merged branch is deleted with the worktree.
 - An unmerged branch is kept. If you reopen the ticket, the new worktree
   continues from that branch.
-- A worktree with uncommitted changes stays, as `CLEANUP_BLOCKED`, with a
-  comment on its Orca card. Commit or discard the changes, and the next cycle
-  removes it.
+- A worktree with uncommitted changes stays as `CLEANUP_BLOCKED`. Commit or
+  discard the changes, and Spyhop removes it.
 
-`CLAUDE-TASK.md`, `CLAUDE-PLAN.md`, `CLAUDE-RESULT.md`,
-`CLAUDE-CHECKPOINTS.md`, `CLAUDE-CHECKPOINT-*.md` and
-`.claude/settings.local.json` are excluded from Git, so they are lost with the
-worktree.
+The `CLAUDE-*.md` files are not in Git, so they are lost with the worktree.
 
 ## Requirements
 
