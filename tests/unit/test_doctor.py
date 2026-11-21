@@ -3,7 +3,6 @@ from pathlib import Path
 from spyhop.config.settings import ProjectSettings
 from spyhop.doctor import (
     Level,
-    _check_board,
     _check_checkpoints,
     _check_claude_links,
     _check_project,
@@ -11,7 +10,7 @@ from spyhop.doctor import (
     _check_worktree_script,
 )
 from spyhop.infrastructure.claude_links import link_claude_files
-from tests.factories import orca_dir, settings
+from tests.factories import settings
 from tests.unit.test_checkpoint_planner import checkpoint
 from tests.unit.test_claude_links import bundled
 
@@ -72,29 +71,6 @@ def test_customized_templates_are_reported(tmp_path: Path) -> None:
     check = _check_templates(settings(tmp_path), tmp_path / "templates")
 
     assert "customized" in check.detail and "bug_fix.md" in check.detail
-
-
-def test_default_board_columns_are_ok(tmp_path: Path) -> None:
-    check = _check_board(settings(tmp_path), orca_dir(tmp_path))
-
-    assert check.level is Level.OK
-    assert "completed (Done)" in check.detail
-
-
-def test_missing_board_column_is_an_error_listing_the_columns(tmp_path: Path) -> None:
-    config = settings(tmp_path)
-    config.orca.plan_review_status = "status-6"
-
-    check = _check_board(config, orca_dir(tmp_path))
-
-    assert check.level is Level.ERROR
-    assert "'status-6'" in check.detail and "in-progress (In progress)" in check.detail
-
-
-def test_unreadable_board_is_a_warning(tmp_path: Path) -> None:
-    check = _check_board(settings(tmp_path), tmp_path / "no-orca")
-
-    assert check.level is Level.WARNING
 
 
 def test_worktree_script_must_be_executable(tmp_path: Path) -> None:

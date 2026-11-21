@@ -19,7 +19,6 @@ from spyhop.config.paths import (
     bundled_claude_dir,
     claude_agents_dir,
     claude_dir,
-    orca_config_dir,
     systemd_user_unit_file,
     user_templates_dir,
 )
@@ -29,7 +28,6 @@ from spyhop.domain.models import ChecksPhase
 from spyhop.infrastructure.claude_links import claude_files, is_linked
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.jira.client import JiraClient
-from spyhop.infrastructure.orca.board import read_board_columns
 from spyhop.infrastructure.orca.discovery import check_runtime, find_orca_executable
 from spyhop.infrastructure.service.systemd import linger_enabled, unit_active
 
@@ -69,7 +67,6 @@ async def run_checks(config_file: Path) -> list[Check]:
             _check_worktree_script("write_script", settings.knowledge.write_script, "knowledge")
         )
     checks.append(await _check_orca(settings))
-    checks.append(_check_board(settings))
     checks.extend(_check_service())
 
     return checks
@@ -366,39 +363,6 @@ async def _check_orca(settings: Settings) -> Check:
         return Check(Level.WARNING, "orca", detail + "; the app is not running")
 
     return Check(Level.OK, "orca", f"{detail}, runtime {info.runtime_state}")
-
-
-def _check_board(settings: Settings, orca_dir: Path | None = None) -> Check:
-    used = {
-        "orca.plan_review_status": settings.orca.plan_review_status,
-        "orca.plan_approved_status": settings.orca.plan_approved_status,
-    }
-
-    try:
-        columns = {
-            column.id: column.label for column in read_board_columns(orca_dir or orca_config_dir())
-        }
-    except SpyhopError as error:
-        return Check(
-            Level.WARNING,
-            "board columns",
-            f"could not read Orca's board ({error}); check by hand that "
-            f"{', '.join(dict.fromkeys(used.values()))} are column ids",
-        )
-
-    missing = [f"{name}: {status!r}" for name, status in used.items() if status not in columns]
-    available = "columns: " + ", ".join(f"{id} ({label})" for id, label in columns.items())
-
-    if missing:
-        return Check(
-            Level.ERROR,
-            "board columns",
-            f"not on the Orca board: {'; '.join(missing)}; {available}",
-        )
-
-    using = ", ".join(f"{name}={status}" for name, status in used.items())
-
-    return Check(Level.OK, "board columns", f"{using}; {available}")
 
 
 def _check_service() -> list[Check]:
