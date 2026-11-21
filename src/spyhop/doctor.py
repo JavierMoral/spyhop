@@ -59,6 +59,11 @@ async def run_checks(config_file: Path) -> list[Check]:
     checks.extend(_check_repositories(settings))
     checks.append(_check_templates(settings))
     checks.extend(_check_checkpoints(settings))
+
+    if settings.knowledge.write_script is not None:
+        checks.append(
+            _check_worktree_script("write_script", settings.knowledge.write_script, "knowledge")
+        )
     checks.append(await _check_orca(settings))
     checks.append(_check_board(settings))
     checks.extend(_check_service())

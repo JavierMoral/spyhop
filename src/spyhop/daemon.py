@@ -12,6 +12,7 @@ from spyhop.application.checkpoint_planner import CheckpointPlanner
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.context_builder import ContextBuilder, template_environment
 from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
+from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.monitor import JiraMonitor
 from spyhop.application.orchestrator import Orchestrator
@@ -173,6 +174,7 @@ def _agents(
         settings.orca.plan_review_status,
         settings.orca.plan_approved_status,
         settings.agents.review_command,
+        settings.knowledge.recall_command,
     )
     supervisor_session = SupervisorSession(
         worktrees=worktrees,
@@ -202,6 +204,13 @@ def _agents(
             supervisor_session=supervisor_session,
         ),
         supervisor_session=supervisor_session,
+        knowledge=KnowledgeWriter(
+            CheckpointRunRepository(connection),
+            settings.knowledge.write_script,
+            settings.knowledge.write_timeout,
+        )
+        if settings.knowledge.write_script
+        else None,
     )
     launcher = AgentLauncher(
         runs=runs,

@@ -338,6 +338,24 @@ Spyhop writes the verdicts to `CLAUDE-CHECKPOINTS.md`, and each report to
 `CLAUDE-CHECKPOINT-<name>.md`. `spyhop checkpoints plan` validates the
 checkpoints of a workflow.
 
+### Earlier findings
+
+The `knowledge` section connects Spyhop to a knowledge base of your own:
+
+```yaml
+knowledge:
+  recall_command: /recall
+  write_script: ~/.claude/liferay-knowledge/_scripts/write-entry.sh
+```
+
+- With `recall_command`, `CLAUDE-TASK.md` tells the agent to run the command
+  with keywords of the ticket before it plans.
+- With `write_script`, a completed run stores each high or medium finding of a
+  checkpoint that failed and then passed. The script gets the finding as JSON
+  on stdin (`bucket`, `title`, `slug`, `tags`, `modules`, `jira`, `body` with
+  `context`, `finding`, `evidence` and `why`, and `links`), and
+  `spyhop-<run id>` as its argument. A failure only goes to the log.
+
 ## Usage
 
 | Command | Description |

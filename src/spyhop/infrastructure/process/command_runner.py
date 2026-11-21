@@ -28,6 +28,7 @@ class CommandRunner(Protocol):
         time_limit: float,
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
+        stdin: str | None = None,
     ) -> CommandResult: ...
 
 
@@ -38,19 +39,22 @@ class SubprocessRunner:
         time_limit: float,
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
+        stdin: str | None = None,
     ) -> CommandResult:
         process = await asyncio.create_subprocess_exec(
             *args,
             cwd=cwd,
             env=env,
-            stdin=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.DEVNULL if stdin is None else asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
         try:
             async with asyncio.timeout(time_limit):
-                stdout, stderr = await process.communicate()
+                stdout, stderr = await process.communicate(
+                    None if stdin is None else stdin.encode()
+                )
         except TimeoutError:
             process.kill()
             await process.wait()

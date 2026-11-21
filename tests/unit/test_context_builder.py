@@ -276,3 +276,13 @@ def test_prepare_writes_the_context_and_excludes_it_once(tmp_path: Path) -> None
 def test_prepare_requires_the_worktree_directory(tmp_path: Path) -> None:
     with pytest.raises(ContextError, match="not found"):
         builder(tmp_path).prepare(tmp_path / "missing", ticket(), workflow())
+
+
+def test_recall_command_runs_before_the_plan(tmp_path: Path) -> None:
+    plain = ContextBuilder(template_environment(tmp_path), ORCA, "plan-review")
+    recall = ContextBuilder(
+        template_environment(tmp_path), ORCA, "plan-review", recall_command="/recall"
+    )
+
+    assert "## Earlier findings" not in plain.render_task(ticket(), workflow())
+    assert "`/recall <palabras clave>`" in recall.render_task(ticket(), workflow())

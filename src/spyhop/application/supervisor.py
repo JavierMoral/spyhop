@@ -48,6 +48,7 @@ from pathlib import Path
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
 from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBuilder
+from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.launcher import label_agent, replay_expired
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
@@ -179,8 +180,10 @@ class AgentSupervisor:
         resolver: WorkflowResolver,
         check_runner: CheckRunner | None = None,
         supervisor_session: SupervisorSession | None = None,
+        knowledge: KnowledgeWriter | None = None,
     ) -> None:
         self._runs = runs
+        self._knowledge = knowledge
         self._supervisor_session = supervisor_session
         self._resolver = resolver
         self._check_runner = check_runner
@@ -447,6 +450,9 @@ class AgentSupervisor:
                 self._sessions.mark_finished(session.id)
 
             _log.info("%s: completed; CLAUDE-RESULT.md is in %s", run.issue_key, worktree.path)
+
+            if self._knowledge is not None:
+                await self._knowledge.record(run)
 
             await self._tell(run, f"run completada; el resultado está en {RESULT_FILE}")
 

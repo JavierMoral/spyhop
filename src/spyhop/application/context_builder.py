@@ -77,12 +77,14 @@ class ContextBuilder:
         plan_review_status: str,
         plan_approved_status: str = "in-progress",
         review_command: str | None = None,
+        recall_command: str | None = None,
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
         self._review_command = review_command
+        self._recall_command = recall_command
 
     def prepare(
         self, worktree_path: Path, ticket: TicketDetails, workflow: ResolvedWorkflow
@@ -115,6 +117,7 @@ class ContextBuilder:
             plan_review_status=self._plan_review_status,
             plan_approved_status=self._plan_approved_status,
             review_command=self._review_command,
+            recall_command=self._recall_command,
         )
 
     def render_settings(self, workflow: ResolvedWorkflow) -> str:

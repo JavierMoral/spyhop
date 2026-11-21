@@ -163,6 +163,16 @@ class AgentSettings(BaseModel):
         return (value or "").strip() or None
 
 
+class KnowledgeSettings(BaseModel):
+    # A command, usually a slash command, that the agent runs with keywords
+    # of the ticket before it plans, to read findings of earlier tickets.
+    recall_command: str | None = None
+    # An executable that stores one finding. It gets the finding as JSON on
+    # stdin and the source as its argument; see the README.
+    write_script: ExpandedPath | None = None
+    write_timeout: float = Field(default=60, gt=0)
+
+
 class CleanupSettings(BaseModel):
     enabled: bool = True
     close_status_categories: list[str] = Field(default_factory=lambda: ["done"])
@@ -186,6 +196,7 @@ class Settings(BaseSettings):
     pipelines: dict[str, list[PipelineItem]] = Field(default_factory=dict)
     orca: OrcaSettings = Field(default_factory=OrcaSettings)
     agents: AgentSettings = Field(default_factory=AgentSettings)
+    knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
     cleanup: CleanupSettings = Field(default_factory=CleanupSettings)
     service: ServiceSettings = Field(default_factory=ServiceSettings)
 
