@@ -16,7 +16,9 @@ from spyhop.application.context_builder import template_environment
 from spyhop.application.janitor import closed_tickets_jql
 from spyhop.config.credentials import JiraCredentials, read_env_file
 from spyhop.config.paths import (
+    bundled_claude_dir,
     claude_agents_dir,
+    claude_dir,
     orca_config_dir,
     systemd_user_unit_file,
     user_templates_dir,
@@ -24,6 +26,7 @@ from spyhop.config.paths import (
 from spyhop.config.settings import ProjectSettings, Settings, load_settings
 from spyhop.domain.exceptions import JiraError, SpyhopError
 from spyhop.domain.models import ChecksPhase
+from spyhop.infrastructure.claude_links import claude_files, is_linked
 from spyhop.infrastructure.disk import GIB, free_bytes
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.board import read_board_columns
@@ -58,6 +61,7 @@ async def run_checks(config_file: Path) -> list[Check]:
     checks.extend(await _check_jira(settings, credentials))
     checks.extend(_check_repositories(settings))
     checks.append(_check_templates(settings))
+    checks.append(_check_claude_links())
     checks.extend(_check_checkpoints(settings))
 
     if settings.knowledge.write_script is not None:
@@ -303,6 +307,23 @@ def _check_templates(settings: Settings, user_templates: Path | None = None) -> 
         "templates",
         f"{len(names)} found; customized in {user_templates}: {', '.join(custom) or 'none'}",
     )
+
+
+def _check_claude_links(bundled: Path | None = None, claude: Path | None = None) -> Check:
+    """Each subagent and skill of Spyhop must be a link in ~/.claude to its
+    file in Spyhop, or Claude Code runs another version or none."""
+
+    files = claude_files(bundled or bundled_claude_dir(), claude or claude_dir())
+    missing = [str(target) for source, target in files if not is_linked(source, target)]
+
+    if missing:
+        return Check(
+            Level.ERROR,
+            "claude links",
+            f"not linked to Spyhop: {', '.join(missing)}; run `spyhop claude install`",
+        )
+
+    return Check(Level.OK, "claude links", f"{len(files)} subagents and skills are linked")
 
 
 def _check_checkpoints(settings: Settings, agents_dir: Path | None = None) -> list[Check]:
