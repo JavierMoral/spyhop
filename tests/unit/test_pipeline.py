@@ -12,7 +12,7 @@ import pytest
 
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import UnitError
-from spyhop.domain.models import AutomationRun, CheckpointRun, Worktree
+from spyhop.domain.models import AutomationRun, CheckpointRun, ChecksPhase, Worktree
 from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
 from tests.unit.test_checkpoint_planner import checkpoint
@@ -301,6 +301,19 @@ async def test_a_run_in_progress_keeps_its_pipeline_when_the_configuration_chang
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).status is RunStatus.COMPLETED
+
+
+async def test_a_run_from_before_the_stored_pipeline_gets_it_on_supervision(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
+    run, _, _ = await implemented(harness)
+
+    harness.connection.execute("UPDATE automation_runs SET pipeline = NULL")
+
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).pipeline == ("implement", ChecksPhase(("regressions",), "fix"))
 
 
 async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(

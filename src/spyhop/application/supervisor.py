@@ -722,6 +722,12 @@ class AgentSupervisor:
         if workflow is None or run.phase >= len(workflow.phases):
             return None
 
+        if run.pipeline is None:
+            # A run from before the column: from now on, a change of the
+            # configuration does not move its phase.
+
+            self._runs.set_pipeline(run.id, workflow.phases)
+
         return workflow
 
     def _reload(self, run: AutomationRun) -> AutomationRun:

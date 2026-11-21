@@ -31,8 +31,8 @@ give the commit.
    index. Store a copy of the resolved pipeline (JSON) when Spyhop creates the
    run, or store the phase name. Done in the branch `run-pipeline`: the launcher stores
    the pipeline (migration 14) when the first phase starts, and
-   `resolve_for_run` uses it. The runs from before keep the pipeline of the
-   current configuration.
+   `resolve_for_run` uses it. For a run from before, the supervisor stores
+   the pipeline of the configuration the first time that it sees the run.
 
 3. [ ] **Use a commands table, not flag columns.** `fix_requested_at`,
    `plan_changes`, `checks_requested`, `checks_failed_only`, `approved_at` and

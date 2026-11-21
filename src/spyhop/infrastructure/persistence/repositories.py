@@ -1,6 +1,7 @@
 import builtins
 import dataclasses
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -17,7 +18,10 @@ from spyhop.domain.models import (
     OrcaWorktree,
     Phase,
     Worktree,
+    validate_pipeline,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime:
@@ -729,21 +733,34 @@ def _phase_to_json(phase: Phase) -> object:
 
 
 def _pipeline_from_json(text: str | None) -> tuple[Phase, ...] | None:
-    """None when the run has no pipeline, or when the stored one does not
-    parse: the run then uses the pipeline of the configuration."""
+    """None when the run has no pipeline, or when the stored one is not a
+    valid pipeline: the run then uses the pipeline of the configuration."""
 
     if not text:
         return None
 
     try:
-        return tuple(
+        phases = tuple(
             phase
             if isinstance(phase, str)
             else ChecksPhase(**{**phase, "checkpoints": tuple(phase["checkpoints"])})
             for phase in json.loads(text)
         )
-    except (ValueError, TypeError, KeyError):
+
+        for phase in phases:
+            if isinstance(phase, ChecksPhase) and (
+                phase.on_fail not in ("human", "fix")
+                or not all(isinstance(name, str) for name in phase.checkpoints)
+            ):
+                raise ValueError(f"not a checks phase: {phase}")
+
+        validate_pipeline(phases)
+    except (ValueError, TypeError, KeyError) as error:
+        _log.warning("Stored pipeline ignored, the configuration applies: %s", error)
+
         return None
+
+    return phases
 
 
 def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:

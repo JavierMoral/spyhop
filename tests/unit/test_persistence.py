@@ -124,9 +124,16 @@ def test_the_pipeline_of_a_run_is_stored_and_a_broken_one_is_ignored(tmp_path: P
 
     stored = runs.get("r1")
 
-    connection.execute("UPDATE automation_runs SET pipeline = '[{\"checks\": 1}]'")
-
-    broken = runs.get("r1")
-
     assert stored is not None and stored.pipeline == pipeline
-    assert broken is not None and broken.pipeline is None
+
+    for broken in (
+        "not json",
+        '[{"checkpoints": 1}]',
+        '["implement", {"checkpoints": ["a"], "on_fail": "x"}]',
+        '["plan"]',
+    ):
+        connection.execute("UPDATE automation_runs SET pipeline = ?", (broken,))
+
+        run = runs.get("r1")
+
+        assert run is not None and run.pipeline is None, broken
