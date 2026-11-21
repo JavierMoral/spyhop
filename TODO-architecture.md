@@ -11,6 +11,9 @@ give the commit.
 - The JIRA polling. A webhook needs a public endpoint, and the watermark covers
   the time when Spyhop is stopped.
 - The checkpoints in systemd units, outside the service.
+- The read-only checkpoints without systemd isolation (`ProtectSystem`,
+  `ReadWritePaths`). The limits can break the checkpoints, for example
+  the state that Claude Code writes in `~/.claude`.
 
 ## Pending, in this order
 
@@ -121,13 +124,6 @@ give the commit.
    supervisor session). The code moved without a change of behavior, with
    one fix: when Orca cannot take a fix prompt, the next cycle sends it
    again.
-
-9. [ ] **Isolate the read-only checkpoints with systemd properties.** For the
-   checkpoints with `mode: read` (security, regressions, repro-steps), add
-   `ProtectSystem=strict`, `ReadWritePaths=<results_dir>`, `PrivateTmp=yes`
-   and `NoNewPrivileges=yes` to the `systemd-run` command in
-   `infrastructure/process/units.py`. Make sure that Claude Code still writes
-   its own state in `~/.claude`.
 
 10. [x] **Record run events.** Write the phase changes, waits, restarts and
     checkpoint results to a `run_events` table. Then `stats` and a new
