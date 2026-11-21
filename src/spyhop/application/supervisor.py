@@ -19,7 +19,8 @@ A new agent, and not /model in the plan agent's session, because /model asks
 for a confirmation and saves the model as the user's default for every session.
 
 Pipelines: the run's phase says which step of the workflow's pipeline runs
-now. A checks phase runs without an agent through CheckRunner. When it
+now. PhaseRunner starts each phase. A checks phase runs without an agent
+through CheckRunner. When it
 passes, the next phase starts: the plan agent, the implementation agent, or
 the end of the run. When it fails, the run waits for a person, or, with
 on_fail: fix, the implementation agent gets the reports and fixes the
@@ -30,13 +31,14 @@ WAITING_FOR_HUMAN are checked against Orca with the same table. Nothing is
 ever COMPLETED without the agent's explicit signal, and without the checks
 after the implementation, if the pipeline has them.
 
-A lost agent, one that Orca no longer lists while the run is RUNNING in a
-plan or implement phase, starts again. A stopped agent, one that is idle
-without the plan or the end, gets CONTINUE_PROMPT. Each one counts as a
-restart; after agents.max_restarts, the run waits for a person.
+AgentRecovery handles a lost agent, one that Orca no longer lists while the
+run is RUNNING in a plan or implement phase: the agent starts again. It also
+handles a stopped agent, one that is idle without the plan or the end: the
+agent gets CONTINUE_PROMPT. Each one counts as a restart; after
+agents.max_restarts, the run waits for a person.
 
-The supervisor session of the worktree, when there is one, gets the progress
-and each reason why the run waits for a person. A wait that does not reach the
+Through RunAlerts, the supervisor session of the worktree, when there is one,
+gets the progress and each reason why the run waits for a person. A wait that does not reach the
 session goes again on the next cycle. Its pane is not an agent of the run.
 """
 
@@ -48,21 +50,20 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
+from spyhop.application.agent_recovery import MISSING_AFTER, AgentRecovery
 from spyhop.application.checkpoint_runner import CheckRunner
-from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
 from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBuilder
 from spyhop.application.knowledge import KnowledgeWriter
-from spyhop.application.launcher import label_agent, replay_expired
+from spyhop.application.phase_runner import PhaseRunner
+from spyhop.application.run_alerts import RunAlerts
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
-    OrcaError,
     OrcaUnavailableError,
     OrcaUncertainError,
-    SpyhopError,
 )
 from spyhop.domain.models import (
     AgentRow,
@@ -70,16 +71,13 @@ from spyhop.domain.models import (
     AutomationRun,
     ChecksPhase,
     ResolvedWorkflow,
-    Worktree,
 )
 from spyhop.domain.protocols import TerminalHost, WorktreeHost
 from spyhop.infrastructure.agent_state import read_state
-from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
     WorktreeRepository,
-    utc_now,
 )
 
 _log = logging.getLogger(__name__)
@@ -88,22 +86,7 @@ SUPERVISED = (RunStatus.RUNNING, RunStatus.WAITING_FOR_HUMAN)
 
 AGENT = "claude"
 
-# Cycles without the run's agent in `worktree ps`, and the time since the
-# first one, before the agent counts as lost. Orca lists a new agent a few
-# seconds after the launch, and a restart of Orca briefly lists none. The time
-# is necessary because a wake of the service starts a cycle at once, so the
-# hooks of a new agent can start several cycles in a few seconds.
-
-MISSING_CYCLES = 3
-
-MISSING_AFTER = timedelta(seconds=90)
-
 MAX_QUESTION_LENGTH = 1500
-
-CONTINUE_PROMPT = (
-    "Continúa con la tarea de CLAUDE-TASK.md. Si ya has terminado, escribe CLAUDE-PLAN.md o "
-    "CLAUDE-RESULT.md y declara el plan o el fin con el comando spyhop declare de tu /goal."
-)
 
 
 class Signal(StrEnum):
@@ -197,23 +180,29 @@ class AgentSupervisor:
         missing_after: timedelta = MISSING_AFTER,
     ) -> None:
         self._runs = runs
-        self._missing_after = missing_after
-        # The missing time counts from the start at the earliest: while the
-        # service was stopped, nothing looked for the agent.
-        self._started_at = utc_now()
         self._agent_states_dir = agent_states_dir
-        self._knowledge = knowledge
-        self._supervisor_session = supervisor_session
         self._resolver = resolver
-        self._check_runner = check_runner
         self._worktrees = worktrees
         self._sessions = sessions
         self._worktree_host = worktree_host
         self._terminal_host = terminal_host
-        self._context = context
-        self._agents = agents
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
+        self._alerts = RunAlerts(runs, worktrees, supervisor_session)
+        self._phases = PhaseRunner(
+            runs,
+            sessions,
+            terminal_host,
+            context,
+            agents,
+            plan_review_status,
+            self._alerts,
+            check_runner,
+            knowledge,
+        )
+        self._recovery = AgentRecovery(
+            runs, terminal_host, agents, self._phases, self._alerts, missing_after
+        )
         # Only for the log: the first cycle after a start reconciles the runs.
         self._reconciled = False
 
@@ -256,7 +245,9 @@ class AgentSupervisor:
         worktree = self._worktrees.get(run.worktree_id) if run.worktree_id else None
 
         if worktree is None:
-            await self._wait(run, WaitingReason.UNKNOWN_STATE, "no worktree recorded for this run")
+            await self._alerts.wait(
+                run, WaitingReason.UNKNOWN_STATE, "no worktree recorded for this run"
+            )
 
             return
 
@@ -268,7 +259,9 @@ class AgentSupervisor:
         card = None
 
         if not worktree.path.exists():
-            await self._wait(run, WaitingReason.UNKNOWN_STATE, f"worktree {worktree.path} is gone")
+            await self._alerts.wait(
+                run, WaitingReason.UNKNOWN_STATE, f"worktree {worktree.path} is gone"
+            )
 
             return
 
@@ -279,7 +272,7 @@ class AgentSupervisor:
                 if error.code != "selector_not_found":
                     raise
 
-                await self._wait(
+                await self._alerts.wait(
                     run, WaitingReason.UNKNOWN_STATE, f"worktree {worktree.path} is gone"
                 )
 
@@ -288,7 +281,7 @@ class AgentSupervisor:
         workflow = self._workflow(run)
 
         if workflow is None:
-            await self._wait(
+            await self._alerts.wait(
                 run,
                 WaitingReason.UNKNOWN_STATE,
                 f"workflow {run.workflow_name!r} or its phase {run.phase} is not configured",
@@ -304,14 +297,14 @@ class AgentSupervisor:
         session = self._sessions.find_launched(run.id)
 
         if run.plan_changes is not None:
-            await self._change_plan(run, worktree, session)
+            await self._phases.change_plan(run, worktree, session)
 
             return
 
         if isinstance(workflow.phases[run.phase], ChecksPhase) and run.fix_requested_at is None:
             busy = any(row.agent_type == AGENT and row.state == "working" for row in rows)
 
-            await self._checks(run, worktree, workflow, session, busy)
+            await self._phases.checks(run, worktree, workflow, session, busy)
 
             return
 
@@ -356,7 +349,7 @@ class AgentSupervisor:
         signal = observe(run, seen)
 
         if signal is Signal.MISSING:
-            await self._on_missing(run, worktree, workflow, session)
+            await self._recovery.on_missing(run, worktree, workflow, session)
 
             return
 
@@ -364,7 +357,7 @@ class AgentSupervisor:
             self._runs.clear_missing(run.id)
 
         if signal is Signal.NONE and seen.agent is None:
-            await self._on_plan_agent_closed(run, worktree)
+            await self._recovery.on_plan_agent_closed(run, worktree)
 
             return
 
@@ -381,20 +374,22 @@ class AgentSupervisor:
 
                 _log.info("%s: fixes done; checkpoints run again", run.issue_key)
 
-                await self._checks(self._reload(run), worktree, workflow, session)
+                await self._phases.checks(self._reload(run), worktree, workflow, session)
             else:
                 # The declared end is the end of the implementation, also
                 # when the plan agent did it.
 
-                await self._enter(
+                await self._phases.enter(
                     run, worktree, workflow, workflow.phases.index("implement") + 1, session
                 )
         elif signal is Signal.WORKING:
-            await self._resume(run)
+            await self._alerts.resume(run)
         elif signal is Signal.QUESTION:
-            await self._wait(run, WaitingReason.AGENT_QUESTION, _question(seen.agent))
+            await self._alerts.wait(run, WaitingReason.AGENT_QUESTION, _question(seen.agent))
         elif signal is Signal.PLAN_READY:
-            await self._wait(run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}")
+            await self._alerts.wait(
+                run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}"
+            )
         elif signal is Signal.PLAN_APPROVED:
             # Without plan_review in the pipeline, a person approved a plan
             # that the agent wrote by itself: as before, a new agent
@@ -409,50 +404,13 @@ class AgentSupervisor:
 
             self._runs.consume(run.id, "approve")
 
-            await self._enter(run, worktree, workflow, after, session)
-        elif signal is Signal.STOPPED and not await self._prompt_stopped(run, session):
-            await self._wait(
+            await self._phases.enter(run, worktree, workflow, after, session)
+        elif signal is Signal.STOPPED and not await self._recovery.prompt_stopped(run, session):
+            await self._alerts.wait(
                 run,
                 WaitingReason.UNKNOWN_STATE,
                 "the agent stopped without declaring the plan or the end",
             )
-
-    async def _on_missing(
-        self,
-        run: AutomationRun,
-        worktree: Worktree,
-        workflow: ResolvedWorkflow,
-        session: AgentSession | None,
-    ) -> None:
-        missing = self._runs.note_missing(run.id)
-
-        assert missing.missing_since is not None
-
-        if (
-            missing.missing_cycles < MISSING_CYCLES
-            or utc_now() - max(missing.missing_since, self._started_at) < self._missing_after
-        ):
-            _log.debug("%s: agent not listed by Orca (%d)", run.issue_key, missing.missing_cycles)
-
-            return
-
-        self._runs.clear_missing(run.id)
-
-        if (
-            run.status is RunStatus.RUNNING
-            and run.restarts < self._agents.max_restarts
-            and workflow.phases[run.phase] in ("plan", "implement")
-        ):
-            self._runs.count_restart(run.id)
-
-            _log.info("%s: agent lost; started again", run.issue_key)
-
-            await self._tell(run, "el agente ya no estaba en Orca; Spyhop lo arranca otra vez")
-            await self._enter(run, worktree, workflow, run.phase, session)
-
-            return
-
-        await self._wait(run, WaitingReason.UNKNOWN_STATE, f"no agent running in {worktree.path}")
 
     def _with_hook_state(self, agent: AgentRow | None) -> AgentRow | None:
         """The agent with the state that its hooks recorded, when there is
@@ -476,291 +434,6 @@ class AgentSupervisor:
             state_started_at=recorded.at,
         )
 
-    async def _change_plan(
-        self, run: AutomationRun, worktree: Worktree, session: AgentSession | None
-    ) -> None:
-        """Starts a new plan agent with the changes that a person asked for
-        with `spyhop replan`, while the plan waits for its review."""
-
-        changes = self._runs.take_plan_changes(run.id) or ""
-
-        if run.waiting_reason is not WaitingReason.PLAN_REVIEW:
-            _log.warning("%s: plan changes ignored: no plan waits for a review", run.issue_key)
-
-            return
-
-        await self._launch(
-            run,
-            worktree,
-            session,
-            self._agents.plan_model,
-            self._context.goal(run.issue_key, "replan", changes),
-            "plan",
-            "plan",
-            "use `spyhop replan` again or start the agent yourself",
-        )
-
-    async def _prompt_stopped(self, run: AutomationRun, session: AgentSession | None) -> bool:
-        """Tells an agent that stopped without declaring the plan or the end
-        to continue. Returns False when the run must wait for a person."""
-
-        if (
-            run.status is not RunStatus.RUNNING
-            or run.restarts >= self._agents.max_restarts
-            or session is None
-            or session.agent_handle is None
-        ):
-            return False
-
-        try:
-            await self._terminal_host.send_prompt(session.agent_handle, CONTINUE_PROMPT)
-        except OrcaError as error:
-            _log.warning("%s: stopped agent not prompted: %s", run.issue_key, error)
-
-            return False
-
-        self._runs.count_restart(run.id)
-
-        # The stopped state is now older than the run's last change.
-
-        self._runs.mark_resumed(run.id)
-
-        _log.info("%s: agent stopped without a declaration; told to continue", run.issue_key)
-
-        await self._tell(
-            run, "el agente se paró sin declarar el plan ni el fin; Spyhop le pide seguir"
-        )
-
-        return True
-
-    async def _on_plan_agent_closed(self, run: AutomationRun, worktree: Worktree) -> None:
-        """Tells the person once that only an agent that they start can now
-        revise the plan."""
-
-        if run.plan_agent_closed_told:
-            return
-
-        self._runs.set_plan_agent_closed_told(run.id, True)
-
-        _log.info("%s: plan agent closed while the plan waits for its review", run.issue_key)
-
-        await self._tell(
-            run,
-            f"el agente del plan está cerrado; aprueba el plan con `spyhop approve "
-            f"{run.issue_key}`, o abre un agente en {worktree.path} para revisar {PLAN_FILE}",
-        )
-
-    async def _enter(
-        self,
-        run: AutomationRun,
-        worktree: Worktree,
-        workflow: ResolvedWorkflow,
-        index: int,
-        session: AgentSession | None,
-    ) -> None:
-        """Starts the phase at ``index``, or completes the run after the last
-        phase."""
-
-        if index >= len(workflow.phases):
-            self._runs.mark_completed(run.id)
-
-            if session is not None:
-                self._sessions.mark_finished(session.id)
-
-            _log.info("%s: completed; CLAUDE-RESULT.md is in %s", run.issue_key, worktree.path)
-
-            if self._knowledge is not None:
-                await self._knowledge.record(run)
-
-            await self._tell(run, f"run completada; el resultado está en {RESULT_FILE}")
-
-            return
-
-        if index != run.phase:
-            self._runs.set_phase(run.id, index)
-
-            run = self._reload(run)
-
-        phase = workflow.phases[index]
-
-        if isinstance(phase, ChecksPhase):
-            await self._checks(run, worktree, workflow, session)
-        elif phase == "plan":
-            await self._launch(
-                run,
-                worktree,
-                session,
-                self._agents.plan_model,
-                self._context.launch_goal(run.issue_key, workflow),
-                phase,
-                "plan",
-                "use `spyhop retry` or start the agent yourself",
-            )
-        elif phase == "implement":
-            # A plan that a person approved is implemented, also in a
-            # workflow without plan_review.
-
-            approved = workflow.plan_review or run.waiting_reason is WaitingReason.PLAN_REVIEW
-            goal = (
-                self._context.goal(run.issue_key, "implement")
-                if approved
-                else self._context.launch_goal(run.issue_key, workflow)
-            )
-
-            await self._launch(
-                run,
-                worktree,
-                session,
-                self._agents.model,
-                goal,
-                phase,
-                "implementation",
-                f"move the card back to {self._plan_review_status} and approve the plan again"
-                if workflow.plan_review
-                else "use `spyhop retry` or start the agent yourself",
-            )
-
-    async def _launch(
-        self,
-        run: AutomationRun,
-        worktree: Worktree,
-        previous: AgentSession | None,
-        model: str,
-        goal: str,
-        step: str,
-        role: str,
-        advice: str,
-    ) -> None:
-        session = self._sessions.find_launching(run.id)
-
-        if session is None:
-            session = self._sessions.create_launching(
-                run.id, self._agents.provider, model, new_operation_id(), step
-            )
-        elif replay_expired(session):
-            self._sessions.mark_failed(session.id)
-            await self._wait(
-                run,
-                WaitingReason.UNKNOWN_STATE,
-                f"{role} launch outcome unknown; check Orca",
-            )
-
-            return
-
-        assert session.launch_operation_id is not None
-
-        try:
-            result = await self._terminal_host.launch_agent(
-                worktree.orca_worktree_id,
-                goal,
-                session.launch_operation_id,
-                session.model,
-                self._agents.effort,
-            )
-        except OrcaCommandError as error:
-            self._sessions.mark_failed(session.id)
-            await self._wait(
-                run,
-                WaitingReason.UNKNOWN_STATE,
-                f"Orca refused the {role} launch: {error}; {advice}",
-            )
-
-            return
-
-        if previous is not None:
-            self._sessions.mark_finished(previous.id)
-
-        self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
-        self._runs.mark_resumed(run.id)
-
-        # A new agent: the cycles without the agent before it do not count,
-        # and its own close is news to the person.
-
-        if run.missing_cycles:
-            self._runs.clear_missing(run.id)
-
-        if run.plan_agent_closed_told:
-            self._runs.set_plan_agent_closed_told(run.id, False)
-        await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
-
-        _log.info(
-            "%s: %s agent %s started (%s)", run.issue_key, role, result.agent_handle, session.model
-        )
-
-        await self._tell(run, f"agente de {role} arrancado ({session.model})")
-
-    async def _checks(
-        self,
-        run: AutomationRun,
-        worktree: Worktree,
-        workflow: ResolvedWorkflow,
-        session: AgentSession | None,
-        agent_busy: bool = False,
-    ) -> None:
-        if self._check_runner is None:
-            await self._wait(run, WaitingReason.UNKNOWN_STATE, "checkpoints cannot run here")
-
-            return
-
-        try:
-            outcome = await self._check_runner.advance(run, worktree, workflow, agent_busy)
-        except (OrcaUnavailableError, OrcaUncertainError):
-            raise
-        except SpyhopError as error:
-            await self._wait(run, WaitingReason.UNKNOWN_STATE, f"checkpoints cannot run: {error}")
-
-            return
-
-        phase = workflow.phases[run.phase]
-
-        assert isinstance(phase, ChecksPhase)
-
-        if outcome.state == "running":
-            await self._resume(run)
-        elif outcome.state == "blocked":
-            await self._wait(run, WaitingReason.UNKNOWN_STATE, outcome.message)
-        elif outcome.state == "passed":
-            await self._enter(run, worktree, workflow, run.phase + 1, session)
-        elif phase.on_fail == "fix" and outcome.round < phase.rounds:
-            await self._request_fix(run, session, outcome.failed)
-        else:
-            rounds = f" after {outcome.round} rounds" if phase.on_fail == "fix" else ""
-
-            await self._wait(
-                run,
-                WaitingReason.CHECKPOINTS_FAILED,
-                f"checkpoints {outcome.message}{rounds}; see {worktree.path / VERDICTS_FILE}",
-            )
-
-    async def _request_fix(
-        self, run: AutomationRun, session: AgentSession | None, failed: tuple[str, ...]
-    ) -> None:
-        if session is None or session.agent_handle is None:
-            await self._wait(run, WaitingReason.CHECKPOINTS_FAILED, "no agent to fix the findings")
-
-            return
-
-        # Recorded first: a prompt whose outcome is unknown is not sent twice.
-
-        self._runs.mark_fix_requested(run.id)
-
-        try:
-            await self._terminal_host.send_prompt(
-                session.agent_handle, self._context.fix_prompt(run.issue_key, failed)
-            )
-        except (OrcaCommandError, OrcaUncertainError) as error:
-            await self._wait(
-                run,
-                WaitingReason.UNKNOWN_STATE,
-                f"the fix prompt for {', '.join(failed)} may not have reached the agent: {error}",
-            )
-
-            return
-
-        _log.info("%s: asked the agent to fix %s", run.issue_key, ", ".join(failed))
-
-        await self._tell(run, f"el agente corrige los hallazgos de {', '.join(failed)}")
-
     def _workflow(self, run: AutomationRun) -> ResolvedWorkflow | None:
         workflow = self._resolver.resolve_for_run(run)
 
@@ -777,57 +450,6 @@ class AgentSupervisor:
 
     def _reload(self, run: AutomationRun) -> AutomationRun:
         return self._runs.get(run.id) or run
-
-    async def _resume(self, run: AutomationRun) -> None:
-        if run.status is RunStatus.RUNNING:
-            return
-
-        self._runs.mark_resumed(run.id)
-
-        if run.alert_pending:
-            self._runs.set_alert_pending(run.id, False)
-
-        _log.info("%s: agent working again (was waiting: %s)", run.issue_key, run.waiting_reason)
-
-        await self._tell(run, f"la run sigue (esperaba: {run.waiting_reason})")
-
-    async def _wait(self, run: AutomationRun, reason: WaitingReason, message: str) -> None:
-        if run.status is RunStatus.WAITING_FOR_HUMAN and run.waiting_reason is reason:
-            # The same wait goes again only when it did not reach the session.
-
-            if not run.alert_pending:
-                return
-        else:
-            self._runs.mark_waiting(run.id, reason, message)
-
-            _log.info("%s: waiting for a person (%s): %s", run.issue_key, reason, message)
-
-        worktree = self._session_worktree(run)
-
-        if worktree is None:
-            return
-
-        assert self._supervisor_session is not None
-
-        delivered = await self._supervisor_session.alert(worktree, f"{reason}: {message}")
-
-        self._runs.set_alert_pending(run.id, not delivered)
-
-    async def _tell(self, run: AutomationRun, text: str) -> None:
-        worktree = self._session_worktree(run)
-
-        if worktree is not None:
-            assert self._supervisor_session is not None
-
-            await self._supervisor_session.tell(worktree, text)
-
-    def _session_worktree(self, run: AutomationRun) -> Worktree | None:
-        """The worktree of the run when it has a supervisor session."""
-
-        if self._supervisor_session is None or run.worktree_id is None:
-            return None
-
-        return self._worktrees.get(run.worktree_id)
 
 
 def _question(agent: AgentRow | None) -> str:

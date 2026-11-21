@@ -5,14 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.application.supervisor import (
-    CONTINUE_PROMPT,
-    MISSING_AFTER,
-    MISSING_CYCLES,
-    Observation,
-    Signal,
-    observe,
-)
+from spyhop.application.agent_recovery import CONTINUE_PROMPT, MISSING_AFTER, MISSING_CYCLES
+from spyhop.application.supervisor import Observation, Signal, observe
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AgentRow, AutomationRun, OrcaWorktree, Worktree
@@ -398,7 +392,7 @@ async def test_an_agent_is_lost_only_after_the_missing_time_also_with_many_cycle
     harness = Harness(tmp_path, settings(tmp_path, agents={"max_restarts": 0}))
     run, worktree, _ = await launched(harness)
 
-    harness.supervisor._missing_after = MISSING_AFTER
+    harness.supervisor._recovery._missing_after = MISSING_AFTER
     harness.orca.agents.clear()
 
     # Wakes of the service can start many cycles in a few seconds.
@@ -412,7 +406,7 @@ async def test_an_agent_is_lost_only_after_the_missing_time_also_with_many_cycle
         "UPDATE automation_runs SET missing_since = ?",
         ((datetime.now(UTC) - MISSING_AFTER).isoformat(),),
     )
-    harness.supervisor._started_at -= MISSING_AFTER
+    harness.supervisor._recovery._started_at -= MISSING_AFTER
 
     await harness.supervisor.supervise()
 
@@ -437,7 +431,7 @@ async def test_the_missing_count_survives_a_restart_but_the_time_starts_again(
         ((datetime.now(UTC) - 10 * MISSING_AFTER).isoformat(),),
     )
     harness.restart_supervisor()
-    harness.supervisor._missing_after = MISSING_AFTER
+    harness.supervisor._recovery._missing_after = MISSING_AFTER
 
     await harness.supervisor.supervise()
 

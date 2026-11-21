@@ -98,12 +98,18 @@ give the commit.
    and other callers can use it. Split `cli.py` (1155 lines) into
    `cli/runs.py`, `cli/checkpoints.py` and `cli/service.py`.
 
-8. [ ] **Split `AgentSupervisor`.** It has 821 lines with observation, phase
+8. [x] **Split `AgentSupervisor`.** It has 821 lines with observation, phase
    changes, restarts, replan, alerts and knowledge. Keep `observe()` as the
    pure core. Move the phase changes (`_enter`, `_launch`, `_checks`,
    `_request_fix`) to a `PhaseRunner` class, and the restarts (`_on_missing`,
    `_prompt_stopped`) to an `AgentRecovery` class. Do this item when other
    work changes these parts.
+
+   Done in the branch `split-cli-and-supervisor`. `AgentSupervisor` keeps
+   the observation and the signal table, and gets `PhaseRunner`
+   (`phase_runner.py`), `AgentRecovery` (`agent_recovery.py`) and
+   `RunAlerts` (`run_alerts.py`, the waits and the messages to the
+   supervisor session). The code moved without a change of behavior.
 
 9. [ ] **Isolate the read-only checkpoints with systemd properties.** For the
    checkpoints with `mode: read` (security, regressions, repro-steps), add

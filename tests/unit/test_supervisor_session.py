@@ -3,7 +3,7 @@ progress of the run and the reasons why it waits for a person."""
 
 from pathlib import Path
 
-from spyhop.application.supervisor import MISSING_CYCLES
+from spyhop.application.agent_recovery import MISSING_CYCLES
 from spyhop.application.supervisor_session import UNUSABLE
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
