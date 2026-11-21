@@ -1,5 +1,5 @@
 from spyhop.config.settings import Settings, WorkflowSettings
-from spyhop.domain.models import ResolvedWorkflow
+from spyhop.domain.models import AutomationRun, ResolvedWorkflow
 
 
 class WorkflowResolver:
@@ -31,6 +31,11 @@ class WorkflowResolver:
                 return self._resolved(workflow)
 
         return None
+
+    def resolve_for_run(self, run: AutomationRun) -> ResolvedWorkflow | None:
+        """The workflow of the run, from the project of its issue key."""
+
+        return self.resolve_by_name(run.issue_key.rsplit("-", 1)[0], run.workflow_name)
 
     def project_keys(self) -> list[str]:
         return sorted(

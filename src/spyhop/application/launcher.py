@@ -349,8 +349,7 @@ class AgentLauncher:
         return True
 
     def _workflow(self, run: AutomationRun) -> ResolvedWorkflow:
-        project_key = run.issue_key.rsplit("-", 1)[0]
-        workflow = self._resolver.resolve_by_name(project_key, run.workflow_name)
+        workflow = self._resolver.resolve_for_run(run)
 
         if workflow is None:
             raise _RunFailed(f"workflow {run.workflow_name!r} is no longer configured")

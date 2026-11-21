@@ -564,8 +564,7 @@ class AgentSupervisor:
         await self._tell(run, f"el agente corrige los hallazgos de {', '.join(failed)}")
 
     def _workflow(self, run: AutomationRun) -> ResolvedWorkflow | None:
-        project_key = run.issue_key.rsplit("-", 1)[0]
-        workflow = self._resolver.resolve_by_name(project_key, run.workflow_name)
+        workflow = self._resolver.resolve_for_run(run)
 
         if workflow is None or run.phase >= len(workflow.phases):
             return None

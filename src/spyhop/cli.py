@@ -549,8 +549,7 @@ def checkpoints_rerun(
         raise typer.Exit(1)
 
     automation_run = active[0]
-    project_key = automation_run.issue_key.rsplit("-", 1)[0]
-    resolved = WorkflowResolver(settings).resolve_by_name(project_key, automation_run.workflow_name)
+    resolved = WorkflowResolver(settings).resolve_for_run(automation_run)
 
     if (
         resolved is None
@@ -918,13 +917,12 @@ def _current_workflow(
     if automation_run is None:
         raise ConfigurationError(f"{worktree.issue_key} has no run in {worktree.path}")
 
-    project_key = automation_run.issue_key.rsplit("-", 1)[0]
-    resolved = WorkflowResolver(settings).resolve_by_name(project_key, automation_run.workflow_name)
+    resolved = WorkflowResolver(settings).resolve_for_run(automation_run)
 
     if resolved is None:
         raise ConfigurationError(
             f"Workflow {automation_run.workflow_name!r} of {automation_run.issue_key} "
-            f"is not in the configuration of project {project_key}"
+            f"is not in the configuration of its project"
         )
 
     return resolved, worktree.path, automation_run.issue_key
