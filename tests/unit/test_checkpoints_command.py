@@ -711,3 +711,23 @@ def test_stats_show_the_runs_of_the_last_days(config_file: Path, run_worktree: P
     assert result.exit_code == 0
     assert "Runs of the last 30 days: 1 (READY 1)" in result.output
     assert "Median time to complete: -" in result.output
+
+
+def test_replan_asks_for_a_new_plan_agent_only_for_a_plan_in_review(
+    config_file: Path, run_worktree: Path
+) -> None:
+    runs = RunRepository(connect(database_file(dry_run=False)))
+    [automation_run] = runs.list(issue_key="LPD-1")
+    command = ["replan", "LPD-1", "Add a test.", "--config", str(config_file)]
+
+    result = CliRunner().invoke(app, command)
+
+    assert result.exit_code == 1
+    assert "has no plan that waits for a review" in result.output
+
+    runs.mark_waiting(automation_run.id, WaitingReason.PLAN_REVIEW)
+
+    result = CliRunner().invoke(app, command)
+
+    assert result.exit_code == 0
+    assert runs.list(issue_key="LPD-1")[0].plan_changes == "Add a test."

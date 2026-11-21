@@ -224,6 +224,7 @@ def _agents(
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,
         min_free_disk_gb=settings.application.min_free_disk_gb,
+        supervisor_session=supervisor_session,
     )
 
     janitor = WorktreeJanitor(

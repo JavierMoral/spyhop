@@ -197,6 +197,8 @@ class AutomationRun:
     checks_failed_only: bool = False
     # How many times Spyhop relaunched or prompted a lost or stopped agent.
     restarts: int = 0
+    # The changes to the plan that a new plan agent makes on the next cycle.
+    plan_changes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -319,6 +321,8 @@ class AgentRow:
     has_live_pty: bool
     prompt: str | None
     state_started_at: datetime | None = None
+    # What the agent asks or last said, when Orca gives it.
+    question: str | None = None
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from spyhop.application.context_builder import ContextBuilder, ContextError
+from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings, JiraSettings
 from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
@@ -137,8 +138,10 @@ class AgentLauncher:
         worktree_script: Callable[
             [Path, WorktreeRequest, float], Awaitable[Path]
         ] = run_worktree_script,
+        supervisor_session: SupervisorSession | None = None,
     ) -> None:
         self._runs = runs
+        self._supervisor_session = supervisor_session
         self._worktrees = worktrees
         self._sessions = sessions
         self._resolver = resolver
@@ -201,6 +204,13 @@ class AgentLauncher:
             _log.error("%s: run %s failed: %s", run.issue_key, run.id, error)
 
             self._runs.mark_failed(run.id, str(error))
+
+            # Only a run with a worktree can have a supervisor session.
+
+            worktree = self._worktrees.find_current(run.issue_key)
+
+            if worktree is not None:
+                await self._tell(worktree, f"la run ha fallado al arrancar: {error}")
         except _Waiting as waiting:
             if run.waiting_reason is not waiting.reason:
                 _log.warning("%s: will retry every cycle: %s", run.issue_key, waiting)
@@ -288,6 +298,12 @@ class AgentLauncher:
                 prepared.worktree.branch_name,
             )
 
+            await self._tell(
+                prepared.worktree,
+                f"worktree listo en {prepared.worktree.path} (rama "
+                f"{prepared.worktree.branch_name}); empiezan los checkpoints",
+            )
+
             return True
 
         plan_review = prepared.workflow.plan_review
@@ -314,6 +330,11 @@ class AgentLauncher:
             self._runs.mark_waiting(
                 run.id, WaitingReason.UNKNOWN_STATE, "launch outcome unknown; check Orca"
             )
+
+            if self._supervisor_session is not None:
+                await self._supervisor_session.alert(
+                    prepared.worktree, "unknown_state: launch outcome unknown; check Orca"
+                )
 
             return False
 
@@ -346,7 +367,17 @@ class AgentLauncher:
             session.model,
         )
 
+        await self._tell(
+            prepared.worktree,
+            f"worktree listo en {prepared.worktree.path} (rama {prepared.worktree.branch_name}); "
+            f"agente de {session.role} arrancado ({session.model})",
+        )
+
         return True
+
+    async def _tell(self, worktree: Worktree, text: str) -> None:
+        if self._supervisor_session is not None:
+            await self._supervisor_session.tell(worktree, text)
 
     def _workflow(self, run: AutomationRun) -> ResolvedWorkflow:
         workflow = self._resolver.resolve_for_run(run)

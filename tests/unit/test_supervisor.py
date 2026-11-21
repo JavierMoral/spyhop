@@ -315,11 +315,14 @@ async def test_files_from_an_earlier_run_are_no_signal(tmp_path: Path) -> None:
 async def test_agent_question_waits_for_a_person(harness: Harness) -> None:
     run, worktree, pane = await launched(harness)
 
-    harness.orca.set_agent(worktree.orca_worktree_id, "waiting", pane)
+    harness.orca.set_agent(worktree.orca_worktree_id, "waiting", pane, question="A\n or B?")
 
     await harness.supervisor.supervise()
 
-    assert harness.run(run.id).waiting_reason is WaitingReason.AGENT_QUESTION
+    waiting = harness.run(run.id)
+
+    assert waiting.waiting_reason is WaitingReason.AGENT_QUESTION
+    assert waiting.error_message == "the agent is waiting for an answer: A or B?"
 
 
 async def test_agent_of_an_earlier_run_is_ignored(harness: Harness) -> None:

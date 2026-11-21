@@ -277,6 +277,7 @@ async def test_agent_rows_carry_when_their_state_started() -> None:
     assert agent.state == "waiting"
     assert agent.state_started_at is not None
     assert agent.state_started_at.year == 2026
+    assert agent.question == "answer: ¿Prefieres la opción A o la B? (Opción A · Opción B)"
 
 
 async def test_close_terminals_stops_every_agent_of_the_worktree() -> None:

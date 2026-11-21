@@ -404,6 +404,39 @@ def approve(
 
 
 @app.command()
+def replan(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose plan changes")],
+    changes: Annotated[str, typer.Argument(help="The changes to the plan")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Start a new plan agent that changes CLAUDE-PLAN.md.
+
+    For a plan that waits for its review when its agent is closed. The running
+    daemon starts the agent on its next cycle, and the plan waits for the
+    review again."""
+
+    runs = RunRepository(connect(_existing_database(config, dry_run)))
+    active = runs.list(issue_key=issue_key.upper())
+
+    if not active or active[0].waiting_reason is not WaitingReason.PLAN_REVIEW:
+        typer.echo(f"{issue_key.upper()} has no plan that waits for a review.", err=True)
+
+        raise typer.Exit(1)
+
+    if not changes.strip():
+        typer.echo("Give the changes to the plan.", err=True)
+
+        raise typer.Exit(1)
+
+    runs.request_plan_changes(active[0].id, changes)
+
+    typer.echo(f"{active[0].issue_key}: a new plan agent makes the changes on the next cycle.")
+
+
+@app.command()
 def tell(
     issue_key: Annotated[str, typer.Argument(help="Ticket whose agent gets the message")],
     text: Annotated[str, typer.Argument(help="The message for the agent")],

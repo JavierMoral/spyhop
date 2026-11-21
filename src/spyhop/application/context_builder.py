@@ -45,7 +45,7 @@ EXCLUDED_PATHS = (
     "/CLAUDE-CHECKPOINT-*.md",
 )
 
-Phase = Literal["plan", "implement", "full"]
+Phase = Literal["plan", "replan", "implement", "full"]
 
 
 class ContextError(SpyhopError):
@@ -139,10 +139,11 @@ class ContextBuilder:
     def launch_goal(self, issue_key: str, workflow: ResolvedWorkflow) -> str:
         return self.goal(issue_key, "plan" if workflow.plan_review else "full")
 
-    def goal(self, issue_key: str, phase: Phase) -> str:
+    def goal(self, issue_key: str, phase: Phase, changes: str = "") -> str:
         text = self._render(
             "goal.md",
             phase=phase,
+            changes=oneline(changes),
             issue_key=issue_key,
             orca=str(self._orca_executable),
             plan_review_status=self._plan_review_status,

@@ -453,6 +453,8 @@ def to_agent_row(data: dict[str, Any]) -> AgentRow:
         has_live_pty=bool(data.get("hasLivePty")),
         prompt=data.get("prompt"),
         state_started_at=_from_epoch_ms(data.get("stateStartedAt")),
+        question=(data.get("programStatus") or {}).get("message")
+        or data.get("lastAssistantMessage"),
     )
 
 

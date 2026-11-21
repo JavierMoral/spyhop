@@ -89,6 +89,8 @@ AGENT = "claude"
 
 MISSING_CYCLES = 3
 
+MAX_QUESTION_LENGTH = 1500
+
 CONTINUE_PROMPT = (
     "Continúa con la tarea de CLAUDE-TASK.md. Si ya has terminado, declara el plan o el fin "
     "como dice CLAUDE-TASK.md: escribe CLAUDE-PLAN.md o CLAUDE-RESULT.md y mueve la tarjeta."
@@ -269,6 +271,11 @@ class AgentSupervisor:
         ]
         session = self._sessions.find_launched(run.id)
 
+        if run.plan_changes is not None:
+            await self._change_plan(run, worktree, session)
+
+            return
+
         if isinstance(workflow.phases[run.phase], ChecksPhase) and run.fix_requested_at is None:
             busy = any(row.agent_type == AGENT and row.state == "working" for row in rows)
 
@@ -323,9 +330,7 @@ class AgentSupervisor:
         elif signal is Signal.WORKING:
             await self._resume(run)
         elif signal is Signal.QUESTION:
-            await self._wait(
-                run, WaitingReason.AGENT_QUESTION, "the agent is waiting for an answer"
-            )
+            await self._wait(run, WaitingReason.AGENT_QUESTION, _question(seen.agent))
         elif signal is Signal.PLAN_READY:
             await self._wait(run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}")
         elif signal is Signal.PLAN_APPROVED:
@@ -381,6 +386,32 @@ class AgentSupervisor:
             return
 
         await self._wait(run, WaitingReason.UNKNOWN_STATE, f"no agent running in {worktree.path}")
+
+    async def _change_plan(
+        self, run: AutomationRun, worktree: Worktree, session: AgentSession | None
+    ) -> None:
+        """Starts a new plan agent with the changes that a person asked for
+        with `spyhop replan`, while the plan waits for its review."""
+
+        changes = run.plan_changes or ""
+
+        self._runs.request_plan_changes(run.id, None)
+
+        if run.waiting_reason is not WaitingReason.PLAN_REVIEW:
+            _log.warning("%s: plan changes ignored: no plan waits for a review", run.issue_key)
+
+            return
+
+        await self._launch(
+            run,
+            worktree,
+            session,
+            self._agents.plan_model,
+            self._context.goal(run.issue_key, "replan", changes),
+            "plan",
+            "plan",
+            "use `spyhop replan` again or start the agent yourself",
+        )
 
     async def _prompt_stopped(self, run: AutomationRun, session: AgentSession | None) -> bool:
         """Tells an agent that stopped without declaring the plan or the end
@@ -692,6 +723,18 @@ class AgentSupervisor:
             return None
 
         return self._worktrees.get(run.worktree_id)
+
+
+def _question(agent: AgentRow | None) -> str:
+    """The wait message of an agent that asks something, with its question
+    on one line."""
+
+    question = " ".join((agent.question or "").split()) if agent else ""
+
+    if not question:
+        return "the agent is waiting for an answer"
+
+    return f"the agent is waiting for an answer: {question[:MAX_QUESTION_LENGTH]}"
 
 
 def _run_agent(rows: Sequence[AgentRow], session: AgentSession | None) -> AgentRow | None:

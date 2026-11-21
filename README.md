@@ -53,8 +53,8 @@ it runs the Spyhop commands that you ask for.
 
    The implementation agent reads only `CLAUDE-PLAN.md`, so make sure that
    each change goes into that file. You can close the tab of the plan agent:
-   the approval still starts the implementation. To change the plan after
-   that, start an agent in the worktree and tell it to edit `CLAUDE-PLAN.md`.
+   the approval still starts the implementation, and the supervisor session
+   starts a new plan agent for the changes (`spyhop replan`).
 3. Spyhop starts a new agent on `agents.model`. It implements the plan, makes
    local commits, writes `CLAUDE-RESULT.md` and leaves its card in
    *In progress*. If the workflow has [checkpoints](#pipelines-and-checkpoints)
@@ -72,7 +72,7 @@ tells you what to do:
 | --- | --- |
 | `plan_review` | Review the plan (step 2). |
 | `checkpoints_failed` | Read `CLAUDE-CHECKPOINTS.md` and the reports. Fix the cause, then run `spyhop checkpoints rerun KEY`. |
-| `agent_question` | Answer the agent in its terminal. |
+| `agent_question` | Give your answer to the supervisor session. It shows the question of the agent when Orca gives it. |
 | `unknown_state` | Tell the agent to go on in its terminal, or stop the run with `spyhop fail KEY`. |
 
 Before a run waits with `unknown_state`, Spyhop tries once by itself
@@ -85,9 +85,11 @@ To start a run again, stop it with `spyhop fail KEY`, then run
 ### The supervisor session
 
 Each worktree gets one Claude session in an Orca tab named `spyhop`. Spyhop
-sends it a message that starts with `[spyhop]` for each event: the start of an
-agent or a checkpoint, each verdict, the end of the run, and each reason why
-the run waits for you.
+sends it a message that starts with `[spyhop]` for each event: the new
+worktree, the start of an agent or a checkpoint, each verdict, a run that
+fails to start, the end of the run, and each reason why the run waits for you.
+Spyhop cannot tell the session about a run that has no worktree yet, for
+example a run that waits for disk space.
 
 When the run waits, the session tells you what happened and gives the options
 with their commands. When a plan waits for its review, the session gives a
@@ -371,6 +373,7 @@ knowledge:
 | --- | --- |
 | `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
+| `spyhop replan KEY TEXT` | Start a new plan agent that changes `CLAUDE-PLAN.md`, for a plan in review whose agent is closed. |
 | `spyhop tell KEY TEXT` | Send a message to the current agent of the run, in its Orca terminal. |
 | `spyhop ticket KEY` | Show all the fields of a JIRA ticket, also the custom fields, and its comments. The agents and the checkpoints read the ticket with it. |
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |

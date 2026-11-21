@@ -168,6 +168,10 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs ADD COLUMN restarts INTEGER NOT NULL DEFAULT 0;
     """,
+    # The changes to the plan that a new plan agent makes on the next cycle.
+    """
+    ALTER TABLE automation_runs ADD COLUMN plan_changes TEXT;
+    """,
 ]
 
 

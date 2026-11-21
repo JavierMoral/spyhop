@@ -4,7 +4,7 @@ import fcntl
 import json
 import os
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -599,3 +599,41 @@ async def test_each_agent_has_the_title_the_name_and_the_color_of_its_role(tmp_p
     }
     assert harness.orca.names == harness.orca.titles
     assert harness.orca.colors == {"term_1": "blue", "term_2": "orange"}
+
+
+async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, "plan", "plan_review", "implement")
+    run, worktree = await started(harness)
+    session = harness.sessions.find_launched(run.id)
+
+    assert session is not None and session.pane_key is not None
+
+    written(worktree.path / "CLAUDE-PLAN.md", "plan")
+    harness.orca.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
+    await harness.supervisor.supervise()
+    harness.orca.agents.clear()
+    harness.runs.request_plan_changes(run.id, "Add a test\nfor the empty list.")
+    await harness.supervisor.supervise()
+
+    replanned = harness.run(run.id)
+    new_session = harness.sessions.find_launched(run.id)
+
+    assert len(harness.orca.launches) == 2
+    assert "cambia CLAUDE-PLAN.md con estos cambios" in harness.orca.launches[1]["prompt"]
+    assert "Add a test for the empty list." in harness.orca.launches[1]["prompt"]
+    assert replanned.status is RunStatus.RUNNING
+    assert replanned.plan_changes is None
+    assert new_session is not None and new_session.pane_key is not None
+    assert new_session.role == "plan"
+
+    written(worktree.path / "CLAUDE-PLAN.md", "new plan", ahead=1)
+    harness.orca.set_agent(
+        worktree.orca_worktree_id,
+        "done",
+        new_session.pane_key,
+        datetime.now(UTC) + timedelta(seconds=1),
+    )
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW

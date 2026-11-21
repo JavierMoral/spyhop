@@ -369,7 +369,12 @@ class FakeOrca:
         )
 
     def set_agent(
-        self, orca_worktree_id: str, state: str, pane_key: str, since: datetime | None = None
+        self,
+        orca_worktree_id: str,
+        state: str,
+        pane_key: str,
+        since: datetime | None = None,
+        question: str | None = None,
     ) -> None:
         """Replaces the agent of that pane, keeping the worktree's others."""
 
@@ -381,6 +386,7 @@ class FakeOrca:
             has_live_pty=True,
             prompt=None,
             state_started_at=since or datetime.now(UTC),
+            question=question,
         )
 
         self.agents[orca_worktree_id] = [*others, row]
@@ -408,6 +414,17 @@ class Harness:
         self.context = ContextBuilder(
             template_environment(tmp_path / "templates"), ORCA, PLAN_REVIEW, PLAN_APPROVED
         )
+        self.supervisor_session = (
+            SupervisorSession(
+                worktrees=self.worktrees,
+                orca=self.orca,
+                context=self.context,
+                spyhop=SPYHOP,
+                model=self.config.agents.model,
+            )
+            if with_supervisor_session
+            else None
+        )
         self.launcher = AgentLauncher(
             runs=self.runs,
             worktrees=self.worktrees,
@@ -422,6 +439,7 @@ class Harness:
             min_free_disk_gb=self.config.application.min_free_disk_gb,
             branch_exists=lambda repository, branch: branch in self.branches,
             free_bytes=lambda path: self.free_bytes(path),
+            supervisor_session=self.supervisor_session,
         )
         self.cleaned: list[Path] = []
         self.cleanup_errors: list[Exception] = []
@@ -446,17 +464,6 @@ class Harness:
         self.agents_dir = tmp_path / "agents"
         self.results_dir = tmp_path / "results"
         self.checkpoint_runs = CheckpointRunRepository(self.connection)
-        self.supervisor_session = (
-            SupervisorSession(
-                worktrees=self.worktrees,
-                orca=self.orca,
-                context=self.context,
-                spyhop=SPYHOP,
-                model=self.config.agents.model,
-            )
-            if with_supervisor_session
-            else None
-        )
         self.check_runner = CheckRunner(
             checkpoint_runs=self.checkpoint_runs,
             units=self.units,

@@ -1,11 +1,18 @@
 {#- The /goal sent as the launch prompt. Rendered as a single line.
-    phase: "plan" (plan_review: true), "implement" (the launch prompt of a new
-    agent, after the plan is approved) or "full" (plan_review: false).
+    phase: "plan" (plan_review: true), "replan" (a new agent that changes
+    CLAUDE-PLAN.md with the changes of the person), "implement" (the launch
+    prompt of a new agent, after the plan is approved) or "full"
+    (plan_review: false).
     The Review section of CLAUDE-TASK.md, when there is one, runs after the
     implementation and before CLAUDE-RESULT.md. -#}
 {%- if phase == "plan" -%}
 /goal Lee CLAUDE-TASK.md, obtén de JIRA el contexto que indica, analiza el código y escribe CLAUDE-PLAN.md con el enfoque, los ficheros
 afectados, los tests previstos y los casos similares del código que sigue, según la sección Patterns. No modifiques código. Al terminar ejecuta:
+{{ orca }} worktree set --worktree active --workspace-status {{ plan_review_status }}
+--comment "{{ issue_key }}: plan listo" --unread --json
+{%- elif phase == "replan" -%}
+/goal Lee CLAUDE-TASK.md y CLAUDE-PLAN.md, y cambia CLAUDE-PLAN.md con estos cambios de la persona que revisa el plan: {{ changes }}
+No modifiques código. Al terminar ejecuta:
 {{ orca }} worktree set --worktree active --workspace-status {{ plan_review_status }}
 --comment "{{ issue_key }}: plan listo" --unread --json
 {%- elif phase == "implement" -%}

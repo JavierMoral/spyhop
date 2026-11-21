@@ -34,7 +34,7 @@ def session_prompts(harness: Harness, terminal: str) -> list[str]:
     return [text for handle, text in harness.orca.prompts if handle == terminal]
 
 
-async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and_the_wait(
+async def test_the_session_starts_with_the_worktree_and_gets_the_round_verdicts_and_the_wait(
     tmp_path: Path,
 ) -> None:
     harness, run, worktree = await failed_check(tmp_path)
@@ -43,12 +43,17 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
 
     assert session["title"] == "spyhop"
     assert session["command"].startswith("env CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude ")
-    assert "[spyhop] LPD-1: ronda 1 de checkpoints: ticket-info" in session["command"]
+    assert (
+        f"[spyhop] LPD-1: worktree listo en {worktree.path} (rama {worktree.branch_name}); "
+        "empiezan los checkpoints"
+    ) in session["command"]
     assert " --name spyhop " in session["command"]
     assert " --dangerously-skip-permissions " in session["command"]
     assert "--allowed-tools" not in session["command"]
     assert session["command"].endswith(" --disallowed-tools Edit Write NotebookEdit")
     assert "preguntas numeradas para el reportero" in session["command"]
+    assert "checkpoints rerun LPD-1 --failed" in session["command"]
+    assert "replan LPD-1" in session["command"]
 
     current = harness.worktrees.get(worktree.id)
 
@@ -59,7 +64,9 @@ async def test_the_session_starts_with_the_first_round_and_gets_the_verdicts_and
 
     await harness.supervisor.supervise()
 
-    start, verdict, wait = session_prompts(harness, "term_check_1")
+    round_start, start, verdict, wait = session_prompts(harness, "term_check_1")
+
+    assert round_start == "[spyhop] LPD-1: ronda 1 de checkpoints: ticket-info"
 
     assert start == (
         "[spyhop] LPD-1: checkpoint ticket-info arrancado; log en "
@@ -151,9 +158,11 @@ async def test_an_orca_error_of_the_session_does_not_stop_the_checks_and_the_nex
     harness = harness_with(
         tmp_path, {"checks": ["ticket-info"]}, "implement", with_supervisor_session=True
     )
-    run, worktree = await started(harness)
 
     harness.orca.terminal_errors.append(OrcaUncertainError("timed out"))
+
+    run, worktree = await started(harness)
+
     await harness.supervisor.supervise()
 
     [row] = running(harness, run)
@@ -262,3 +271,39 @@ async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Pa
 
     assert len(harness.orca.launches) == 2
     assert harness.run(run.id).status is RunStatus.RUNNING
+
+
+async def test_the_session_hears_that_the_first_agent_started(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, with_supervisor_session=True)
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    worktree = harness.worktrees.find_current("LPD-1")
+
+    assert worktree is not None
+    assert harness.run(run.id).status is RunStatus.RUNNING
+
+    [session] = harness.orca.terminals
+
+    assert (
+        f"[spyhop] LPD-1: worktree listo en {worktree.path} (rama {worktree.branch_name}); "
+        "agente de plan arrancado (opus)"
+    ) in session["command"]
+
+
+async def test_the_session_hears_that_the_run_failed_to_start(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, with_supervisor_session=True)
+    run = harness.discover()
+
+    harness.orca.launch_errors.append(OrcaCommandError("refused", "bad_request"))
+
+    await harness.launcher.launch_pending()
+
+    [session] = harness.orca.terminals
+
+    assert harness.run(run.id).status is RunStatus.FAILED
+    assert (
+        "[spyhop] LPD-1: la run ha fallado al arrancar: Orca refused the launch"
+        in (session["command"])
+    )
