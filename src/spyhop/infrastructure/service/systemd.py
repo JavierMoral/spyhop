@@ -90,14 +90,15 @@ def wake_service() -> None:
     """Asks the running service to start a cycle now. Without the service, or
     when the signal fails, the next cycle starts at the poll interval.
 
-    The command does not wait for systemctl: the Claude Code hooks run it, and
-    a slow user bus must not stop the agent."""
+    The command waits for systemctl: a checkpoint runs it as the last step of
+    its unit, and systemd stops the processes that remain in the unit. The
+    short timeout keeps a slow user bus from stopping the Claude Code hooks."""
 
     # Only the main process: the Orca and git commands of the service are in
     # the same unit.
 
-    with suppress(OSError):
-        subprocess.Popen(
+    with suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(
             [
                 "systemctl",
                 "--user",
@@ -106,10 +107,9 @@ def wake_service() -> None:
                 f"--signal={WAKE_SIGNAL.name}",
                 UNIT_NAME,
             ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            capture_output=True,
+            check=False,
+            timeout=2,
         )
 
 

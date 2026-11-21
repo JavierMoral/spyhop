@@ -77,11 +77,14 @@ def state_file(states_dir: Path, pane: str) -> Path:
 
 def write_state(
     states_dir: Path, pane: str, payload: dict[str, Any], now: datetime | None = None
-) -> None:
+) -> bool:
+    """Records the state that the hook event gives. Returns False for an event
+    that gives no state."""
+
     found = state_of(payload)
 
     if found is None:
-        return
+        return False
 
     state, question = found
     data = {
@@ -99,6 +102,8 @@ def write_state(
         json.dump(data, temporary)
 
     os.replace(temporary.name, state_file(states_dir, pane))
+
+    return True
 
 
 def read_state(states_dir: Path, pane: str) -> AgentState | None:

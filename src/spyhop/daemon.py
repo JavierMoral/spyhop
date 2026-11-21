@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import signal
 import sqlite3
 from contextlib import AsyncExitStack, suppress
@@ -96,23 +97,27 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
         stop, wake = _signal_events()
         loop = asyncio.get_running_loop()
         next_poll = loop.time()
+        rate_limited = False
 
         while not stop.is_set():
             wake.clear()
 
-            # A wake from a local command runs the agents part now. JIRA
-            # stays on the poll interval.
+            # A wake from a local command supervises and launches now. The
+            # JIRA poll and the cleanup stay on the poll interval, and no
+            # launch reads JIRA while its rate limit lasts.
 
             polled = loop.time() >= next_poll
 
             if polled:
                 delay = float(settings.application.polling_interval)
+                rate_limited = False
 
                 try:
                     await monitor.poll()
                 except JiraAuthenticationError:
                     raise
                 except JiraRateLimitedError as error:
+                    rate_limited = True
                     delay = max(delay, error.retry_after or delay)
 
                     _log.warning("JIRA rate limit reached; next poll in %.0fs", delay)
@@ -155,12 +160,15 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 except OrcaError as error:
                     _log.warning("Supervision failed, will retry: %s", error)
 
-                try:
-                    await launcher.launch_pending()
-                except JiraAuthenticationError:
-                    raise
-                except (JiraError, OrcaError) as error:
-                    _log.warning("Launching failed, will retry: %s", error)
+                if polled or not rate_limited:
+                    try:
+                        await launcher.launch_pending()
+                    except JiraAuthenticationError:
+                        raise
+                    except (JiraError, OrcaError) as error:
+                        rate_limited = rate_limited or isinstance(error, JiraRateLimitedError)
+
+                        _log.warning("Launching failed, will retry: %s", error)
 
             if once:
                 return
@@ -289,6 +297,10 @@ def _signal_events() -> tuple[asyncio.Event, asyncio.Event]:
     for signal_number in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signal_number, on_stop)
 
-    loop.add_signal_handler(WAKE_SIGNAL, wake.set)
+    # Only under systemd: in a terminal, each resize of the window sends
+    # SIGWINCH, and wake_service reaches only the service.
+
+    if os.environ.get("INVOCATION_ID"):
+        loop.add_signal_handler(WAKE_SIGNAL, wake.set)
 
     return stop, wake

@@ -351,6 +351,10 @@ def cleanup(
         typer.echo(f"{worktree.issue_key}: removal not finished: {error}", err=True)
 
         raise typer.Exit(1) from None
+    finally:
+        # The run can be cancelled also when the worktree stays.
+
+        wake_service()
 
     if outcome is Cleanup.BLOCKED:
         blocked = worktrees.get(worktree.id)
@@ -363,7 +367,6 @@ def cleanup(
 
         raise typer.Exit(1)
 
-    wake_service()
     typer.echo(f"{worktree.issue_key}: {worktree.path} removed")
 
 
@@ -623,8 +626,9 @@ def hook() -> None:
     try:
         pane = pane_key(dict(os.environ))
 
-        if pane is not None:
-            write_state(state_dir() / AGENT_STATES, pane, json.loads(sys.stdin.read() or "{}"))
+        if pane is not None and write_state(
+            state_dir() / AGENT_STATES, pane, json.loads(sys.stdin.read() or "{}")
+        ):
             wake_service()
     except Exception as error:  # noqa: BLE001
         logging.getLogger("spyhop").debug("hook ignored: %s", error)

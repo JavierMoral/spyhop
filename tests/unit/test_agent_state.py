@@ -68,9 +68,14 @@ def test_the_hook_command_records_the_state_and_never_fails(
 
     result = CliRunner().invoke(app, ["hook"], input=json.dumps({"hook_event_name": "Stop"}))
     broken = CliRunner().invoke(app, ["hook"], input="not json")
+    stateless = CliRunner().invoke(
+        app,
+        ["hook"],
+        input=json.dumps({"hook_event_name": "Notification", "notification_type": "idle_prompt"}),
+    )
 
     state = read_state(tmp_path / "spyhop" / "agents", "tab:leaf")
 
-    assert result.exit_code == 0 and broken.exit_code == 0
+    assert result.exit_code == 0 and broken.exit_code == 0 and stateless.exit_code == 0
     assert state is not None and state.state == "done"
     assert woken == [True]

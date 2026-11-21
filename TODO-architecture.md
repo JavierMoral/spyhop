@@ -20,9 +20,9 @@ give the commit.
    daemon loop with `loop.add_signal_handler(SIGWINCH, wake.set)`. Let the
    commands send `systemctl --user kill --kill-whom=main -s WINCH spyhop`.
    The default action of SIGWINCH is to ignore it, so an early wake does not
-   stop the service. A failure of the signal is not an error. JIRA stays on
-   the poll interval, and the cleanup runs only with the poll. Done in the
-   branch `wake-daemon`.
+   stop the service. A failure of the signal is not an error. The JIRA poll
+   and the cleanup stay on the poll interval, and a wake launches nothing
+   while a JIRA rate limit lasts. Done in the branch `wake-daemon`.
 
 2. [ ] **Store the pipeline of the run, not only an index.** `run.phase` is an
    index into the pipeline of the current configuration, and

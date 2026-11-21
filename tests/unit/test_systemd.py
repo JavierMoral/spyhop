@@ -43,7 +43,7 @@ def test_paths_with_spaces_and_percent_are_quoted() -> None:
 def test_wake_service_signals_only_the_main_process(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
 
-    monkeypatch.setattr(subprocess, "Popen", lambda command, **_: calls.append(command))
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: calls.append(command))
 
     wake_service()
 
@@ -59,10 +59,13 @@ def test_wake_service_signals_only_the_main_process(monkeypatch: pytest.MonkeyPa
     ]
 
 
-def test_a_failed_wake_is_no_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    def popen(*_: object, **__: object) -> None:
-        raise FileNotFoundError("systemctl")
+@pytest.mark.parametrize(
+    "error", [FileNotFoundError("systemctl"), subprocess.TimeoutExpired("systemctl", 2)]
+)
+def test_a_failed_wake_is_no_error(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
+    def run(*_: object, **__: object) -> None:
+        raise error
 
-    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(subprocess, "run", run)
 
     wake_service()

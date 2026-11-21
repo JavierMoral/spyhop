@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from spyhop import daemon
+from spyhop.domain.exceptions import JiraRateLimitedError
 from spyhop.domain.models import JiraUser
 from spyhop.infrastructure.service.systemd import WAKE_SIGNAL
 from tests.factories import settings
@@ -29,27 +30,58 @@ class Jira:
 
 
 class Step:
-    def __init__(self, name: str, calls: list[str], done: asyncio.Queue[str]) -> None:
+    """Records its call. The supervisor ends each cycle of the test: it runs on
+    each poll and each wake."""
+
+    def __init__(
+        self,
+        name: str,
+        calls: list[str],
+        cycles: asyncio.Queue[str],
+        error: Exception | None = None,
+    ) -> None:
         self._name = name
         self._calls = calls
-        self._done = done
+        self._cycles = cycles
+        self._error = error
 
     async def __call__(self, *_: Any) -> None:
         self._calls.append(self._name)
 
-        if self._name == "launch":
-            await self._done.put(self._name)
+        if self._name == "supervise":
+            await self._cycles.put(self._name)
+
+        if self._error is not None:
+            raise self._error
 
 
-async def test_a_wake_runs_the_agents_now_and_not_the_poll(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("poll_error", "expected"),
+    [
+        # The cleanup reads JIRA, so a wake skips it.
+        (None, ["poll", "sweep", "supervise", "launch", "supervise", "launch"]),
+        # While the rate limit lasts, a wake launches nothing: a launch reads JIRA.
+        (
+            JiraRateLimitedError(600),
+            ["poll", "sweep", "supervise", "launch", "supervise"],
+        ),
+    ],
+)
+async def test_a_wake_supervises_now_and_leaves_jira_on_the_poll_interval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    poll_error: Exception | None,
+    expected: list[str],
 ) -> None:
     calls: list[str] = []
     cycles: asyncio.Queue[str] = asyncio.Queue()
 
     class Monitor:
         def __init__(self, **_: Any) -> None:
-            self.poll = Step("poll", calls, cycles)
+            self.poll = Step("poll", calls, cycles, poll_error)
+
+        def record_error(self, message: str) -> None:
+            pass
 
     class Agent:
         def __init__(self, method: str, name: str) -> None:
@@ -61,6 +93,7 @@ async def test_a_wake_runs_the_agents_now_and_not_the_poll(
         Agent("launch_pending", "launch"),
     )
 
+    monkeypatch.setenv("INVOCATION_ID", "test")
     monkeypatch.setattr(daemon, "JiraClient", Jira)
     monkeypatch.setattr(daemon, "credentials_from_environment", lambda _: None)
     monkeypatch.setattr(daemon, "JiraMonitor", Monitor)
@@ -83,6 +116,4 @@ async def test_a_wake_runs_the_agents_now_and_not_the_poll(
 
     await asyncio.wait_for(task, 5)
 
-    # The cleanup reads JIRA, so a wake skips it too.
-
-    assert calls == ["poll", "sweep", "supervise", "launch", "supervise", "launch"]
+    assert calls == expected
