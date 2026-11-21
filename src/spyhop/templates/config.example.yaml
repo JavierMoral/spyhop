@@ -41,8 +41,7 @@ projects:
                                   # up first in ~/.config/spyhop/templates/, then among
                                   # the bundled ones; copy one there to customize it
                                   # (`spyhop doctor` lists the directory)
-        plan_review: true
-        # pipeline: bug           # instead of plan_review: the phases in
+        pipeline: bug             # instead of plan_review: the phases in
                                   # pipelines below; see the README
       Story:
         name: feature
@@ -55,17 +54,23 @@ projects:
         trigger_statuses: ["In Progress"]
         repository: main
         prompt: technical_task.md
-        plan_review: false
+        pipeline: technical_task
 
-# pipelines:                      # checkpoints are subagents in
-#   bug:                          # ~/.claude/agents/checkpoint-<name>.md
-#     - checks: [ticket-info]
-#     - plan
-#     - plan_review
-#     - implement
-#     - checks: [regressions, mutation, security]
-#       on_fail: fix              # the agent fixes the findings; or human
-#       rounds: 3
+pipelines:                        # checkpoints are subagents in
+  bug:                            # ~/.claude/agents/checkpoint-<name>.md
+    - checks: [ticket-info, repro-steps, reproduce]
+      on_fail: human              # the run waits for you
+    - plan
+    - plan_review
+    - implement
+    - checks: [regressions, mutation, security]
+      on_fail: fix                # the agent fixes the findings
+      rounds: 3
+  technical_task:
+    - implement
+    - checks: [regressions, security]
+      on_fail: fix
+      rounds: 3
 
 orca:
   # executable: ~/.local/bin/orca-ide   # autodetected when omitted
