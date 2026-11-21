@@ -508,6 +508,8 @@ class Harness:
             check_runner=self.check_runner,
             supervisor_session=self.supervisor_session,
             agent_states_dir=self.agent_states_dir,
+            # The tests count cycles; the time rule has its own test.
+            missing_after=timedelta(0),
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:

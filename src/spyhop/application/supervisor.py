@@ -44,7 +44,7 @@ import dataclasses
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
@@ -79,6 +79,7 @@ from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
     WorktreeRepository,
+    utc_now,
 )
 
 _log = logging.getLogger(__name__)
@@ -87,11 +88,15 @@ SUPERVISED = (RunStatus.RUNNING, RunStatus.WAITING_FOR_HUMAN)
 
 AGENT = "claude"
 
-# Cycles without the run's agent in `worktree ps` before handing the run to a
-# person. Orca lists a new agent a few seconds after the launch, and a restart
-# of Orca briefly lists none.
+# Cycles without the run's agent in `worktree ps`, and the time since the
+# first one, before the agent counts as lost. Orca lists a new agent a few
+# seconds after the launch, and a restart of Orca briefly lists none. The time
+# is necessary because a wake of the service starts a cycle at once, so the
+# hooks of a new agent can start several cycles in a few seconds.
 
 MISSING_CYCLES = 3
+
+MISSING_AFTER = timedelta(seconds=90)
 
 MAX_QUESTION_LENGTH = 1500
 
@@ -189,8 +194,10 @@ class AgentSupervisor:
         supervisor_session: SupervisorSession | None = None,
         knowledge: KnowledgeWriter | None = None,
         agent_states_dir: Path | None = None,
+        missing_after: timedelta = MISSING_AFTER,
     ) -> None:
         self._runs = runs
+        self._missing_after = missing_after
         self._agent_states_dir = agent_states_dir
         self._knowledge = knowledge
         self._supervisor_session = supervisor_session
@@ -204,11 +211,7 @@ class AgentSupervisor:
         self._agents = agents
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
-        self._missing: dict[str, int] = {}
-        self._plan_agent_closed: set[str] = set()
-        # The runs whose wait did not reach the supervisor session. Each
-        # cycle sends the wait again until it arrives.
-        self._unalerted: set[str] = set()
+        # Only for the log: the first cycle after a start reconciles the runs.
         self._reconciled = False
 
     async def supervise(self) -> None:
@@ -354,14 +357,16 @@ class AgentSupervisor:
 
             return
 
-        self._missing.pop(run.id, None)
+        if run.missing_cycles:
+            self._runs.clear_missing(run.id)
 
         if signal is Signal.NONE and seen.agent is None:
             await self._on_plan_agent_closed(run, worktree)
 
             return
 
-        self._plan_agent_closed.discard(run.id)
+        if run.plan_agent_closed_told:
+            self._runs.set_plan_agent_closed_told(run.id, False)
 
         if signal is Signal.COMPLETED:
             if run.fix_requested_at is not None:
@@ -414,16 +419,19 @@ class AgentSupervisor:
         workflow: ResolvedWorkflow,
         session: AgentSession | None,
     ) -> None:
-        cycles = self._missing.get(run.id, 0) + 1
+        missing = self._runs.note_missing(run.id)
 
-        self._missing[run.id] = cycles
+        assert missing.missing_since is not None
 
-        if cycles < MISSING_CYCLES:
-            _log.debug("%s: agent not listed by Orca (%d)", run.issue_key, cycles)
+        if (
+            missing.missing_cycles < MISSING_CYCLES
+            or utc_now() - missing.missing_since < self._missing_after
+        ):
+            _log.debug("%s: agent not listed by Orca (%d)", run.issue_key, missing.missing_cycles)
 
             return
 
-        self._missing.pop(run.id, None)
+        self._runs.clear_missing(run.id)
 
         if (
             run.status is RunStatus.RUNNING
@@ -526,10 +534,10 @@ class AgentSupervisor:
         """Tells the person once that only an agent that they start can now
         revise the plan."""
 
-        if run.id in self._plan_agent_closed:
+        if run.plan_agent_closed_told:
             return
 
-        self._plan_agent_closed.add(run.id)
+        self._runs.set_plan_agent_closed_told(run.id, True)
 
         _log.info("%s: plan agent closed while the plan waits for its review", run.issue_key)
 
@@ -763,7 +771,9 @@ class AgentSupervisor:
             return
 
         self._runs.mark_resumed(run.id)
-        self._unalerted.discard(run.id)
+
+        if run.alert_pending:
+            self._runs.set_alert_pending(run.id, False)
 
         _log.info("%s: agent working again (was waiting: %s)", run.issue_key, run.waiting_reason)
 
@@ -771,7 +781,9 @@ class AgentSupervisor:
 
     async def _wait(self, run: AutomationRun, reason: WaitingReason, message: str) -> None:
         if run.status is RunStatus.WAITING_FOR_HUMAN and run.waiting_reason is reason:
-            if run.id not in self._unalerted:
+            # The same wait goes again only when it did not reach the session.
+
+            if not run.alert_pending:
                 return
         else:
             self._runs.mark_waiting(run.id, reason, message)
@@ -785,10 +797,10 @@ class AgentSupervisor:
 
         assert self._supervisor_session is not None
 
-        if await self._supervisor_session.alert(worktree, f"{reason}: {message}"):
-            self._unalerted.discard(run.id)
-        else:
-            self._unalerted.add(run.id)
+        delivered = await self._supervisor_session.alert(worktree, f"{reason}: {message}")
+
+        if delivered == run.alert_pending:
+            self._runs.set_alert_pending(run.id, not delivered)
 
     async def _tell(self, run: AutomationRun, text: str) -> None:
         worktree = self._session_worktree(run)

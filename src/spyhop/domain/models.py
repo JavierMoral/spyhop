@@ -211,6 +211,13 @@ class AutomationRun:
     # The pipeline from when the first phase started; `phase` is an index into
     # it. None: the run has not started, or it is from before this column.
     pipeline: tuple[Phase, ...] | None = None
+    # The supervision cycles without the agent of the run, and since when.
+    missing_cycles: int = 0
+    missing_since: datetime | None = None
+    # Whether the person knows that the plan agent closed during the review.
+    plan_agent_closed_told: bool = False
+    # Whether the last wait did not reach the supervisor session.
+    alert_pending: bool = False
 
 
 @dataclass(frozen=True)

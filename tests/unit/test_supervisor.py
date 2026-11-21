@@ -7,6 +7,7 @@ import pytest
 
 from spyhop.application.supervisor import (
     CONTINUE_PROMPT,
+    MISSING_AFTER,
     MISSING_CYCLES,
     Observation,
     Signal,
@@ -361,13 +362,19 @@ async def test_missing_agent_is_handed_to_a_person_after_a_few_cycles(tmp_path: 
     for _ in range(MISSING_CYCLES - 1):
         await harness.supervisor.supervise()
 
+    # The count is in the run, so a restart of the service keeps it.
+
     assert harness.run(run.id).status is RunStatus.RUNNING
+    assert harness.run(run.id).missing_cycles == MISSING_CYCLES - 1
 
     # Seen again: the count starts over.
 
     harness.orca.set_agent(worktree.orca_worktree_id, "working", pane)
 
     await harness.supervisor.supervise()
+
+    assert harness.run(run.id).missing_cycles == 0
+    assert harness.run(run.id).missing_since is None
 
     harness.orca.agents.clear()
 
@@ -383,6 +390,32 @@ async def test_missing_agent_is_handed_to_a_person_after_a_few_cycles(tmp_path: 
     assert lost.status is RunStatus.WAITING_FOR_HUMAN
     assert lost.waiting_reason is WaitingReason.UNKNOWN_STATE
     assert lost.error_message == f"no agent running in {worktree.path}"
+
+
+async def test_an_agent_is_lost_only_after_the_missing_time_also_with_many_cycles(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(tmp_path, settings(tmp_path, agents={"max_restarts": 0}))
+    run, worktree, _ = await launched(harness)
+
+    harness.supervisor._missing_after = MISSING_AFTER
+    harness.orca.agents.clear()
+
+    # Wakes of the service can start many cycles in a few seconds.
+
+    for _ in range(MISSING_CYCLES + 2):
+        await harness.supervisor.supervise()
+
+    assert harness.run(run.id).status is RunStatus.RUNNING
+
+    harness.connection.execute(
+        "UPDATE automation_runs SET missing_since = ?",
+        ((datetime.now(UTC) - MISSING_AFTER).isoformat(),),
+    )
+
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).error_message == f"no agent running in {worktree.path}"
 
 
 async def test_nothing_changes_while_orca_is_unavailable(harness: Harness) -> None:

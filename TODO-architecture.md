@@ -70,12 +70,19 @@ give the commit.
    worktrees without agents, so the supervisor calls `show_worktree` only for
    a card run, or when the worktree is not in the list.
 
-6. [ ] **Persist the in-memory state of the supervisor.** `_missing`,
+6. [x] **Persist the in-memory state of the supervisor.** `_missing`,
    `_plan_agent_closed`, `_unalerted` and `_reconciled` are lost when the
    service restarts. A restart sets the count of missing cycles back to zero,
    and a wait message that did not reach the session depends on `_unalerted`.
    Store the data that decisions use in the run, for example `missing_since`
    and the pending alert.
+
+   Done in the branch `persist-supervisor-state` (migration 15): the run
+   stores `missing_cycles`, `missing_since`, `plan_agent_closed_told` and
+   `alert_pending`. `_reconciled` stays in memory, because only the log uses
+   it. An agent is now lost only after `MISSING_CYCLES` cycles and 90 seconds
+   (`MISSING_AFTER`), because the wake can start several cycles in a few
+   seconds.
 
 7. [ ] **Move the logic out of `cli.py`.** `approve`, `declare`, `replan`,
    `retry` and `fail` decide and move cards in the CLI. Move that logic to an

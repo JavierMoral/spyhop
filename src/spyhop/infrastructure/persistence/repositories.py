@@ -310,6 +310,42 @@ class RunRepository:
             "UPDATE automation_runs SET plan_changes = ? WHERE id = ?", (changes, run_id)
         )
 
+    def note_missing(self, run_id: str) -> AutomationRun:
+        """Counts one more cycle without the agent of the run."""
+
+        self._connection.execute(
+            """
+            UPDATE automation_runs
+            SET missing_cycles = missing_cycles + 1,
+                missing_since = COALESCE(missing_since, ?)
+            WHERE id = ?
+            """,
+            (_to_text(utc_now()), run_id),
+        )
+
+        run = self.get(run_id)
+
+        assert run is not None
+
+        return run
+
+    def clear_missing(self, run_id: str) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET missing_cycles = 0, missing_since = NULL WHERE id = ?",
+            (run_id,),
+        )
+
+    def set_plan_agent_closed_told(self, run_id: str, told: bool) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET plan_agent_closed_told = ? WHERE id = ?",
+            (int(told), run_id),
+        )
+
+    def set_alert_pending(self, run_id: str, pending: bool) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET alert_pending = ? WHERE id = ?", (int(pending), run_id)
+        )
+
     def count_restart(self, run_id: str) -> None:
         self._connection.execute(
             "UPDATE automation_runs SET restarts = restarts + 1 WHERE id = ?", (run_id,)
@@ -725,6 +761,10 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         declared_at=_to_datetime(row["declared_at"]),
         approved_at=_to_datetime(row["approved_at"]),
         pipeline=_pipeline_from_json(row["pipeline"]),
+        missing_cycles=row["missing_cycles"],
+        missing_since=_to_datetime(row["missing_since"]),
+        plan_agent_closed_told=bool(row["plan_agent_closed_told"]),
+        alert_pending=bool(row["alert_pending"]),
     )
 
 

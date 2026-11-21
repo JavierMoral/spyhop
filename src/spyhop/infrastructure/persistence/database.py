@@ -199,6 +199,19 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs ADD COLUMN pipeline TEXT;
     """,
+    # The supervisor state that a restart of the service must not lose: the
+    # cycles without the agent and since when, whether the person knows that
+    # the plan agent is closed, and whether a wait did not reach the
+    # supervisor session.
+    """
+    ALTER TABLE automation_runs ADD COLUMN missing_cycles INTEGER NOT NULL DEFAULT 0;
+
+    ALTER TABLE automation_runs ADD COLUMN missing_since TEXT;
+
+    ALTER TABLE automation_runs ADD COLUMN plan_agent_closed_told INTEGER NOT NULL DEFAULT 0;
+
+    ALTER TABLE automation_runs ADD COLUMN alert_pending INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

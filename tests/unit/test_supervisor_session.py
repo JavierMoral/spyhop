@@ -139,8 +139,12 @@ async def test_a_wait_that_does_not_reach_the_session_goes_again_until_it_arrive
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+    assert harness.run(run.id).alert_pending
 
     await harness.supervisor.supervise()
+
+    assert not harness.run(run.id).alert_pending
+
     await harness.supervisor.supervise()
 
     waits = [
@@ -264,6 +268,7 @@ async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Pa
     )
 
     assert session_prompts(harness, "term_check_1").count(closed) == 1
+    assert harness.run(run.id).plan_agent_closed_told
     assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
 
     harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
