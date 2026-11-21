@@ -64,9 +64,9 @@ Done:
    - [x] Installed from the branch `checkpoints-plan` with
      `uv tool install --reinstall .`, and restarted the service. After the
      merge to `main`, install again from `main`.
-   - [ ] Make sure that `spyhop` is in the `PATH` of the Orca terminal
-     (`~/.local/bin/spyhop`).
-   - [ ] Test with a real run before step 5.
+   - [x] Make sure that `spyhop` is in the `PATH` of the Orca terminal
+     (`~/.local/bin/spyhop`). Real runs use it.
+   - [x] Test with a real run before step 5. 16 runs completed.
 5. [~] **Completion control in Spyhop.** Mostly replaced by R2: the run is
    COMPLETED only after the checks phases after `implement` pass. Still open:
    at the end, also check the verdicts of the earlier phases (for example a
@@ -207,7 +207,7 @@ R3. [x] **`pipelines:` in the configuration.**
     - [x] Deleted the obsolete skill `~/.claude/skills/checkpoints/`.
     - [x] Committed (2dc6452, f0a8174, 472a0a0) and installed again from the
       branch `checkpoints-plan`.
-R4. [ ] **Checks before the plan.** The plan agent reads their reports.
+R4. [x] **Checks before the plan.** The plan agent reads their reports.
     - [x] Catalog in `~/.claude/agents/`:
       - `checkpoint-ticket-info`: sonnet, read, `inputs: [ticket]`. A
         checklist per issue type (Bug and Impedibug, or other types).
@@ -225,7 +225,8 @@ R4. [ ] **Checks before the plan.** The plan agent reads their reports.
         and the comments.
       - The three old checkpoints now have an explicit `inputs: [head]`.
     - [x] In the pipeline `bug` (Bug and Impedibug), with `on_fail: human`.
-    - [ ] Test them on a real ticket.
+    - [x] Test them on a real ticket. ticket-info, repro-steps and reproduce
+      ran 13 to 15 times in real runs.
 
 ### To verify
 
@@ -233,11 +234,12 @@ R4. [ ] **Checks before the plan.** The plan agent reads their reports.
   `StructuredOutput` in `tools`).
 - [x] `claude --resume`: not needed. The fix prompt goes to the live agent
   with `orca terminal send`.
-- [ ] The answer of `orca terminal create --json`: Spyhop reads `handle` at the
-  top or under `terminal`, and does not need it. Not seen in a real call.
-- [ ] `orca terminal send` to an idle Claude agent submits the prompt as a new
-  turn. Not seen in a real call.
-- [ ] A whole run with checks before and after the implementation.
+- [x] The answer of `orca terminal create --json`: Spyhop reads `handle` at the
+  top or under `terminal`. The supervisor sessions of 11 worktrees started.
+  Checkpoints now run in systemd units, not in Orca terminals.
+- [x] `orca terminal send` to an idle Claude agent submits the prompt as a new
+  turn. 6 real runs had fix rounds after the implementation.
+- [x] A whole run with checks before and after the implementation.
 
 ## Optional
 
