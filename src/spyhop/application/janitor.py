@@ -11,6 +11,7 @@ worktree is retried once it is clean, or on `spyhop cleanup`. One left in
 REMOVING (Orca unavailable, Spyhop stopped mid-way) is resumed next cycle.
 """
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from enum import StrEnum
@@ -99,7 +100,7 @@ class WorktreeJanitor:
             due += [
                 worktree
                 for worktree in candidates
-                if worktree.issue_key in closed and self._may_remove(worktree)
+                if worktree.issue_key in closed and await self._may_remove(worktree)
             ]
 
             for run in unstarted:
@@ -134,13 +135,15 @@ class WorktreeJanitor:
 
         return removed
 
-    def _may_remove(self, worktree: Worktree) -> bool:
+    async def _may_remove(self, worktree: Worktree) -> bool:
         """A blocked worktree is retried only once nothing would block it."""
 
         if worktree.status is not WorktreeStatus.CLEANUP_BLOCKED:
             return True
 
-        return not worktree.path.exists() or not self._has_changes(worktree.path)
+        return not worktree.path.exists() or not await asyncio.to_thread(
+            self._has_changes, worktree.path
+        )
 
     async def _closed_keys(self, keys: Sequence[str]) -> set[str]:
         closed: set[str] = set()

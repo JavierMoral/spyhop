@@ -13,6 +13,7 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
   retry FAILED runs by itself.
 """
 
+import asyncio
 import logging
 import re
 import unicodedata
@@ -470,7 +471,7 @@ class AgentLauncher:
         if orca_worktree is None:
             name = worktree_name(issue_key, ticket.summary)
             branch = name
-            previous = self._reopened(issue_key, workflow)
+            previous = await self._reopened(issue_key, workflow)
 
             if previous is not None:
                 branch = previous.branch_name
@@ -540,7 +541,7 @@ class AgentLauncher:
 
             raise _NotYet(f"Orca does not list {path} yet") from error
 
-    def _reopened(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree | None:
+    async def _reopened(self, issue_key: str, workflow: ResolvedWorkflow) -> Worktree | None:
         """The removed worktree a reopened ticket continues from, when Git
         still has its branch (Orca keeps unmerged branches)."""
 
@@ -549,7 +550,9 @@ class AgentLauncher:
         if (
             previous is None
             or previous.repository_path != workflow.repository_path
-            or not self._branch_exists(previous.repository_path, previous.branch_name)
+            or not await asyncio.to_thread(
+                self._branch_exists, previous.repository_path, previous.branch_name
+            )
         ):
             return None
 

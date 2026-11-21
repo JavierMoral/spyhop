@@ -196,10 +196,14 @@ give the commit.
     `_recovery._started_at`. Add a small `Clock` that the daemon gives to
     the components, and a fixed clock for the tests.
 
-18. [ ] **Do not block the asyncio loop with git.** `infrastructure/git.py`
+18. [x] **Do not block the asyncio loop with git.** `infrastructure/git.py`
     calls `subprocess.run` from async code (`CheckRunner`, the janitor,
     `checkpoint_inputs`). A slow `git merge-base` on liferay-portal stops
     the whole cycle. Use the async `CommandRunner` or `asyncio.to_thread`.
+
+    Done: `git.py` stays synchronous for the CLI. The async callers run it
+    with `asyncio.to_thread`: `CheckRunner`, `checkpoint_inputs`, the
+    janitor and the launcher (`branch_exists` of a reopened ticket).
 
 19. [ ] **Integration tests against the real Orca.** `tests/integration/`
     is empty, and all the tests use `FakeOrca`. A change of the JSON of

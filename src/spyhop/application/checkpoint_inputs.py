@@ -1,5 +1,6 @@
 """The current values of the checkpoint inputs (see checkpoint_verdicts)."""
 
+import asyncio
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -23,7 +24,7 @@ async def input_values(
     values = {}
 
     if "head" in wanted:
-        current_head = head(root)
+        current_head = await asyncio.to_thread(head, root)
 
         if current_head is None:
             raise ConfigurationError(f"Cannot read the HEAD of {root}")
@@ -31,7 +32,7 @@ async def input_values(
         values["head"] = current_head
 
     if "base" in wanted:
-        base = merge_base(root, base_branch)
+        base = await asyncio.to_thread(merge_base, root, base_branch)
 
         if base is None:
             raise ConfigurationError(f"Cannot find where HEAD leaves {base_branch} in {root}")

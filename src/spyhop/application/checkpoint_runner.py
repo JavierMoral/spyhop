@@ -31,6 +31,7 @@ another one runs for the same row or its result exists, so a checkpoint never
 runs twice.
 """
 
+import asyncio
 import fcntl
 import json
 import logging
@@ -281,7 +282,7 @@ class CheckRunner:
 
         add_exclusions(git_exclude_file(worktree.path), EXCLUDED_PATHS)
 
-        if has_changes(worktree.path):
+        if await asyncio.to_thread(has_changes, worktree.path):
             return PhaseOutcome(
                 "blocked",
                 f"uncommitted changes in {worktree.path}; checkpoints need a clean worktree",
@@ -380,7 +381,7 @@ class CheckRunner:
         Returns why the phase is blocked, or None."""
 
         if row.output_file.is_file():
-            result = self._after_exclusive(
+            result = await self._after_exclusive(
                 row, worktree, _validate(read_output(row.output_file), row.head)
             )
 
@@ -413,11 +414,15 @@ class CheckRunner:
 
         return None
 
-    def _after_exclusive(self, row: CheckpointRun, worktree: Worktree, result: _Result) -> _Result:
+    async def _after_exclusive(
+        self, row: CheckpointRun, worktree: Worktree, result: _Result
+    ) -> _Result:
         if self._planner.read(row.name).mode != "exclusive":
             return result
 
-        if head(worktree.path) != row.head or has_changes(worktree.path):
+        current_head = await asyncio.to_thread(head, worktree.path)
+
+        if current_head != row.head or await asyncio.to_thread(has_changes, worktree.path):
             return _Result(
                 "FAIL",
                 "the checkpoint changed HEAD or left uncommitted changes in the worktree",

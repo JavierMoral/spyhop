@@ -1,5 +1,6 @@
-"""The few local Git questions Orca does not answer. Read-only and fast, so
-they run synchronously."""
+"""The few local Git questions Orca does not answer. Read-only. A Git command
+on a large repository can take seconds, so the async code runs these
+functions in a thread (`asyncio.to_thread`)."""
 
 import subprocess
 from pathlib import Path
