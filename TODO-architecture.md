@@ -102,9 +102,10 @@ give the commit.
    (`application/run_commands.py`) has the logic of `approve`, `declare`,
    `replan`, `retry` and `fail`, and its own tests. `cli.py` is now the
    package `cli/`: `common.py` (the typer apps and the helpers), `runs.py`,
-   `checkpoints.py` and `service.py`. Two small changes: each refusal of
-   these commands now goes to stderr (`retry` wrote one to stdout), and
-   `declare` checks the step after it opens the database.
+   `checkpoints.py` and `service.py`. Changes of behavior: each refusal of
+   these commands now goes to stderr (`retry` wrote one to stdout),
+   `declare` checks the step after it opens the database, and `approve`
+   stores the approval of a card run only after the card moves.
 
 8. [x] **Split `AgentSupervisor`.** It has 821 lines with observation, phase
    changes, restarts, replan, alerts and knowledge. Keep `observe()` as the
@@ -117,7 +118,9 @@ give the commit.
    the observation and the signal table, and gets `PhaseRunner`
    (`phase_runner.py`), `AgentRecovery` (`agent_recovery.py`) and
    `RunAlerts` (`run_alerts.py`, the waits and the messages to the
-   supervisor session). The code moved without a change of behavior.
+   supervisor session). The code moved without a change of behavior, with
+   one fix: when Orca cannot take a fix prompt, the next cycle sends it
+   again.
 
 9. [ ] **Isolate the read-only checkpoints with systemd properties.** For the
    checkpoints with `mode: read` (security, regressions, repro-steps), add
