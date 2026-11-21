@@ -49,8 +49,8 @@ class RunRepository:
         now = utc_now()
         run_id = str(uuid.uuid4())
 
-        try:
-            with transaction(self._connection):
+        with transaction(self._connection):
+            try:
                 self._connection.execute(
                     """
                     INSERT INTO automation_runs (
@@ -70,10 +70,10 @@ class RunRepository:
                         _to_text(now),
                     ),
                 )
+            except sqlite3.IntegrityError:
+                return None
 
-                self._event(run_id, "created", f"{entry.to_status} ({entry.workflow.name})")
-        except sqlite3.IntegrityError:
-            return None
+            self._event(run_id, "created", f"{entry.to_status} ({entry.workflow.name})")
 
         return self.get(run_id)
 
@@ -201,8 +201,8 @@ class RunRepository:
         now = utc_now()
         run_id = str(uuid.uuid4())
 
-        try:
-            with transaction(self._connection):
+        with transaction(self._connection):
+            try:
                 self._connection.execute(
                     """
                     INSERT INTO automation_runs (
@@ -223,10 +223,10 @@ class RunRepository:
                         original.id,
                     ),
                 )
+            except sqlite3.IntegrityError:
+                return None
 
-                self._event(run_id, "created", f"retry of {original.id[:8]}")
-        except sqlite3.IntegrityError:
-            return None
+            self._event(run_id, "created", f"retry of {original.id[:8]}")
 
         return self.get(run_id)
 

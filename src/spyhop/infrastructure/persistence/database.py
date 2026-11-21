@@ -2,7 +2,7 @@
 
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 _MIGRATIONS = [
@@ -304,8 +304,9 @@ def connect(database_file: Path) -> sqlite3.Connection:
 def transaction(connection: sqlite3.Connection) -> Iterator[None]:
     """Makes the statements in the block one write: all of them or none.
     BEGIN IMMEDIATE takes the write lock at the start, so another process
-    cannot write between a read and a write of the block. In a transaction
-    that is already open, the block is part of that transaction."""
+    cannot write between a read and a write of the block. A block in a
+    transaction that is already open is part of that transaction, and only
+    the outer block commits or rolls back."""
 
     if connection.in_transaction:
         yield
@@ -316,12 +317,15 @@ def transaction(connection: sqlite3.Connection) -> Iterator[None]:
 
     try:
         yield
+        connection.commit()
     except BaseException:
-        connection.rollback()
+        # A failed commit also rolls back, so the connection does not stay in
+        # a transaction. An error of the rollback does not hide the first one.
+
+        with suppress(sqlite3.Error):
+            connection.rollback()
 
         raise
-
-    connection.commit()
 
 
 def _migrate(connection: sqlite3.Connection) -> None:

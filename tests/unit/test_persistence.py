@@ -237,3 +237,24 @@ def test_the_requests_in_columns_move_to_run_commands(tmp_path: Path) -> None:
     assert runs.get("r1").plan_changes == "Rename the class"  # type: ignore[union-attr]
     assert runs.take_plan_changes("r1") == "Rename the class"
     assert runs.take_plan_changes("r1") is None
+
+
+def test_a_failed_commit_ends_the_transaction(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "spyhop.db")
+
+    _running_run(connection)
+
+    # A deferred foreign key fails at the commit.
+
+    connection.execute("PRAGMA defer_foreign_keys = ON")
+
+    with pytest.raises(sqlite3.IntegrityError), transaction(connection):
+        connection.execute("UPDATE automation_runs SET worktree_id = 'none'")
+
+    assert not connection.in_transaction
+
+    RunRepository(connection).count_restart("r1")
+
+    assert sqlite3.connect(tmp_path / "spyhop.db").execute(
+        "SELECT restarts, worktree_id FROM automation_runs"
+    ).fetchone() == (1, None)
