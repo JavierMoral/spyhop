@@ -250,6 +250,11 @@ class RunRepository:
             (_to_text(utc_now()), failed_only, run_id),
         )
 
+    def count_restart(self, run_id: str) -> None:
+        self._connection.execute(
+            "UPDATE automation_runs SET restarts = restarts + 1 WHERE id = ?", (run_id,)
+        )
+
     def mark_failed(self, run_id: str, error_message: str) -> None:
         self._update(
             run_id,
@@ -646,6 +651,7 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         fix_requested_at=_to_datetime(row["fix_requested_at"]),
         checks_requested_at=_to_datetime(row["checks_requested_at"]),
         checks_failed_only=bool(row["checks_failed_only"]),
+        restarts=row["restarts"],
     )
 
 

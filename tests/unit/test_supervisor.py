@@ -4,10 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.application.supervisor import MISSING_CYCLES, Observation, Signal, observe
+from spyhop.application.supervisor import (
+    CONTINUE_PROMPT,
+    MISSING_CYCLES,
+    Observation,
+    Signal,
+    observe,
+)
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AgentRow, AutomationRun, OrcaWorktree, Worktree
+from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
 
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
@@ -284,7 +291,8 @@ async def test_declared_end_completes_the_run_and_frees_its_slot(harness: Harnes
     assert harness.run(queued.id).status is RunStatus.RUNNING
 
 
-async def test_files_from_an_earlier_run_are_no_signal(harness: Harness) -> None:
+async def test_files_from_an_earlier_run_are_no_signal(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, settings(tmp_path, agents={"max_restarts": 0}))
     run, worktree, pane = await launched(harness)
     result = worktree.path / "CLAUDE-RESULT.md"
     old = (datetime.now(UTC) - timedelta(days=1)).timestamp()
@@ -324,9 +332,8 @@ async def test_agent_of_an_earlier_run_is_ignored(harness: Harness) -> None:
     assert harness.run(run.id).status is RunStatus.RUNNING
 
 
-async def test_missing_agent_is_handed_to_a_person_after_a_few_cycles(
-    harness: Harness,
-) -> None:
+async def test_missing_agent_is_handed_to_a_person_after_a_few_cycles(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, settings(tmp_path, agents={"max_restarts": 0}))
     run, worktree, pane = await launched(harness)
 
     harness.orca.agents.clear()
@@ -419,3 +426,51 @@ async def test_one_failing_run_does_not_stop_the_others(harness: Harness) -> Non
 
     assert harness.run(first.id).status is RunStatus.RUNNING
     assert harness.run(second.id).waiting_reason is WaitingReason.AGENT_QUESTION
+
+
+async def test_a_lost_agent_starts_again_once_and_then_the_run_waits(harness: Harness) -> None:
+    run, _, _ = await launched(harness)
+
+    harness.orca.agents.clear()
+
+    for _ in range(MISSING_CYCLES):
+        await harness.supervisor.supervise()
+
+    assert len(harness.orca.launches) == 2
+    assert harness.run(run.id).status is RunStatus.RUNNING
+    assert harness.run(run.id).restarts == 1
+
+    harness.orca.agents.clear()
+
+    for _ in range(MISSING_CYCLES):
+        await harness.supervisor.supervise()
+
+    assert len(harness.orca.launches) == 2
+    assert harness.run(run.id).waiting_reason is WaitingReason.UNKNOWN_STATE
+
+
+async def test_a_stopped_agent_is_told_to_continue_once_and_then_the_run_waits(
+    harness: Harness,
+) -> None:
+    run, worktree, pane = await launched(harness)
+    session = harness.sessions.find_launched(run.id)
+
+    assert session is not None
+
+    harness.orca.set_agent(
+        worktree.orca_worktree_id, "done", pane, datetime.now(UTC) + timedelta(seconds=1)
+    )
+
+    await harness.supervisor.supervise()
+
+    assert harness.orca.prompts == [(session.agent_handle, CONTINUE_PROMPT)]
+    assert harness.run(run.id).status is RunStatus.RUNNING
+
+    harness.orca.set_agent(
+        worktree.orca_worktree_id, "done", pane, datetime.now(UTC) + timedelta(seconds=2)
+    )
+
+    await harness.supervisor.supervise()
+
+    assert len(harness.orca.prompts) == 1
+    assert harness.run(run.id).waiting_reason is WaitingReason.UNKNOWN_STATE

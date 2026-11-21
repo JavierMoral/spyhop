@@ -147,6 +147,10 @@ class AgentSettings(BaseModel):
     plan_model: str = "opus"
     model: str = "sonnet"
     effort: str = "high"
+    # How many times a run relaunches an agent that Orca no longer lists, or
+    # tells an agent that stopped without declaring the plan or the end to
+    # continue, before the run waits for a person.
+    max_restarts: int = Field(default=1, ge=0)
     # A command, usually a slash command, the agent runs over its commits once
     # the implementation is done, before writing CLAUDE-RESULT.md.
     review_command: str | None = None

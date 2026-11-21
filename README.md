@@ -72,6 +72,10 @@ What you do is in **bold**. The rest happens by itself.
 | `agent_question` | Answer the agent in its terminal. |
 | `unknown_state` | Tell the agent to go on in its terminal, or stop the run with `spyhop fail KEY`. |
 
+Before a run waits with `unknown_state`, Spyhop tries once by itself
+(`agents.max_restarts`). It starts an agent that Orca no longer lists again,
+and it tells an agent that stopped without the plan or the end to continue.
+
 To start a run again, stop it with `spyhop fail KEY`, then run
 `spyhop retry KEY`. `retry` accepts only a finished run.
 

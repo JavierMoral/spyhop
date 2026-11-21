@@ -88,6 +88,7 @@ agents:
   plan_model: opus                # writes CLAUDE-PLAN.md when plan_review is true
   model: sonnet                   # implements; a new agent after the plan is approved
   effort: high
+  max_restarts: 1                 # relaunch a lost agent or prompt a stopped one, then wait
   # review_command: /code-review-loop --rounds 2  # run over the commits before CLAUDE-RESULT.md
 
 cleanup:                          # remove worktrees of closed tickets (never forced)

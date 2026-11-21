@@ -195,6 +195,8 @@ class AutomationRun:
     checks_requested_at: datetime | None = None
     # Whether that request runs only the failed and stale checkpoints.
     checks_failed_only: bool = False
+    # How many times Spyhop relaunched or prompted a lost or stopped agent.
+    restarts: int = 0
 
 
 @dataclass(frozen=True)

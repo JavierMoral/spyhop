@@ -28,6 +28,11 @@ WAITING_FOR_HUMAN are checked against Orca with the same table. Nothing is
 ever COMPLETED without the agent's explicit signal, and without the checks
 after the implementation, if the pipeline has them.
 
+A lost agent, one that Orca no longer lists while the run is RUNNING in a
+plan or implement phase, starts again. A stopped agent, one that is idle
+without the plan or the end, gets CONTINUE_PROMPT. Each one counts as a
+restart; after agents.max_restarts, the run waits for a person.
+
 The supervisor session of the worktree, when there is one, gets the progress
 and each reason why the run waits for a person. A wait that does not reach the
 session goes again on the next cycle. Its pane is not an agent of the run.
@@ -50,6 +55,7 @@ from spyhop.config.settings import AgentSettings
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
+    OrcaError,
     OrcaUnavailableError,
     OrcaUncertainError,
     SpyhopError,
@@ -81,6 +87,11 @@ AGENT = "claude"
 # of Orca briefly lists none.
 
 MISSING_CYCLES = 3
+
+CONTINUE_PROMPT = (
+    "Continúa con la tarea de CLAUDE-TASK.md. Si ya has terminado, declara el plan o el fin "
+    "como dice CLAUDE-TASK.md: escribe CLAUDE-PLAN.md o CLAUDE-RESULT.md y mueve la tarjeta."
+)
 
 
 class Signal(StrEnum):
@@ -275,7 +286,7 @@ class AgentSupervisor:
         signal = observe(run, seen, self._plan_review_status, self._plan_approved_status)
 
         if signal is Signal.MISSING:
-            await self._on_missing(run, worktree)
+            await self._on_missing(run, worktree, workflow, session)
 
             return
 
@@ -327,14 +338,20 @@ class AgentSupervisor:
             )
 
             await self._enter(run, worktree, workflow, after, session)
-        elif signal is Signal.STOPPED:
+        elif signal is Signal.STOPPED and not await self._prompt_stopped(run, session):
             await self._wait(
                 run,
                 WaitingReason.UNKNOWN_STATE,
                 "the agent stopped without declaring the plan or the end",
             )
 
-    async def _on_missing(self, run: AutomationRun, worktree: Worktree) -> None:
+    async def _on_missing(
+        self,
+        run: AutomationRun,
+        worktree: Worktree,
+        workflow: ResolvedWorkflow,
+        session: AgentSession | None,
+    ) -> None:
         cycles = self._missing.get(run.id, 0) + 1
 
         self._missing[run.id] = cycles
@@ -345,7 +362,55 @@ class AgentSupervisor:
             return
 
         self._missing.pop(run.id, None)
+
+        if (
+            run.status is RunStatus.RUNNING
+            and run.restarts < self._agents.max_restarts
+            and workflow.phases[run.phase] in ("plan", "implement")
+        ):
+            self._runs.count_restart(run.id)
+
+            _log.info("%s: agent lost; started again", run.issue_key)
+
+            await self._tell(run, "el agente ya no estaba en Orca; Spyhop lo arranca otra vez")
+            await self._enter(run, worktree, workflow, run.phase, session)
+
+            return
+
         await self._wait(run, WaitingReason.UNKNOWN_STATE, f"no agent running in {worktree.path}")
+
+    async def _prompt_stopped(self, run: AutomationRun, session: AgentSession | None) -> bool:
+        """Tells an agent that stopped without declaring the plan or the end
+        to continue. Returns False when the run must wait for a person."""
+
+        if (
+            run.status is not RunStatus.RUNNING
+            or run.restarts >= self._agents.max_restarts
+            or session is None
+            or session.agent_handle is None
+        ):
+            return False
+
+        try:
+            await self._orca.send_prompt(session.agent_handle, CONTINUE_PROMPT)
+        except OrcaError as error:
+            _log.warning("%s: stopped agent not prompted: %s", run.issue_key, error)
+
+            return False
+
+        self._runs.count_restart(run.id)
+
+        # The stopped state is now older than the run's last change.
+
+        self._runs.mark_resumed(run.id)
+
+        _log.info("%s: agent stopped without a declaration; told to continue", run.issue_key)
+
+        await self._tell(
+            run, "el agente se paró sin declarar el plan ni el fin; Spyhop le pide seguir"
+        )
+
+        return True
 
     async def _on_plan_agent_closed(self, run: AutomationRun, worktree: Worktree) -> None:
         """Tells the person once that only an agent that they start can now

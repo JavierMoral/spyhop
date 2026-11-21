@@ -164,6 +164,10 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs ADD COLUMN checks_failed_only INTEGER NOT NULL DEFAULT 0;
     """,
+    # How many times Spyhop relaunched or prompted a lost or stopped agent.
+    """
+    ALTER TABLE automation_runs ADD COLUMN restarts INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 
