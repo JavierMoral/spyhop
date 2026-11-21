@@ -407,6 +407,8 @@ class AgentSupervisor:
                 else phases.index("implement")
             )
 
+            self._runs.consume(run.id, "approve")
+
             await self._enter(run, worktree, workflow, after, session)
         elif signal is Signal.STOPPED and not await self._prompt_stopped(run, session):
             await self._wait(
@@ -482,7 +484,7 @@ class AgentSupervisor:
 
         changes = run.plan_changes or ""
 
-        self._runs.request_plan_changes(run.id, None)
+        self._runs.consume(run.id, "replan")
 
         if run.waiting_reason is not WaitingReason.PLAN_REVIEW:
             _log.warning("%s: plan changes ignored: no plan waits for a review", run.issue_key)

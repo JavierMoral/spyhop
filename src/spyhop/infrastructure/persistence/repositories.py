@@ -17,6 +17,7 @@ from spyhop.domain.models import (
     JiraIssue,
     OrcaWorktree,
     Phase,
+    RunEvent,
     Worktree,
     validate_pipeline,
 )
@@ -70,12 +71,12 @@ class RunRepository:
         except sqlite3.IntegrityError:
             return None
 
+        self._event(run_id, "created", f"{entry.to_status} ({entry.workflow.name})")
+
         return self.get(run_id)
 
     def get(self, run_id: str) -> AutomationRun | None:
-        row = self._connection.execute(
-            "SELECT * FROM automation_runs WHERE id = ?", (run_id,)
-        ).fetchone()
+        row = self._connection.execute("SELECT * FROM run_view WHERE id = ?", (run_id,)).fetchone()
 
         return _to_run(row) if row else None
 
@@ -90,7 +91,7 @@ class RunRepository:
     def list(
         self, issue_key: str | None = None, include_terminal: bool = False
     ) -> list[AutomationRun]:
-        query = "SELECT * FROM automation_runs"
+        query = "SELECT * FROM run_view"
         conditions = []
         parameters: list[str] = []
 
@@ -114,7 +115,7 @@ class RunRepository:
 
         placeholders = ", ".join("?" for _ in statuses)
         rows = self._connection.execute(
-            f"SELECT * FROM automation_runs WHERE status IN ({placeholders}) "
+            f"SELECT * FROM run_view WHERE status IN ({placeholders}) "
             "ORDER BY triggered_at, created_at",
             statuses,
         )
@@ -135,6 +136,11 @@ class RunRepository:
     def note_wait(self, run_id: str, reason: WaitingReason, message: str) -> None:
         """Records why a pending run does not advance, without changing its
         status: it resumes by itself once the reason is gone."""
+
+        run = self.get(run_id)
+
+        if run is not None and run.waiting_reason is not reason:
+            self._event(run_id, "status", f"{run.status} {reason}: {message}")
 
         self._connection.execute(
             "UPDATE automation_runs SET waiting_reason = ?, error_message = ? WHERE id = ?",
@@ -211,6 +217,8 @@ class RunRepository:
         except sqlite3.IntegrityError:
             return None
 
+        self._event(run_id, "created", f"retry of {original.id[:8]}")
+
         return self.get(run_id)
 
     def find(self, target: str) -> builtins.list[AutomationRun]:
@@ -218,14 +226,13 @@ class RunRepository:
         key."""
 
         rows = self._connection.execute(
-            "SELECT * FROM automation_runs WHERE id LIKE ? ORDER BY created_at DESC",
+            "SELECT * FROM run_view WHERE id LIKE ? ORDER BY created_at DESC",
             (f"{target.lower()}%",),
         ).fetchall()
 
         if not rows:
             rows = self._connection.execute(
-                "SELECT * FROM automation_runs WHERE issue_key = ? "
-                "ORDER BY created_at DESC LIMIT 1",
+                "SELECT * FROM run_view WHERE issue_key = ? ORDER BY created_at DESC LIMIT 1",
                 (target.upper(),),
             ).fetchall()
 
@@ -237,6 +244,11 @@ class RunRepository:
             (phase, run_id),
         )
 
+        run = self.get(run_id)
+        phases = run.pipeline if run and run.pipeline else ()
+
+        self._event(run_id, "phase", _phase_name(phases[phase]) if phase < len(phases) else "end")
+
     def mark_fix_requested(self, run_id: str) -> None:
         """Back to RUNNING while the agent fixes the findings."""
 
@@ -244,6 +256,7 @@ class RunRepository:
             "UPDATE automation_runs SET fix_requested_at = ? WHERE id = ?",
             (_to_text(utc_now()), run_id),
         )
+        self._event(run_id, "fix", "the agent fixes the findings of the checkpoints")
         self.mark_resumed(run_id)
 
     def clear_fix_request(self, run_id: str) -> None:
@@ -252,34 +265,26 @@ class RunRepository:
         )
 
     def request_checks(self, run_id: str, failed_only: bool = False) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET checks_requested_at = ?, checks_failed_only = ? "
-            "WHERE id = ?",
-            (_to_text(utc_now()), failed_only, run_id),
-        )
+        """Asks for a new round of the checks phase. The next round of the run
+        consumes the request."""
+
+        self._command(run_id, "checks", "failed" if failed_only else "all")
 
     def add_notice(self, run_id: str, text: str) -> None:
-        row = self._connection.execute(
-            "SELECT notices FROM automation_runs WHERE id = ?", (run_id,)
-        ).fetchone()
-        notices = [*json.loads(row["notices"] or "[]"), text] if row else [text]
-
-        self._connection.execute(
-            "UPDATE automation_runs SET notices = ? WHERE id = ?", (json.dumps(notices), run_id)
-        )
+        self._command(run_id, "notice", text)
 
     def take_notices(self, run_id: str) -> builtins.list[str]:
-        """The notices of the run, oldest first. They are removed."""
+        """The notices of the run, oldest first. They are consumed."""
 
-        row = self._connection.execute(
-            "SELECT notices FROM automation_runs WHERE id = ?", (run_id,)
-        ).fetchone()
+        rows = self._connection.execute(
+            "SELECT payload FROM run_commands "
+            "WHERE run_id = ? AND kind = 'notice' AND consumed_at IS NULL ORDER BY id",
+            (run_id,),
+        ).fetchall()
 
-        self._connection.execute(
-            "UPDATE automation_runs SET notices = NULL WHERE id = ?", (run_id,)
-        )
+        self.consume(run_id, "notice")
 
-        return list(json.loads(row["notices"])) if row and row["notices"] else []
+        return [row["payload"] for row in rows]
 
     def declare(self, run_id: str, what: str) -> None:
         """The agent declares that the plan is ready (``plan``) or that the
@@ -289,12 +294,13 @@ class RunRepository:
             "UPDATE automation_runs SET declared = ?, declared_at = ? WHERE id = ?",
             (what, _to_text(utc_now()), run_id),
         )
+        self._event(run_id, "declared", what)
 
     def approve(self, run_id: str) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET approved_at = ? WHERE id = ?",
-            (_to_text(utc_now()), run_id),
-        )
+        """A person approves the plan. The supervisor consumes the request when
+        it starts the next phase."""
+
+        self._command(run_id, "approve")
 
     def set_pipeline(self, run_id: str, phases: tuple[Phase, ...]) -> None:
         """Keeps the pipeline of the run, so that a change of the configuration
@@ -305,10 +311,40 @@ class RunRepository:
             (json.dumps([_phase_to_json(phase) for phase in phases]), run_id),
         )
 
-    def request_plan_changes(self, run_id: str, changes: str | None) -> None:
+    def request_plan_changes(self, run_id: str, changes: str) -> None:
+        """A new plan agent makes the changes. The supervisor consumes the
+        request when it starts that agent."""
+
+        self._command(run_id, "replan", changes)
+
+    def consume(self, run_id: str, kind: str) -> None:
+        """Marks the pending requests of this kind as done."""
+
         self._connection.execute(
-            "UPDATE automation_runs SET plan_changes = ? WHERE id = ?", (changes, run_id)
+            "UPDATE run_commands SET consumed_at = ? "
+            "WHERE run_id = ? AND kind = ? AND consumed_at IS NULL",
+            (_to_text(utc_now()), run_id, kind),
         )
+
+    def events(self, run_id: str) -> builtins.list[RunEvent]:
+        """What happened to the run, oldest first."""
+
+        return [
+            RunEvent(datetime.fromisoformat(row["at"]), row["kind"], row["detail"])
+            for row in self._connection.execute(
+                "SELECT at, kind, detail FROM run_events WHERE run_id = ? ORDER BY id", (run_id,)
+            )
+        ]
+
+    def _command(self, run_id: str, kind: str, payload: str | None = None) -> None:
+        self._connection.execute(
+            "INSERT INTO run_commands (run_id, kind, payload, created_at) VALUES (?, ?, ?, ?)",
+            (run_id, kind, payload, _to_text(utc_now())),
+        )
+        self._event(run_id, "request", f"{kind}: {payload}" if payload else kind)
+
+    def _event(self, run_id: str, kind: str, detail: str | None = None) -> None:
+        _record_event(self._connection, run_id, kind, detail)
 
     def note_missing(self, run_id: str) -> AutomationRun:
         """Counts one more cycle without the agent of the run."""
@@ -350,6 +386,7 @@ class RunRepository:
         self._connection.execute(
             "UPDATE automation_runs SET restarts = restarts + 1 WHERE id = ?", (run_id,)
         )
+        self._event(run_id, "restart", "the agent starts again")
 
     def mark_failed(self, run_id: str, error_message: str) -> None:
         self._update(
@@ -361,6 +398,18 @@ class RunRepository:
         )
 
     def _update(self, run_id: str, status: RunStatus, **columns: str | None) -> None:
+        run = self.get(run_id)
+        reason = columns.get("waiting_reason")
+
+        if run is None or run.status is not status or run.waiting_reason != reason:
+            message = columns.get("error_message")
+
+            self._event(
+                run_id,
+                "status",
+                f"{status}{f' {reason}' if reason else ''}{f': {message}' if message else ''}",
+            )
+
         columns["status_changed_at"] = _to_text(utc_now())
         assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
 
@@ -493,6 +542,7 @@ class CheckpointRunRepository:
 
         checkpoint_run_id = str(uuid.uuid4())
         output_file = results_dir / f"{checkpoint_run_id}.json"
+        new_round = round_number > self.last_round(run_id, phase)
 
         self._connection.execute(
             """
@@ -514,6 +564,16 @@ class CheckpointRunRepository:
                 _to_text(utc_now()),
             ),
         )
+
+        # A new round consumes the requests for a round of the run. A later
+        # stage of the same round does not.
+
+        if new_round:
+            self._connection.execute(
+                "UPDATE run_commands SET consumed_at = ? "
+                "WHERE run_id = ? AND kind = 'checks' AND consumed_at IS NULL",
+                (_to_text(utc_now()), run_id),
+            )
 
         checkpoint_run = self.get(checkpoint_run_id)
 
@@ -581,6 +641,16 @@ class CheckpointRunRepository:
             "WHERE id = ?",
             (verdict, detail, _to_text(utc_now()), checkpoint_run_id),
         )
+
+        row = self.get(checkpoint_run_id)
+
+        if row is not None:
+            _record_event(
+                self._connection,
+                row.run_id,
+                "checkpoint",
+                f"{row.name} round {row.round}: {verdict}",
+            )
 
 
 class SessionRepository:
@@ -766,6 +836,19 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         plan_agent_closed_told=bool(row["plan_agent_closed_told"]),
         alert_pending=bool(row["alert_pending"]),
     )
+
+
+def _record_event(
+    connection: sqlite3.Connection, run_id: str, kind: str, detail: str | None
+) -> None:
+    connection.execute(
+        "INSERT INTO run_events (run_id, at, kind, detail) VALUES (?, ?, ?, ?)",
+        (run_id, _to_text(utc_now()), kind, detail),
+    )
+
+
+def _phase_name(phase: Phase) -> str:
+    return phase if isinstance(phase, str) else f"checks ({', '.join(phase.checkpoints)})"
 
 
 def _phase_to_json(phase: Phase) -> object:

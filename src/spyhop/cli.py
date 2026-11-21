@@ -125,6 +125,9 @@ def status(
     issue_key: Annotated[str | None, typer.Argument(help="Only this ticket")] = None,
     config: ConfigOption = None,
     show_all: Annotated[bool, typer.Option("--all", help="Include finished runs")] = False,
+    timeline: Annotated[
+        bool, typer.Option("--timeline", help="Show what happened to each run, in order")
+    ] = False,
     dry_run: Annotated[
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
     ] = None,
@@ -143,7 +146,8 @@ def status(
     connection = connect(database)
     poller_state = PollerStateRepository(connection)
     sessions = SessionRepository(connection)
-    runs = RunRepository(connection).list(issue_key=issue_key, include_terminal=show_all)
+    run_repository = RunRepository(connection)
+    runs = run_repository.list(issue_key=issue_key, include_terminal=show_all)
 
     typer.echo(f"Database:       {database}{' (dry run)' if use_dry_run else ''}")
     typer.echo(f"Last good poll: {_format(poller_state.last_success_at())}")
@@ -185,6 +189,13 @@ def status(
                 f"{session.agent_handle or '-'} {session.status}"
             )
 
+        if timeline:
+            for event in run_repository.events(automation_run.id):
+                typer.echo(
+                    f"{'':<24}{_format(event.at)}  {event.kind}"
+                    f"{f': {event.detail}' if event.detail else ''}"
+                )
+
 
 @app.command()
 def stats(
@@ -208,14 +219,17 @@ def stats(
     ]
     sessions = SessionRepository(connection)
     checkpoint_runs = CheckpointRunRepository(connection)
+    run_repository = RunRepository(connection)
     result = run_stats(
         runs,
         [session for run in runs for session in sessions.list_for_run(run.id)],
         [row for run in runs for row in checkpoint_runs.list_for_run(run.id)],
+        {run.id: run_repository.events(run.id) for run in runs},
     )
     statuses = ", ".join(f"{status} {count}" for status, count in result.runs_by_status.items())
 
     typer.echo(f"Runs of the last {days} days: {len(runs)}{f' ({statuses})' if statuses else ''}")
+    typer.echo(f"Median time to the plan: {_duration(result.median_plan_seconds)}")
     typer.echo(f"Median time to complete: {_duration(result.median_completed_seconds)}")
     typer.echo(f"Restarts of agents: {result.restarts}")
 

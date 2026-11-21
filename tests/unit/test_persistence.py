@@ -137,3 +137,32 @@ def test_the_pipeline_of_a_run_is_stored_and_a_broken_one_is_ignored(tmp_path: P
         run = runs.get("r1")
 
         assert run is not None and run.pipeline is None, broken
+
+
+def test_the_requests_in_columns_move_to_run_commands(tmp_path: Path) -> None:
+    database = tmp_path / "spyhop.db"
+    legacy = sqlite3.connect(database, isolation_level=None)
+
+    for index, script in enumerate(_MIGRATIONS[:15], start=1):
+        legacy.executescript(f"BEGIN; {script}; PRAGMA user_version = {index}; COMMIT;")
+
+    legacy.execute(
+        "INSERT INTO automation_runs (id, issue_key, workflow_name, trigger_status, "
+        "trigger_history_id, triggered_at, status, created_at, approved_at, plan_changes, "
+        "checks_requested_at, checks_failed_only, notices) "
+        "VALUES ('r1', 'LPD-1', 'bug_fix', 'In Progress', '7', '2026-11-01', "
+        "'WAITING_FOR_HUMAN', '2026-11-01', '2026-11-02T10:00:00+00:00', 'Add a test', "
+        "'2026-11-03T10:00:00+00:00', 1, '[\"first\", \"second\"]')"
+    )
+    legacy.close()
+
+    runs = RunRepository(connect(database))
+    run = runs.get("r1")
+
+    assert run is not None
+    assert run.approved_at is not None and run.approved_at.day == 2
+    assert run.plan_changes == "Add a test"
+    assert run.checks_requested_at is not None and run.checks_requested_at.day == 3
+    assert run.checks_failed_only
+    assert runs.take_notices("r1") == ["first", "second"]
+    assert runs.take_notices("r1") == []

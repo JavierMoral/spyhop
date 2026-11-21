@@ -90,6 +90,15 @@ def answer(
     )
 
 
+def pending_commands(harness: Harness, run: AutomationRun) -> list[str]:
+    return [
+        row["kind"]
+        for row in harness.connection.execute(
+            "SELECT kind FROM run_commands WHERE run_id = ? AND consumed_at IS NULL", (run.id,)
+        )
+    ]
+
+
 def written(path: Path, text: str, ahead: float = 0) -> None:
     """Writes the file with the exact current time, plus ``ahead`` seconds, as
     its mtime. Linux sets mtime from a coarse clock, which can be a few
@@ -182,9 +191,13 @@ async def test_rerun_on_request_without_a_change_of_inputs(tmp_path: Path) -> No
     answer(harness, run, "ticket-info", "FAIL", HIGH)
     await harness.supervisor.supervise()
     harness.runs.request_checks(run.id)
+
+    assert pending_commands(harness, run) == ["checks"]
+
     await harness.supervisor.supervise()
 
     assert harness.checkpoint_runs.last_round(run.id, 0) == 2
+    assert pending_commands(harness, run) == []
 
 
 async def test_rerun_of_the_failed_checkpoints_keeps_each_pass_with_the_same_inputs(
@@ -653,6 +666,8 @@ async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path:
 
     replanned = harness.run(run.id)
     new_session = harness.sessions.find_launched(run.id)
+
+    assert pending_commands(harness, run) == []
 
     assert len(harness.orca.launches) == 2
     assert "cambia CLAUDE-PLAN.md con estos cambios" in harness.orca.launches[1]["prompt"]

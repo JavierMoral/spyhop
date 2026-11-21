@@ -756,3 +756,17 @@ def test_declare_and_approve_are_stored_without_orca(
     assert current.declared == "plan" and current.declared_at is not None
     assert current.approved_at is not None
     assert woken == [True, True]
+
+
+def test_status_timeline_shows_what_happened_to_the_run(
+    config_file: Path, run_worktree: Path
+) -> None:
+    CliRunner().invoke(app, ["declare", "LPD-1", "plan", "--config", str(config_file)])
+
+    result = CliRunner().invoke(
+        app, ["status", "LPD-1", "--timeline", "--config", str(config_file)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "created: In Progress (bug_fix)" in result.output
+    assert result.output.index("created:") < result.output.index("declared: plan")

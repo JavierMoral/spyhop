@@ -221,6 +221,16 @@ class AutomationRun:
 
 
 @dataclass(frozen=True)
+class RunEvent:
+    """Something that happened to a run: a status, a phase, a request, a
+    declaration, a restart or a checkpoint verdict."""
+
+    at: datetime
+    kind: str
+    detail: str | None
+
+
+@dataclass(frozen=True)
 class TicketRef:
     key: str
     issue_type: str

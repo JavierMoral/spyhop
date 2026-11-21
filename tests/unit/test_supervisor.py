@@ -670,6 +670,34 @@ async def test_an_approval_from_before_the_review_does_not_approve_the_plan(
     assert len(harness.orca.launches) == 2
 
 
+async def test_the_steps_of_a_run_are_events_and_the_approval_is_consumed(
+    harness: Harness,
+) -> None:
+    run, worktree, pane = await launched(harness)
+
+    (worktree.path / "CLAUDE-PLAN.md").write_text("plan")
+    harness.runs.declare(run.id, "plan")
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
+    await harness.supervisor.supervise()
+    harness.runs.approve(run.id)
+    await harness.supervisor.supervise()
+
+    events = [(event.kind, event.detail) for event in harness.runs.events(run.id)]
+    pending = harness.connection.execute(
+        "SELECT kind FROM run_commands WHERE consumed_at IS NULL"
+    ).fetchall()
+
+    assert events[0] == ("created", "In Progress (bug_fix)")
+    assert ("declared", "plan") in events
+    assert (
+        "status",
+        f"WAITING_FOR_HUMAN plan_review: review {worktree.path / 'CLAUDE-PLAN.md'}",
+    ) in events
+    assert ("request", "approve") in events
+    assert events[-1] == ("status", "RUNNING")
+    assert pending == []
+
+
 async def test_a_run_from_before_declarations_reads_the_card(harness: Harness) -> None:
     run, worktree, pane = await launched(harness)
 

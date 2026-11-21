@@ -5,7 +5,7 @@ from pathlib import Path
 
 from spyhop.application.stats import checkpoint_cost, run_stats
 from spyhop.domain.enums import RunStatus, SessionStatus
-from spyhop.domain.models import AgentSession, CheckpointRun
+from spyhop.domain.models import AgentSession, CheckpointRun, RunEvent
 from tests.unit.test_supervisor import NOW, run_in
 
 
@@ -60,10 +60,18 @@ def test_stats_count_runs_agents_and_checkpoints() -> None:
             checkpoint_run("security", "FAIL", 4),
             checkpoint_run("security", "PASS", 0, "kept from round 1"),
         ],
+        {
+            completed.id: [
+                RunEvent(NOW + timedelta(minutes=5), "status", "RUNNING"),
+                RunEvent(NOW + timedelta(minutes=40), "status", "WAITING_FOR_HUMAN plan_review"),
+                RunEvent(NOW + timedelta(minutes=90), "status", "WAITING_FOR_HUMAN plan_review"),
+            ]
+        },
         lambda row: 0.5,
     )
 
     assert stats.runs_by_status == {"COMPLETED": 1, "FAILED": 1}
+    assert stats.median_plan_seconds == 40 * 60
     assert stats.median_completed_seconds == 7200
     assert stats.restarts == 1
     assert [(agent.role, agent.count, agent.mean_seconds) for agent in stats.agents] == [

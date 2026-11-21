@@ -212,6 +212,74 @@ _MIGRATIONS = [
 
     ALTER TABLE automation_runs ADD COLUMN alert_pending INTEGER NOT NULL DEFAULT 0;
     """,
+    # Requests to the daemon go to run_commands, not to columns of the run:
+    # approve, replan (payload: the changes), checks (payload: all or failed)
+    # and notice (payload: the text). run_view gives the run with the values
+    # that the code reads. run_events records what happened to each run.
+    """
+    CREATE TABLE run_commands (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL REFERENCES automation_runs(id),
+        kind TEXT NOT NULL,
+        payload TEXT,
+        created_at TEXT NOT NULL,
+        consumed_at TEXT
+    );
+
+    CREATE INDEX run_commands_by_run ON run_commands(run_id, kind);
+
+    CREATE TABLE run_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL REFERENCES automation_runs(id),
+        at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        detail TEXT
+    );
+
+    CREATE INDEX run_events_by_run ON run_events(run_id, id);
+
+    INSERT INTO run_commands (run_id, kind, created_at)
+    SELECT id, 'approve', approved_at
+    FROM automation_runs WHERE approved_at IS NOT NULL;
+
+    INSERT INTO run_commands (run_id, kind, payload, created_at)
+    SELECT id, 'replan', plan_changes, COALESCE(status_changed_at, created_at)
+    FROM automation_runs WHERE plan_changes IS NOT NULL;
+
+    INSERT INTO run_commands (run_id, kind, payload, created_at)
+    SELECT id, 'checks', CASE WHEN checks_failed_only THEN 'failed' ELSE 'all' END,
+        checks_requested_at
+    FROM automation_runs WHERE checks_requested_at IS NOT NULL;
+
+    INSERT INTO run_commands (run_id, kind, payload, created_at)
+    SELECT runs.id, 'notice', notice.value, COALESCE(runs.status_changed_at, runs.created_at)
+    FROM automation_runs AS runs, json_each(runs.notices) AS notice
+    WHERE runs.notices IS NOT NULL;
+
+    ALTER TABLE automation_runs DROP COLUMN approved_at;
+
+    ALTER TABLE automation_runs DROP COLUMN plan_changes;
+
+    ALTER TABLE automation_runs DROP COLUMN checks_requested_at;
+
+    ALTER TABLE automation_runs DROP COLUMN checks_failed_only;
+
+    ALTER TABLE automation_runs DROP COLUMN notices;
+
+    CREATE VIEW run_view AS
+    SELECT runs.*,
+        (SELECT MAX(created_at) FROM run_commands
+            WHERE run_id = runs.id AND kind = 'approve') AS approved_at,
+        (SELECT payload FROM run_commands
+            WHERE run_id = runs.id AND kind = 'replan' AND consumed_at IS NULL
+            ORDER BY id DESC LIMIT 1) AS plan_changes,
+        (SELECT MAX(created_at) FROM run_commands
+            WHERE run_id = runs.id AND kind = 'checks') AS checks_requested_at,
+        COALESCE((SELECT payload = 'failed' FROM run_commands
+            WHERE run_id = runs.id AND kind = 'checks'
+            ORDER BY id DESC LIMIT 1), 0) AS checks_failed_only
+    FROM automation_runs AS runs;
+    """,
 ]
 
 

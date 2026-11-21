@@ -34,7 +34,7 @@ give the commit.
    `resolve_for_run` uses it. For a run from before, the supervisor stores
    the pipeline of the configuration the first time that it sees the run.
 
-3. [ ] **Use a commands table, not flag columns.** `fix_requested_at`,
+3. [x] **Use a commands table, not flag columns.** `fix_requested_at`,
    `plan_changes`, `checks_requested`, `checks_failed_only`, `approved_at` and
    the notices queue are requests to the daemon in columns of
    `automation_runs`. Add a table
@@ -42,6 +42,13 @@ give the commit.
    the supervisor session and the hooks write to it, and the daemon consumes
    it. The table also gives an audit trail for `status` and `stats`. Do this
    item together with item 6.
+
+   Done in the branch `run-commands-and-events` (migration 16). The
+   requests `approve`, `replan`, `checks` and `notice` are rows of
+   `run_commands`, and the view `run_view` gives the run with the same fields
+   as before. The supervisor consumes `approve` and `replan`, and a new round
+   of checkpoints consumes `checks`. `fix_requested_at` stays a column: it is
+   the state of the daemon, not a request.
 
 4. [x] **Split `OrcaGateway` by responsibility.** Split its 15 methods into
    three protocols:
@@ -105,7 +112,11 @@ give the commit.
    `infrastructure/process/units.py`. Make sure that Claude Code still writes
    its own state in `~/.claude`.
 
-10. [ ] **Record run events.** Write the phase changes, waits, restarts and
+10. [x] **Record run events.** Write the phase changes, waits, restarts and
     checkpoint results to a `run_events` table. Then `stats` and a new
     `status --timeline` read them with one query: time to the plan, rounds of
     checks, and restarts. This item uses the table of item 3.
+
+    Done in the branch `run-commands-and-events`. `RunRepository` writes the
+    events itself, so the callers did not change. `spyhop status --timeline`
+    shows them, and `spyhop stats` gives the median time to the plan.
