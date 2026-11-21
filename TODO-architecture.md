@@ -156,9 +156,10 @@ give the commit.
     request). Add `with repository.transaction():` (`BEGIN IMMEDIATE`) and
     use it for these operations.
 
-    Done: `transaction(connection)` in `database.py`. Each write of the
-    repositories with more than one statement uses it, also the writes of a
-    row and its event. A block in an open transaction is part of it.
+    Done: `transaction(connection)` in `database.py`. The repository
+    methods with more than one write, or with a read that decides a write,
+    use it, also `note_missing`. A block in an open transaction is part of
+    it. The methods that insert a row and then read it by its new id do not.
 
 13. [ ] **Remove the name of Orca from the domain.** The protocols are
     neutral, but `orca_worktree_id` (40 uses) and the exceptions

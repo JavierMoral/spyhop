@@ -395,17 +395,18 @@ class RunRepository:
     def note_missing(self, run_id: str) -> AutomationRun:
         """Counts one more cycle without the agent of the run."""
 
-        self._connection.execute(
-            """
-            UPDATE automation_runs
-            SET missing_cycles = missing_cycles + 1,
-                missing_since = COALESCE(missing_since, ?)
-            WHERE id = ?
-            """,
-            (_to_text(utc_now()), run_id),
-        )
+        with transaction(self._connection):
+            self._connection.execute(
+                """
+                UPDATE automation_runs
+                SET missing_cycles = missing_cycles + 1,
+                    missing_since = COALESCE(missing_since, ?)
+                WHERE id = ?
+                """,
+                (_to_text(utc_now()), run_id),
+            )
 
-        run = self.get(run_id)
+            run = self.get(run_id)
 
         assert run is not None
 
