@@ -381,7 +381,7 @@ class CheckRunner:
 
         if row.output_file.is_file():
             result = self._after_exclusive(
-                row, worktree, _validate(_read_output(row.output_file), row.head)
+                row, worktree, _validate(read_output(row.output_file), row.head)
             )
 
             await self._record(row, run, worktree, workflow, result)
@@ -547,7 +547,7 @@ def _still_runs(output_file: Path) -> bool:
     return False
 
 
-def _read_output(output_file: Path) -> dict[str, Any] | None:
+def read_output(output_file: Path) -> dict[str, Any] | None:
     try:
         payload = json.loads(output_file.read_text())
     except (OSError, ValueError):

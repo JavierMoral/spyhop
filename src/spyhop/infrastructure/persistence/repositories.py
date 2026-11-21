@@ -451,6 +451,13 @@ class CheckpointRunRepository:
 
         return [_to_checkpoint_run(row) for row in rows]
 
+    def list_for_run(self, run_id: str) -> list[CheckpointRun]:
+        rows = self._connection.execute(
+            "SELECT * FROM checkpoint_runs WHERE run_id = ? ORDER BY rowid", (run_id,)
+        )
+
+        return [_to_checkpoint_run(row) for row in rows]
+
     def latest(self, run_id: str, phase: int | None = None) -> dict[str, CheckpointRun]:
         """The last finished run of each checkpoint of the run, or of one phase
         of the run."""

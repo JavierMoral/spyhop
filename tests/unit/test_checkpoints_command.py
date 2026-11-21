@@ -703,3 +703,11 @@ def test_ticket_shows_all_the_fields_of_the_issue(
     assert result.output == "# LPD-1: Broken page\n\n## Affects versions\n\nMaster\n"
     assert route.calls.last.request.url.params["fields"] == "*all"
     assert route.calls.last.request.url.params["expand"] == "names"
+
+
+def test_stats_show_the_runs_of_the_last_days(config_file: Path, run_worktree: Path) -> None:
+    result = CliRunner().invoke(app, ["stats", "--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert "Runs of the last 30 days: 1 (READY 1)" in result.output
+    assert "Median time to complete: -" in result.output

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import subprocess
+from datetime import timedelta
 from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Any
@@ -21,6 +22,7 @@ from spyhop.application.checkpoint_verdicts import (
     run_reason,
 )
 from spyhop.application.janitor import Cleanup, WorktreeRemover
+from spyhop.application.stats import run_stats
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.credentials import (
     credentials_from_environment,
@@ -45,10 +47,12 @@ from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.jira.mapping import ticket_text
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
+    CheckpointRunRepository,
     PollerStateRepository,
     RunRepository,
     SessionRepository,
     WorktreeRepository,
+    utc_now,
 )
 from spyhop.infrastructure.process.units import SystemdUnits
 from spyhop.infrastructure.service.systemd import (
@@ -169,6 +173,56 @@ def status(
             typer.echo(
                 f"{'':<24}agent: {session.role or '-'} {session.model or '-'} "
                 f"{session.agent_handle or '-'} {session.status}"
+            )
+
+
+@app.command()
+def stats(
+    days: Annotated[int, typer.Option(min=1, help="Only the runs of the last days")] = 30,
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
+    ] = None,
+) -> None:
+    """Show what the runs of the last days took.
+
+    The cost is only the cost of the checkpoints, from their result files.
+    Orca does not give the cost of the plan and implementation agents."""
+
+    connection = connect(_existing_database(config, dry_run))
+    since = utc_now() - timedelta(days=days)
+    runs = [
+        run
+        for run in RunRepository(connection).list(include_terminal=True)
+        if run.created_at >= since
+    ]
+    sessions = SessionRepository(connection)
+    checkpoint_runs = CheckpointRunRepository(connection)
+    result = run_stats(
+        runs,
+        [session for run in runs for session in sessions.list_for_run(run.id)],
+        [row for run in runs for row in checkpoint_runs.list_for_run(run.id)],
+    )
+    statuses = ", ".join(f"{status} {count}" for status, count in result.runs_by_status.items())
+
+    typer.echo(f"Runs of the last {days} days: {len(runs)}{f' ({statuses})' if statuses else ''}")
+    typer.echo(f"Median time to complete: {_duration(result.median_completed_seconds)}")
+    typer.echo(f"Restarts of agents: {result.restarts}")
+
+    if result.agents:
+        typer.echo(f"\n{'AGENT':<14}{'COUNT':>7}{'MEAN TIME':>12}")
+
+        for agent in result.agents:
+            typer.echo(f"{agent.role:<14}{agent.count:>7}{_duration(agent.mean_seconds):>12}")
+
+    if result.checkpoints:
+        typer.echo(f"\n{'CHECKPOINT':<18}{'RUNS':>6}{'PASS':>7}{'MEAN TIME':>12}{'COST':>10}")
+
+        for checkpoint in result.checkpoints:
+            typer.echo(
+                f"{checkpoint.name:<18}{checkpoint.count:>6}"
+                f"{checkpoint.passed / checkpoint.count:>7.0%}"
+                f"{_duration(checkpoint.mean_seconds):>12}{f'${checkpoint.cost_usd:.2f}':>10}"
             )
 
 
@@ -954,6 +1008,15 @@ def _setup_logging(verbose: bool) -> None:
     )
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def _duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+
+    minutes = round(seconds / 60)
+
+    return f"{minutes // 60}h {minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m"
 
 
 def _format(value: object) -> str:
