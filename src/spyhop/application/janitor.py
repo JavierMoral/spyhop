@@ -213,9 +213,15 @@ class WorktreeRemover:
             except UnitError as error:
                 _log.warning("%s: checkpoints not stopped: %s", run.issue_key, error)
 
+        # Only an error of the worktree host says that the worktree is gone or
+        # that it cannot be removed.
+
         try:
             await self._terminal_host.close_terminals(worktree.orca_worktree_id)
+        except OrcaCommandError as error:
+            _log.warning("%s: terminals not closed: %s", worktree.issue_key, error)
 
+        try:
             result = await self._worktree_host.remove_worktree(worktree.orca_worktree_id)
         except OrcaCommandError as error:
             if error.code == "selector_not_found":

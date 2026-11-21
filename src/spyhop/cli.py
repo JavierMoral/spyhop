@@ -349,7 +349,13 @@ def cleanup(
             units=SystemdUnits(),
             repositories=settings.repositories,
         )
-        outcome = asyncio.run(remover.clean_up(worktree, "cleaned up by a person"))
+
+        async def remove() -> Cleanup:
+            await remover.ensure_ready()
+
+            return await remover.clean_up(worktree, "cleaned up by a person")
+
+        outcome = asyncio.run(remove())
     except SpyhopError as error:
         typer.echo(f"{worktree.issue_key}: removal not finished: {error}", err=True)
 

@@ -196,6 +196,20 @@ async def test_clean_up_on_request_removes_the_worktree_of_an_open_ticket(
     assert worktree_status(harness, worktree) is WorktreeStatus.REMOVED
 
 
+async def test_an_error_of_the_terminal_host_does_not_stop_the_removal(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, worktree = await launched(harness)
+
+    async def refused(orca_worktree_id: str) -> int:
+        raise OrcaCommandError("selector_not_found", "no session for the worktree")
+
+    monkeypatch.setattr(harness.orca, "close_terminals", refused)
+
+    assert await harness.remover.clean_up(worktree, "cleaned up by a person") is Cleanup.REMOVED
+    assert harness.orca.removed == [worktree.orca_worktree_id]
+
+
 async def test_reopened_ticket_continues_from_its_kept_branch(harness: Harness) -> None:
     first, worktree = await launched(harness)
 

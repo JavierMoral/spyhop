@@ -72,7 +72,7 @@ from spyhop.domain.models import (
     ResolvedWorkflow,
     Worktree,
 )
-from spyhop.domain.protocols import TerminalHost, WorktreeHost, ensure_ready
+from spyhop.domain.protocols import TerminalHost, WorktreeHost
 from spyhop.infrastructure.agent_state import read_state
 from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
@@ -220,7 +220,10 @@ class AgentSupervisor:
             return
 
         try:
-            await ensure_ready(self._terminal_host, self._worktree_host)
+            # The worktree host is asked only for a missing worktree; an
+            # error there stops only that run.
+
+            await self._terminal_host.ensure_ready()
 
             agents = await self._terminal_host.worktree_agents()
         except OrcaUnavailableError as error:

@@ -83,7 +83,8 @@ class TerminalHost(Protocol):
 class BoardMirror(Protocol):
     """Shows the progress of the runs on a board. Spyhop does not read the
     board: the card of a run from before `spyhop declare` comes from
-    WorktreeHost.show_worktree."""
+    WorktreeHost.show_worktree. A failure of the board is only logged, so the
+    board needs no readiness check."""
 
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...
 
