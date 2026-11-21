@@ -16,19 +16,14 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.context_builder import ContextBuilder, ContextError
+from spyhop.application.launch_errors import NotYet, RunFailed, Waiting
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
-from spyhop.application.worktree_provisioner import (
-    NotYet,
-    RunFailed,
-    Waiting,
-    WorktreeProvisioner,
-)
+from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import AgentSettings, JiraSettings
 from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
@@ -47,8 +42,6 @@ from spyhop.domain.models import (
     Worktree,
 )
 from spyhop.domain.protocols import TerminalHost, TicketGateway, WorktreeHost, ensure_ready
-from spyhop.infrastructure.disk import free_bytes
-from spyhop.infrastructure.git import branch_exists
 from spyhop.infrastructure.jira.mapping import (
     ANCESTOR_FIELDS,
     TICKET_FIELDS,
@@ -60,10 +53,6 @@ from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
     WorktreeRepository,
-)
-from spyhop.infrastructure.worktree_script import (
-    WorktreeRequest,
-    run_worktree_script,
 )
 
 _log = logging.getLogger(__name__)
@@ -100,12 +89,7 @@ class AgentLauncher:
         context: ContextBuilder,
         agents: AgentSettings,
         max_concurrent_agents: int,
-        min_free_disk_gb: float = 0,
-        branch_exists: Callable[[Path, str], bool] = branch_exists,
-        free_bytes: Callable[[Path], int] = free_bytes,
-        worktree_script: Callable[
-            [Path, WorktreeRequest, float], Awaitable[Path]
-        ] = run_worktree_script,
+        provisioner: WorktreeProvisioner,
         supervisor_session: SupervisorSession | None = None,
         notify: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
@@ -122,9 +106,7 @@ class AgentLauncher:
         self._context = context
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
-        self._provisioner = WorktreeProvisioner(
-            worktrees, worktree_host, min_free_disk_gb, branch_exists, free_bytes, worktree_script
-        )
+        self._provisioner = provisioner
         self._starter = AgentStarter(sessions, terminal_host, agents)
 
     async def launch_pending(self) -> list[AutomationRun]:
@@ -201,13 +183,13 @@ class AgentLauncher:
         return False
 
     async def _waiting_for_disk(self, run: AutomationRun) -> bool:
-        """Whether the run waits for disk space for a new worktree. Checked
-        before the ticket is read, so a waiting run costs no JIRA request.
-        The run keeps its pending status: it holds no agent slot and resumes
-        by itself once space is freed, for example when a closed ticket's
-        worktree is removed."""
+        """Whether the run waits for disk space for a new worktree. The
+        launcher checks this before it reads the ticket, so a waiting run
+        costs no JIRA request. The run keeps its pending status: it holds no
+        agent slot and continues by itself when the disk has space again, for
+        example after the janitor removes the worktree of a closed ticket."""
 
-        message = await self._provisioner.disk_shortage(run.issue_key, self._workflow(run))
+        message = await self._provisioner.disk_shortage(run.issue_key, lambda: self._workflow(run))
 
         if message is None:
             return False

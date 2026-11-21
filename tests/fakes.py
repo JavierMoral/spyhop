@@ -18,6 +18,7 @@ from spyhop.application.launcher import AgentLauncher
 from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
+from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import Settings
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
@@ -447,6 +448,13 @@ class Harness:
             if with_supervisor_session
             else None
         )
+        self.provisioner = WorktreeProvisioner(
+            self.worktrees,
+            self.orca,
+            self.config.application.min_free_disk_gb,
+            branch_exists=lambda repository, branch: self._git(branch in self.branches),
+            free_bytes=lambda path: self.free_bytes(path),
+        )
         self.launcher = AgentLauncher(
             runs=self.runs,
             worktrees=self.worktrees,
@@ -459,9 +467,7 @@ class Harness:
             context=self.context,
             agents=self.config.agents,
             max_concurrent_agents=self.config.application.max_concurrent_agents,
-            min_free_disk_gb=self.config.application.min_free_disk_gb,
-            branch_exists=lambda repository, branch: self._git(branch in self.branches),
-            free_bytes=lambda path: self.free_bytes(path),
+            provisioner=self.provisioner,
             supervisor_session=self.supervisor_session,
             notify=self.notify,
         )

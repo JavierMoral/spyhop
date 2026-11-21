@@ -10,6 +10,7 @@ import unicodedata
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from spyhop.application.launch_errors import NotYet, RunFailed, Waiting
 from spyhop.domain.enums import WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import OrcaCommandError
 from spyhop.domain.models import OrcaWorktree, ResolvedWorkflow, TicketDetails, Worktree
@@ -31,22 +32,6 @@ _log = logging.getLogger(__name__)
 MAX_SLUG_LENGTH = 50
 
 
-class RunFailed(Exception):
-    """The run cannot start. The launcher marks it FAILED."""
-
-
-class NotYet(Exception):
-    """The run cannot advance now but may next cycle."""
-
-
-class Waiting(Exception):
-    """Like NotYet, but the reason is recorded on the run for `status`."""
-
-    def __init__(self, reason: WaitingReason, message: str) -> None:
-        super().__init__(message)
-        self.reason = reason
-
-
 class WorktreeProvisioner:
     def __init__(
         self,
@@ -66,20 +51,25 @@ class WorktreeProvisioner:
         self._free_bytes = free_bytes
         self._worktree_script = worktree_script
 
-    async def disk_shortage(self, issue_key: str, workflow: ResolvedWorkflow) -> str | None:
+    async def disk_shortage(
+        self, issue_key: str, workflow: Callable[[], ResolvedWorkflow]
+    ) -> str | None:
         """Why a new worktree of the ticket does not fit on the disk, or None.
         The disk that would hold the worktree must have min_free_disk_gb
-        free. A ticket that has a worktree needs no space."""
+        free. A ticket that has a worktree needs no space. The method
+        resolves the workflow only when it must check the disk."""
 
         if self._min_free_bytes <= 0 or self._worktrees.find_current(issue_key):
             return None
 
+        repository_path = workflow().repository_path
+
         try:
-            location = await self._worktree_host.worktree_base_path(workflow.repository_path)
+            location = await self._worktree_host.worktree_base_path(repository_path)
         except OrcaCommandError:
             location = None
 
-        location = location or workflow.repository_path
+        location = location or repository_path
         free = self._free_bytes(location)
 
         if free >= self._min_free_bytes:

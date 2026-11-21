@@ -323,7 +323,7 @@ def scripted(tmp_path: Path) -> tuple[Harness, FakeWorktreeScript]:
     )
     harness = Harness(tmp_path, config)
     worktree_script = FakeWorktreeScript(tmp_path)
-    harness.launcher._provisioner._worktree_script = worktree_script
+    harness.provisioner._worktree_script = worktree_script
 
     return harness, worktree_script
 

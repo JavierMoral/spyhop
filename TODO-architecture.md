@@ -188,8 +188,9 @@ give the commit.
     starts the agent.
 
     Done: `application/worktree_provisioner.py`. `disk_shortage` gives the
-    reason of a wait for disk space, and the launcher records the wait. The
-    exceptions `RunFailed`, `NotYet` and `Waiting` moved with it.
+    reason of a wait for disk space, and the launcher records the wait.
+    The daemon gives the provisioner to the launcher. The exceptions
+    `RunFailed`, `NotYet` and `Waiting` are in `launch_errors.py`.
 
 16. [x] **Move the checkpoint reports out of `CheckRunner` (695 lines).**
     `_validate`, `_contract_problem`, `_append_report` and

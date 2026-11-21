@@ -21,6 +21,7 @@ from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.transition_detector import TransitionDetector
 from spyhop.application.workflow_resolver import WorkflowResolver
+from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.credentials import credentials_from_environment
 from spyhop.config.paths import (
     claude_agents_dir,
@@ -253,7 +254,7 @@ def _agents(
         context=context,
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,
-        min_free_disk_gb=settings.application.min_free_disk_gb,
+        provisioner=WorktreeProvisioner(worktrees, orca, settings.application.min_free_disk_gb),
         notify=notify,
         supervisor_session=supervisor_session,
     )
