@@ -254,7 +254,7 @@ R4. [ ] **Checks before the plan.** The plan agent reads their reports.
 - [ ] The three files repeat the input and output contract. If it changes,
   change all of them.
 
-- [ ] `--failed`: run again only the failed or stale checkpoints.
+- [x] `--failed`: run again only the failed or stale checkpoints.
 - [ ] A progress comment on the Orca card for each checkpoint.
 - [ ] A clear message when `plan` runs outside a worktree and the database does
   not exist. Now the message is "No database yet", without the `--workflow`
