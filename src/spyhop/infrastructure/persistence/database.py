@@ -177,6 +177,10 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs ADD COLUMN notices TEXT;
     """,
+    # No code reads the request id of the implementation /goal any more.
+    """
+    ALTER TABLE automation_runs DROP COLUMN implement_request_id;
+    """,
 ]
 
 
