@@ -647,6 +647,7 @@ async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path:
     harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
     await harness.supervisor.supervise()
     harness.orca.agents.clear()
+    harness.runs.set_plan_agent_closed_told(run.id, True)
     harness.runs.request_plan_changes(run.id, "Add a test\nfor the empty list.")
     await harness.supervisor.supervise()
 
@@ -658,6 +659,8 @@ async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path:
     assert "Add a test for the empty list." in harness.orca.launches[1]["prompt"]
     assert replanned.status is RunStatus.RUNNING
     assert replanned.plan_changes is None
+    # The close of the new plan agent is news to the person again.
+    assert not replanned.plan_agent_closed_told
     assert new_session is not None and new_session.pane_key is not None
     assert new_session.role == "plan"
 

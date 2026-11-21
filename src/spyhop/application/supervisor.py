@@ -673,10 +673,14 @@ class AgentSupervisor:
         self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_resumed(run.id)
 
-        # A new agent: the cycles without the agent before it do not count.
+        # A new agent: the cycles without the agent before it do not count,
+        # and its own close is news to the person.
 
         if run.missing_cycles:
             self._runs.clear_missing(run.id)
+
+        if run.plan_agent_closed_told:
+            self._runs.set_plan_agent_closed_told(run.id, False)
         await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
 
         _log.info(
@@ -807,8 +811,7 @@ class AgentSupervisor:
 
         delivered = await self._supervisor_session.alert(worktree, f"{reason}: {message}")
 
-        if delivered == run.alert_pending:
-            self._runs.set_alert_pending(run.id, not delivered)
+        self._runs.set_alert_pending(run.id, not delivered)
 
     async def _tell(self, run: AutomationRun, text: str) -> None:
         worktree = self._session_worktree(run)
