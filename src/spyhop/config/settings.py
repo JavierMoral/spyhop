@@ -45,7 +45,6 @@ class ApplicationSettings(BaseModel):
     # free space than this. 0 disables the check.
     min_free_disk_gb: float = Field(default=20, ge=0)
     dry_run: bool = True
-    timezone: str | None = None
 
 
 class JiraSettings(BaseModel):
@@ -148,7 +147,6 @@ class AgentSettings(BaseModel):
     plan_model: str = "opus"
     model: str = "sonnet"
     effort: str = "high"
-    max_retries: int = Field(default=0, ge=0)
     # A command, usually a slash command, the agent runs over its commits once
     # the implementation is done, before writing CLAUDE-RESULT.md.
     review_command: str | None = None

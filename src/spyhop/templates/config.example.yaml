@@ -10,7 +10,6 @@ application:
   max_concurrent_agents: 1
   min_free_disk_gb: 20            # no new worktrees below this free space; 0 disables
   dry_run: true                   # only log what would be done
-  # timezone: Europe/Madrid       # defaults to the system time zone
 
 jira:
   base_url: https://your-site.atlassian.net
@@ -89,7 +88,6 @@ agents:
   plan_model: opus                # writes CLAUDE-PLAN.md when plan_review is true
   model: sonnet                   # implements; a new agent after the plan is approved
   effort: high
-  max_retries: 0
   # review_command: /code-review-loop --rounds 2  # run over the commits before CLAUDE-RESULT.md
 
 cleanup:                          # remove worktrees of closed tickets (never forced)
