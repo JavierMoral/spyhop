@@ -1,0 +1,88 @@
+# Architecture: pending improvements
+
+These items come from a review of the daemon, the supervisor, the repositories
+and the Orca client. Do them one at a time. Mark each item when it is done, and
+give the commit.
+
+## Keep as it is
+
+- One synchronous SQLite connection in the asyncio loop. It is not a
+  bottleneck at this scale.
+- The JIRA polling. A webhook needs a public endpoint, and the watermark covers
+  the time when Spyhop is stopped.
+- The checkpoints in systemd units, outside the service.
+
+## Pending, in this order
+
+1. [x] **Wake the daemon on local commands.** Today, `approve`, `declare`,
+   `replan`, `tell`, `checkpoints rerun` and the hooks wait for the next poll,
+   which can be `polling_interval` seconds later. Add a wake event to the
+   daemon loop with `loop.add_signal_handler(SIGUSR1, wake.set)`. Let the
+   commands send `systemctl --user kill -s USR1 spyhop`. A failure of the
+   signal is not an error. JIRA stays on the poll interval.
+
+2. [ ] **Store the pipeline of the run, not only an index.** `run.phase` is an
+   index into the pipeline of the current configuration, and
+   `WorkflowResolver.resolve_for_run` reads that pipeline again on each cycle.
+   A change of the pipeline while a run is active changes the meaning of the
+   index. Store a copy of the resolved pipeline (JSON) when Spyhop creates the
+   run, or store the phase name.
+
+3. [ ] **Use a commands table, not flag columns.** `fix_requested_at`,
+   `plan_changes`, `checks_requested`, `checks_failed_only`, `approved_at` and
+   the notices queue are requests to the daemon in columns of
+   `automation_runs`. Add a table
+   `run_commands(run_id, kind, payload, created_at, consumed_at)`. The CLI,
+   the supervisor session and the hooks write to it, and the daemon consumes
+   it. The table also gives an audit trail for `status` and `stats`. Do this
+   item together with item 6.
+
+4. [ ] **Split `OrcaGateway` by responsibility.** Split its 15 methods into
+   three protocols:
+   - `WorktreeHost`: create, link and remove worktrees.
+   - `TerminalHost`: launch an agent, list agents and panes, `send_prompt`,
+     and the terminals.
+   - `BoardMirror`: `mark_card`, `set_card_status` and `show_worktree`, only
+     as a visual reflection.
+
+   A tmux or headless host then implements only `TerminalHost`, and
+   `BoardMirror` can be a no-op.
+
+5. [ ] **Remove the per-run Orca calls in each cycle.** `_supervise` calls
+   `show_worktree` for each run in each cycle. It needs the call only for the
+   card fallback and to find a removed worktree. For runs with
+   `signals = 'declare'`, use `worktree.path.exists()` and the result of
+   `worktree_agents()`, which the cycle already has. The call goes away
+   completely when the card fallback goes (see TODO-checkpoints.md).
+
+6. [ ] **Persist the in-memory state of the supervisor.** `_missing`,
+   `_plan_agent_closed`, `_unalerted` and `_reconciled` are lost when the
+   service restarts. A restart sets the count of missing cycles back to zero,
+   and a wait message that did not reach the session depends on `_unalerted`.
+   Store the data that decisions use in the run, for example `missing_since`
+   and the pending alert.
+
+7. [ ] **Move the logic out of `cli.py`.** `approve`, `declare`, `replan`,
+   `retry` and `fail` decide and move cards in the CLI. Move that logic to an
+   application service, `RunCommands`, so that tests do not go through typer
+   and other callers can use it. Split `cli.py` (1155 lines) into
+   `cli/runs.py`, `cli/checkpoints.py` and `cli/service.py`.
+
+8. [ ] **Split `AgentSupervisor`.** It has 821 lines with observation, phase
+   changes, restarts, replan, alerts and knowledge. Keep `observe()` as the
+   pure core. Move the phase changes (`_enter`, `_launch`, `_checks`,
+   `_request_fix`) to a `PhaseRunner` class, and the restarts (`_on_missing`,
+   `_prompt_stopped`) to an `AgentRecovery` class. Do this item when other
+   work changes these parts.
+
+9. [ ] **Isolate the read-only checkpoints with systemd properties.** For the
+   checkpoints with `mode: read` (security, regressions, repro-steps), add
+   `ProtectSystem=strict`, `ReadWritePaths=<results_dir>`, `PrivateTmp=yes`
+   and `NoNewPrivileges=yes` to the `systemd-run` command in
+   `infrastructure/process/units.py`. Make sure that Claude Code still writes
+   its own state in `~/.claude`.
+
+10. [ ] **Record run events.** Write the phase changes, waits, restarts and
+    checkpoint results to a `run_events` table. Then `stats` and a new
+    `status --timeline` read them with one query: time to the plan, rounds of
+    checks, and restarts. This item uses the table of item 3.

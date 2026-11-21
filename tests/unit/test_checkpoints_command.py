@@ -734,7 +734,7 @@ def test_replan_asks_for_a_new_plan_agent_only_for_a_plan_in_review(
 
 
 def test_declare_and_approve_are_stored_without_orca(
-    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch, woken: list[bool]
 ) -> None:
     monkeypatch.setenv("PATH", "/nonexistent")
 
@@ -755,3 +755,4 @@ def test_declare_and_approve_are_stored_without_orca(
     assert approved.exit_code == 0, approved.output
     assert current.declared == "plan" and current.declared_at is not None
     assert current.approved_at is not None
+    assert woken == [True, True]

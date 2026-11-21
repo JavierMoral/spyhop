@@ -3,6 +3,7 @@
 import getpass
 import shlex
 import subprocess
+from contextlib import suppress
 from importlib.resources import files
 from pathlib import Path
 
@@ -76,6 +77,22 @@ def unit_active() -> bool:
     )
 
     return completed.returncode == 0
+
+
+def wake_service() -> None:
+    """Asks the running service to start a cycle now. Without the service, or
+    when the signal fails, the next cycle starts at the poll interval."""
+
+    # Only the main process: the Orca and git commands of the service are in
+    # the same unit, and SIGUSR1 stops them.
+
+    with suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(
+            ["systemctl", "--user", "kill", "--kill-whom=main", "--signal=SIGUSR1", UNIT_NAME],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
 
 
 def _systemctl(*arguments: str, check: bool = True) -> None:

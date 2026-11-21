@@ -55,6 +55,11 @@ _log = logging.getLogger(__name__)
 
 
 async def run_daemon(settings: Settings, once: bool = False, database: Path | None = None) -> None:
+    # SIGUSR1 stops a process by default: until the wake handler is in place,
+    # a wake from a command must not stop the daemon.
+
+    signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+
     dry_run = settings.application.dry_run
     database = database or database_file(dry_run)
 
@@ -92,23 +97,33 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
             margin=timedelta(minutes=settings.jira.transition_margin_minutes),
         )
 
-        stop = _stop_event()
+        stop, wake = _signal_events()
+        loop = asyncio.get_running_loop()
+        next_poll = loop.time()
 
         while not stop.is_set():
-            delay = float(settings.application.polling_interval)
+            wake.clear()
 
-            try:
-                await monitor.poll()
-            except JiraAuthenticationError:
-                raise
-            except JiraRateLimitedError as error:
-                delay = max(delay, error.retry_after or delay)
+            # A wake from a local command runs the agents part now. JIRA
+            # stays on the poll interval.
 
-                _log.warning("JIRA rate limit reached; next poll in %.0fs", delay)
-                monitor.record_error(str(error))
-            except JiraError as error:
-                _log.warning("Poll failed, will retry: %s", error)
-                monitor.record_error(str(error))
+            if loop.time() >= next_poll:
+                delay = float(settings.application.polling_interval)
+
+                try:
+                    await monitor.poll()
+                except JiraAuthenticationError:
+                    raise
+                except JiraRateLimitedError as error:
+                    delay = max(delay, error.retry_after or delay)
+
+                    _log.warning("JIRA rate limit reached; next poll in %.0fs", delay)
+                    monitor.record_error(str(error))
+                except JiraError as error:
+                    _log.warning("Poll failed, will retry: %s", error)
+                    monitor.record_error(str(error))
+
+                next_poll = loop.time() + delay
 
             if agents is None and not dry_run:
                 # Orca may be missing at start, for example while the session
@@ -151,7 +166,7 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                 return
 
             with suppress(TimeoutError):
-                await asyncio.wait_for(stop.wait(), delay)
+                await asyncio.wait_for(wake.wait(), max(next_poll - loop.time(), 0))
 
         _log.info("Spyhop stopped")
 
@@ -259,11 +274,21 @@ def orca_client(settings: Settings) -> OrcaClient:
     )
 
 
-def _stop_event() -> asyncio.Event:
+def _signal_events() -> tuple[asyncio.Event, asyncio.Event]:
+    """SIGINT and SIGTERM stop the daemon. SIGUSR1, from wake_service, starts
+    a cycle now. A stop also wakes the daemon from its wait."""
+
     stop = asyncio.Event()
+    wake = asyncio.Event()
     loop = asyncio.get_running_loop()
 
-    for signal_number in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(signal_number, stop.set)
+    def on_stop() -> None:
+        stop.set()
+        wake.set()
 
-    return stop
+    for signal_number in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(signal_number, on_stop)
+
+    loop.add_signal_handler(signal.SIGUSR1, wake.set)
+
+    return stop, wake

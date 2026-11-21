@@ -63,6 +63,7 @@ from spyhop.infrastructure.service.systemd import (
     linger_enabled,
     render_unit,
     uninstall_unit,
+    wake_service,
 )
 
 # What an agent declares: the board column and the comment of its card.
@@ -264,6 +265,8 @@ def fail(
 
         typer.echo(f"{automation_run.issue_key}: {automation_run.status} -> FAILED ({reason})")
 
+    wake_service()
+
 
 @app.command()
 def retry(
@@ -303,6 +306,7 @@ def retry(
 
         raise typer.Exit(1)
 
+    wake_service()
     typer.echo(
         f"{retried.issue_key}: run {retried.id[:8]} created as a retry of {original.id[:8]} "
         f"({original.status})"
@@ -416,6 +420,7 @@ def approve(
 
         typer.echo(f"{automation_run.issue_key}: the card did not move: {error}", err=True)
 
+    wake_service()
     typer.echo(
         f"{automation_run.issue_key}: plan approved; the next phase starts on the next cycle."
     )
@@ -477,6 +482,7 @@ def declare(
         except SpyhopError as error:
             typer.echo(f"{automation_run.issue_key}: the card did not move: {error}", err=True)
 
+    wake_service()
     typer.echo(f"{automation_run.issue_key}: {what} declared.")
 
 
@@ -509,6 +515,7 @@ def replan(
         raise typer.Exit(1)
 
     runs.request_plan_changes(active[0].id, changes)
+    wake_service()
 
     typer.echo(f"{active[0].issue_key}: a new plan agent makes the changes on the next cycle.")
 
@@ -617,6 +624,7 @@ def hook() -> None:
 
         if pane is not None:
             write_state(state_dir() / AGENT_STATES, pane, json.loads(sys.stdin.read() or "{}"))
+            wake_service()
     except Exception as error:  # noqa: BLE001
         logging.getLogger("spyhop").debug("hook ignored: %s", error)
 
@@ -747,6 +755,7 @@ def checkpoints_rerun(
         raise typer.Exit(1)
 
     runs.request_checks(automation_run.id, failed)
+    wake_service()
 
     typer.echo(f"{automation_run.issue_key}: the checkpoints run again on the next cycle.")
 
@@ -793,6 +802,8 @@ def checkpoints_exec(
 
         partial.write_text(json.dumps({"exit_code": exit_code, "output": result}))
         partial.replace(output)
+
+    wake_service()
 
     data = (result or {}).get("structured_output")
     verdict = data.get("verdict") if isinstance(data, dict) else None

@@ -61,7 +61,7 @@ def test_a_written_state_is_read_back(tmp_path: Path) -> None:
 
 
 def test_the_hook_command_records_the_state_and_never_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, woken: list[bool]
 ) -> None:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     monkeypatch.setenv("ORCA_PANE_KEY", "tab:leaf")
@@ -73,3 +73,4 @@ def test_the_hook_command_records_the_state_and_never_fails(
 
     assert result.exit_code == 0 and broken.exit_code == 0
     assert state is not None and state.state == "done"
+    assert woken == [True]

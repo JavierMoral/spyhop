@@ -93,7 +93,10 @@ fails to start, the end of the run, and each reason why the run waits for you.
 Spyhop knows what each agent does from the Claude Code hooks that it writes to
 `.claude/settings.local.json` in the worktree: the hooks run `spyhop hook`,
 which records the state of the agent. Orca tells whether the terminal of the
-agent still exists.
+agent still exists. The hooks, the end of each checkpoint, and the commands
+that change a run (`approve`, `declare`, `replan`, `retry`, `fail` and
+`checkpoints rerun`) wake the service, so the next cycle starts at once. JIRA
+stays on `polling_interval`.
 
 A run that has no worktree yet has no session: for example, a run that waits
 for disk space or for its worktree script, or that fails before its worktree
