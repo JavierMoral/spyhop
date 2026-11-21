@@ -1,17 +1,15 @@
 """Starts the phases of a run's pipeline: the plan and implementation
 agents, the checks phases and the fixes, and the end of the run.
 
-The launch of an agent follows the launcher's rules: the operation id is
-stored before the call to the terminal host, so a launch whose answer was
-lost is replayed and not repeated."""
+The agents start through AgentStarter, as in the launcher."""
 
 import logging
 
+from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
 from spyhop.application.context_builder import RESULT_FILE, ContextBuilder
 from spyhop.application.knowledge import KnowledgeWriter
-from spyhop.application.launcher import label_agent, replay_expired
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.config.settings import AgentSettings
 from spyhop.domain.enums import WaitingReason
@@ -29,7 +27,6 @@ from spyhop.domain.models import (
     Worktree,
 )
 from spyhop.domain.protocols import TerminalHost
-from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import RunRepository, SessionRepository
 
 _log = logging.getLogger(__name__)
@@ -57,6 +54,7 @@ class PhaseRunner:
         self._alerts = alerts
         self._check_runner = check_runner
         self._knowledge = knowledge
+        self._starter = AgentStarter(sessions, terminal_host, agents)
 
     async def change_plan(
         self, run: AutomationRun, worktree: Worktree, session: AgentSession | None
@@ -163,14 +161,9 @@ class PhaseRunner:
         role: str,
         advice: str,
     ) -> None:
-        session = self._sessions.find_launching(run.id)
-
-        if session is None:
-            session = self._sessions.create_launching(
-                run.id, self._agents.provider, model, new_operation_id(), step
-            )
-        elif replay_expired(session):
-            self._sessions.mark_failed(session.id)
+        try:
+            launched = await self._starter.start(run, worktree, model, goal, step)
+        except LaunchOutcomeUnknown:
             await self._alerts.wait(
                 run,
                 WaitingReason.UNKNOWN_STATE,
@@ -178,19 +171,7 @@ class PhaseRunner:
             )
 
             return
-
-        assert session.launch_operation_id is not None
-
-        try:
-            result = await self._terminal_host.launch_agent(
-                worktree.orca_worktree_id,
-                goal,
-                session.launch_operation_id,
-                session.model,
-                self._agents.effort,
-            )
         except OrcaCommandError as error:
-            self._sessions.mark_failed(session.id)
             await self._alerts.wait(
                 run,
                 WaitingReason.UNKNOWN_STATE,
@@ -202,7 +183,6 @@ class PhaseRunner:
         if previous is not None:
             self._sessions.mark_finished(previous.id)
 
-        self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_resumed(run.id)
 
         # A new agent: the cycles without the agent before it do not count,
@@ -213,13 +193,18 @@ class PhaseRunner:
 
         if run.plan_agent_closed_told:
             self._runs.set_plan_agent_closed_told(run.id, False)
-        await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
+
+        await self._starter.label(run, launched)
 
         _log.info(
-            "%s: %s agent %s started (%s)", run.issue_key, role, result.agent_handle, session.model
+            "%s: %s agent %s started (%s)",
+            run.issue_key,
+            role,
+            launched.agent_handle,
+            launched.model,
         )
 
-        await self._alerts.tell(run, f"agente de {role} arrancado ({session.model})")
+        await self._alerts.tell(run, f"agente de {role} arrancado ({launched.model})")
 
     async def checks(
         self,

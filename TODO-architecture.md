@@ -140,13 +140,18 @@ give the commit.
 
 ## Second review, in this order
 
-11. [ ] **One agent start for the launcher and the phase runner.**
+11. [x] **One agent start for the launcher and the phase runner.**
     `AgentLauncher._launch` and `PhaseRunner.launch` repeat the same steps:
     `find_launching` or `create_launching`, `replay_expired`,
     `launch_agent`, `mark_launched` and `label_agent`. Only the handling of
     an error is different. Move the steps and the replay rule to one
     `AgentStarter` that returns the result, and let each caller handle the
     error.
+
+    Done: `application/agent_starter.py`. `start` returns the launched
+    session and raises `LaunchOutcomeUnknown` or `OrcaCommandError`. The
+    labels are a separate `label` step: the caller stores the status of the
+    run first, so a stop during the labels does not start a second agent.
 
 12. [x] **Transactions in the repositories.** The connection commits each
     statement (`isolation_level=None`), and the CLI writes to the same

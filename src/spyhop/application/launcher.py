@@ -15,13 +15,13 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
 
 import logging
 import re
-import time
 import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.context_builder import ContextBuilder, ContextError
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.workflow_resolver import WorkflowResolver
@@ -31,12 +31,10 @@ from spyhop.domain.exceptions import (
     JiraAuthenticationError,
     JiraError,
     OrcaCommandError,
-    OrcaError,
     OrcaUnavailableError,
     OrcaUncertainError,
 )
 from spyhop.domain.models import (
-    AgentSession,
     AutomationRun,
     ChecksPhase,
     OrcaWorktree,
@@ -55,7 +53,6 @@ from spyhop.infrastructure.jira.mapping import (
     to_ticket_details,
     to_ticket_ref,
 )
-from spyhop.infrastructure.orca.client import new_operation_id
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
     SessionRepository,
@@ -77,20 +74,9 @@ PENDING = (RunStatus.DISCOVERED, RunStatus.PREPARING, RunStatus.READY)
 
 BUSY = (RunStatus.RUNNING, RunStatus.WAITING_FOR_HUMAN)
 
-# A launch whose answer was lost is replayed with its operation id. Past this
-# age Orca may have forgotten the id and would start a second agent, so the
-# run is handed to a person instead.
-
-REPLAY_WINDOW_SECONDS = 15 * 60
-
 # Safety bound on the parent chain; JIRA hierarchies are a few levels deep.
 
 MAX_ANCESTORS = 10
-
-# The prompt bar color of the Claude session of each role. The supervisor
-# session has its own color.
-
-ROLE_COLORS = {"plan": "blue", "implement": "orange"}
 
 # Characters of the ticket title kept in a worktree's name, cut at a word.
 
@@ -159,6 +145,7 @@ class AgentLauncher:
         self._branch_exists = branch_exists
         self._free_bytes = free_bytes
         self._worktree_script = worktree_script
+        self._starter = AgentStarter(sessions, terminal_host, agents)
 
     async def launch_pending(self) -> list[AutomationRun]:
         """Advances pending runs, oldest first, while there are free slots.
@@ -326,26 +313,16 @@ class AgentLauncher:
             return True
 
         plan_review = prepared.workflow.plan_review
-        model = self._agents.plan_model if plan_review else self._agents.model
-        session = self._sessions.find_launching(run.id)
 
-        if session is None:
-            session = self._sessions.create_launching(
-                run.id,
-                self._agents.provider,
-                model,
-                new_operation_id(),
+        try:
+            session = await self._starter.start(
+                run,
+                prepared.worktree,
+                self._agents.plan_model if plan_review else self._agents.model,
+                self._context.launch_goal(run.issue_key, prepared.workflow),
                 "plan" if plan_review else "implement",
             )
-        elif replay_expired(session):
-            _log.warning(
-                "%s: the answer to launch %s was lost too long ago to replay it safely; "
-                "check the worktree in Orca",
-                run.issue_key,
-                session.launch_operation_id,
-            )
-
-            self._sessions.mark_failed(session.id)
+        except LaunchOutcomeUnknown:
             self._runs.mark_waiting(
                 run.id, WaitingReason.UNKNOWN_STATE, "launch outcome unknown; check Orca"
             )
@@ -356,30 +333,16 @@ class AgentLauncher:
                 )
 
             return False
-
-        assert session.launch_operation_id is not None
-
-        try:
-            result = await self._terminal_host.launch_agent(
-                prepared.worktree.orca_worktree_id,
-                self._context.launch_goal(run.issue_key, prepared.workflow),
-                session.launch_operation_id,
-                session.model,
-                self._agents.effort,
-            )
         except OrcaCommandError as error:
-            self._sessions.mark_failed(session.id)
-
             raise _RunFailed(f"Orca refused the launch: {error}") from error
 
-        self._sessions.mark_launched(session.id, result.agent_handle, result.pane_key)
         self._runs.mark_running(run.id)
-        await label_agent(self._terminal_host, run.issue_key, result.agent_handle, session)
+        await self._starter.label(run, session)
 
         _log.info(
             "%s: agent %s started in %s (branch %s, %s, %s)",
             run.issue_key,
-            result.agent_handle,
+            session.agent_handle,
             prepared.worktree.path,
             prepared.worktree.branch_name,
             "plan review" if prepared.workflow.plan_review else "no plan review",
@@ -616,33 +579,3 @@ def worktree_name(issue_key: str, summary: str) -> str:
         slug = words[0][:MAX_SLUG_LENGTH]
 
     return f"{issue_key}-{slug}" if slug else issue_key
-
-
-async def label_agent(
-    terminal_host: TerminalHost, issue_key: str, terminal: str, session: AgentSession
-) -> None:
-    """Gives the tab and the session of the agent its role and model, for
-    example "plan opus", and gives the session the color of its role. An
-    error only goes to the log."""
-
-    title = " ".join(value for value in (session.role, session.model) if value)
-
-    try:
-        await terminal_host.rename_terminal(terminal, title)
-        await terminal_host.send_prompt(terminal, f"/rename {title}")
-
-        if session.role in ROLE_COLORS:
-            await terminal_host.send_prompt(terminal, f"/color {ROLE_COLORS[session.role]}")
-    except OrcaError as error:
-        _log.warning("%s: agent %s not labeled: %s", issue_key, terminal, error)
-
-
-def replay_expired(session: AgentSession, now: float | None = None) -> bool:
-    operation_id = session.launch_operation_id or ""
-
-    try:
-        issued_at = int(operation_id.split("-", 1)[0]) / 1000
-    except ValueError:
-        return True
-
-    return (now or time.time()) - issued_at > REPLAY_WINDOW_SECONDS
