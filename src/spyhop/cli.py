@@ -62,7 +62,9 @@ app = typer.Typer(
     help="Watches JIRA and feeds tickets to Claude Code agents running in Orca.",
     no_args_is_help=True,
 )
-checkpoints_app = typer.Typer(help="Plan the checkpoints of a workflow.", no_args_is_help=True)
+checkpoints_app = typer.Typer(
+    help="Plan, check and run again the checkpoints of a run.", no_args_is_help=True
+)
 config_app = typer.Typer(help="Manage the configuration.", no_args_is_help=True)
 service_app = typer.Typer(help="Manage the systemd user service.", no_args_is_help=True)
 
@@ -427,7 +429,7 @@ def ticket(
 
 @app.command()
 def doctor(config: ConfigOption = None) -> None:
-    """Check configuration, credentials, JIRA, repositories, checkpoints, Orca and the service."""
+    """Check the configuration and everything that Spyhop needs to run."""
 
     checks = asyncio.run(run_checks(config or default_config_file()))
     symbols = {Level.OK: "✓", Level.WARNING: "!", Level.ERROR: "✗"}
