@@ -508,7 +508,7 @@ async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path
     # unit, for longer than the timeout.
 
     [row] = running(harness, run)
-    late = harness.clock.advance(timedelta(hours=4))
+    harness.clock.advance(timedelta(hours=4))
     harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL")
     await harness.supervisor.supervise()
 
@@ -516,7 +516,7 @@ async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path
     [restarted] = running(harness, run)
 
     assert first == second
-    assert restarted.started_at == late
+    assert restarted.started_at >= row.started_at + timedelta(hours=4)
 
     # The timeout counts from the start of the unit.
 

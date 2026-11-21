@@ -408,19 +408,21 @@ class FakeOrca:
 
 
 class FakeClock:
-    """The real time until a test moves it. Then the time stays where the
-    test put it, so that the test can compare times exactly."""
+    """The real time, moved forward by the sum of the advance() calls. The
+    time keeps its order, so the newest row stays the newest. The files and
+    the agent states of FakeOrca keep the real time: after an advance(), a
+    file that a test writes is older than the rows of the database."""
 
     def __init__(self) -> None:
-        self.fixed: datetime | None = None
+        self.offset = timedelta(0)
 
     def __call__(self) -> datetime:
-        return self.fixed or datetime.now(UTC)
+        return datetime.now(UTC) + self.offset
 
     def advance(self, delta: timedelta) -> datetime:
-        self.fixed = self() + delta
+        self.offset += delta
 
-        return self.fixed
+        return self()
 
 
 class Harness:

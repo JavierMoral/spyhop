@@ -204,9 +204,12 @@ give the commit.
     the components, and a fixed clock for the tests.
 
     Done: `Clock` (a function that gives the time) in the repositories,
-    `AgentSupervisor`, `AgentRecovery` and `CheckRunner`, with `utc_now` as
-    the default. The tests use `FakeClock` of `tests/fakes.py`. The ids of
-    the launch operations still read `time.time()`.
+    `AgentSupervisor`, `AgentRecovery` and `CheckRunner`. The default is
+    `utc_now`, so the daemon gives no clock. The tests use `FakeClock` of
+    `tests/fakes.py`. These still read the time directly: the ids of the
+    launch operations (`time.time()`), `monitor.py`, `agent_state.py`, the
+    CLI, and the modification times of the files that
+    `supervisor._written_since` compares.
 
 18. [x] **Do not block the asyncio loop with git.** `infrastructure/git.py`
     calls `subprocess.run` from async code (`CheckRunner`, the janitor,
