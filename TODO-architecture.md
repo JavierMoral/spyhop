@@ -54,12 +54,15 @@ give the commit.
    A tmux or headless host then implements only `TerminalHost`, and
    `BoardMirror` can be a no-op.
 
-5. [ ] **Remove the per-run Orca calls in each cycle.** `_supervise` calls
+5. [x] **Remove the per-run Orca calls in each cycle.** `_supervise` calls
    `show_worktree` for each run in each cycle. It needs the call only for the
    card fallback and to find a removed worktree. For runs with
    `signals = 'declare'`, use `worktree.path.exists()` and the result of
    `worktree_agents()`, which the cycle already has. The call goes away
    completely when the card fallback goes (see TODO-checkpoints.md).
+   Done in the branch `fewer-orca-calls`: `worktree ps` also lists the
+   worktrees without agents, so the supervisor calls `show_worktree` only for
+   a card run, or when the worktree is not in the list.
 
 6. [ ] **Persist the in-memory state of the supervisor.** `_missing`,
    `_plan_agent_closed`, `_unalerted` and `_reconciled` are lost when the

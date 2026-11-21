@@ -396,6 +396,25 @@ async def test_nothing_changes_while_orca_is_unavailable(harness: Harness) -> No
     assert harness.run(run.id).status is RunStatus.RUNNING
 
 
+async def test_only_a_run_that_reads_its_card_asks_orca_for_the_worktree(
+    harness: Harness,
+) -> None:
+    run, worktree, _ = await launched(harness)
+
+    await harness.supervisor.supervise()
+
+    declared = list(harness.orca.shown)
+
+    harness.connection.execute(
+        "UPDATE automation_runs SET signals = 'card' WHERE id = ?", (run.id,)
+    )
+
+    await harness.supervisor.supervise()
+
+    assert declared == []
+    assert harness.orca.shown == [worktree.orca_worktree_id]
+
+
 async def test_worktree_removed_in_orca_is_handed_to_a_person(harness: Harness) -> None:
     run, worktree, _ = await launched(harness)
 

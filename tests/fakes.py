@@ -160,6 +160,7 @@ class FakeOrca:
         self.removed: list[str] = []
         self.remove_errors: list[Exception] = []
         self.cards: dict[str, str] = {}
+        self.shown: list[str] = []
         self.terminals: list[dict[str, str]] = []
         self.terminal_errors: list[Exception] = []
         self.prompts: list[tuple[str, str]] = []
@@ -190,6 +191,8 @@ class FakeOrca:
         return self.root / "wt"
 
     async def show_worktree(self, orca_worktree_id: str) -> OrcaWorktree:
+        self.shown.append(orca_worktree_id)
+
         if orca_worktree_id not in self.worktrees:
             raise OrcaCommandError("selector_not_found", "selector_not_found")
 
@@ -294,7 +297,13 @@ class FakeOrca:
         if self.unavailable:
             raise OrcaUnavailableError("Orca is closed")
 
-        return self.agents
+        # Like `worktree ps`: every worktree, also one without agents, and no
+        # removed worktree.
+
+        return {
+            orca_worktree_id: self.agents.get(orca_worktree_id, [])
+            for orca_worktree_id in self.worktrees
+        }
 
     async def close_terminals(self, orca_worktree_id: str) -> int:
         if orca_worktree_id not in self.worktrees:
