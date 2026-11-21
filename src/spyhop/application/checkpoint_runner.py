@@ -35,9 +35,9 @@ runs twice.
 import asyncio
 import fcntl
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -64,7 +64,11 @@ from spyhop.domain.models import (
 )
 from spyhop.domain.protocols import TicketGateway, UnitGateway
 from spyhop.infrastructure.git import has_changes, head
-from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository, utc_now
+from spyhop.infrastructure.persistence.repositories import (
+    CheckpointRunRepository,
+    Clock,
+    utc_now,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -107,7 +111,7 @@ class CheckRunner:
         spyhop: Path,
         results_dir: Path,
         timeout: timedelta,
-        now: Callable[[], datetime] = utc_now,
+        now: Clock = utc_now,
         supervisor_session: SupervisorSession | None = None,
     ) -> None:
         self._checkpoint_runs = checkpoint_runs

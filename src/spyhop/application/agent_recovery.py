@@ -13,7 +13,7 @@ from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaError
 from spyhop.domain.models import AgentSession, AutomationRun, ResolvedWorkflow, Worktree
 from spyhop.domain.protocols import TerminalHost
-from spyhop.infrastructure.persistence.repositories import RunRepository, utc_now
+from spyhop.infrastructure.persistence.repositories import Clock, RunRepository, utc_now
 
 _log = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ class AgentRecovery:
         phases: PhaseRunner,
         alerts: RunAlerts,
         missing_after: timedelta = MISSING_AFTER,
+        now: Clock = utc_now,
     ) -> None:
         self._runs = runs
         self._terminal_host = terminal_host
@@ -51,7 +52,8 @@ class AgentRecovery:
         self._missing_after = missing_after
         # The missing time counts from the start at the earliest: while the
         # service was stopped, nothing looked for the agent.
-        self._started_at = utc_now()
+        self._now = now
+        self._started_at = now()
 
     async def on_missing(
         self,
@@ -66,7 +68,7 @@ class AgentRecovery:
 
         if (
             missing.missing_cycles < MISSING_CYCLES
-            or utc_now() - max(missing.missing_since, self._started_at) < self._missing_after
+            or self._now() - max(missing.missing_since, self._started_at) < self._missing_after
         ):
             _log.debug("%s: agent not listed by Orca (%d)", run.issue_key, missing.missing_cycles)
 

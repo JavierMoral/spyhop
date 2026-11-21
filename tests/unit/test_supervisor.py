@@ -402,11 +402,7 @@ async def test_an_agent_is_lost_only_after_the_missing_time_also_with_many_cycle
 
     assert harness.run(run.id).status is RunStatus.RUNNING
 
-    harness.connection.execute(
-        "UPDATE automation_runs SET missing_since = ?",
-        ((datetime.now(UTC) - MISSING_AFTER).isoformat(),),
-    )
-    harness.supervisor._recovery._started_at -= MISSING_AFTER
+    harness.clock.advance(MISSING_AFTER)
 
     await harness.supervisor.supervise()
 

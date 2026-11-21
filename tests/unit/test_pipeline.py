@@ -508,8 +508,7 @@ async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path
     # unit, for longer than the timeout.
 
     [row] = running(harness, run)
-    late = row.started_at + timedelta(hours=4)
-    harness.check_runner._now = lambda: late
+    late = harness.clock.advance(timedelta(hours=4))
     harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL")
     await harness.supervisor.supervise()
 
@@ -536,8 +535,7 @@ async def test_a_check_without_a_result_in_time_is_a_fail_after_its_unit_stops(
     await harness.supervisor.supervise()
 
     [row] = running(harness, run)
-    late = row.started_at + timedelta(hours=4)
-    harness.check_runner._now = lambda: late
+    harness.clock.advance(timedelta(hours=4))
     await harness.supervisor.supervise()
 
     assert harness.units.stopped == [row.unit]
@@ -551,8 +549,7 @@ async def test_a_late_check_whose_process_still_runs_blocks_the_phase(tmp_path: 
     await harness.supervisor.supervise()
 
     [row] = running(harness, run)
-    late = row.started_at + timedelta(hours=4)
-    harness.check_runner._now = lambda: late
+    harness.clock.advance(timedelta(hours=4))
     lock_file = row.output_file.parent / f"{row.output_file.name}.lock"
 
     lock_file.parent.mkdir(parents=True, exist_ok=True)

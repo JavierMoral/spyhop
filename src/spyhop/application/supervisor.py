@@ -75,9 +75,11 @@ from spyhop.domain.models import (
 from spyhop.domain.protocols import TerminalHost, WorktreeHost
 from spyhop.infrastructure.agent_state import read_state
 from spyhop.infrastructure.persistence.repositories import (
+    Clock,
     RunRepository,
     SessionRepository,
     WorktreeRepository,
+    utc_now,
 )
 
 _log = logging.getLogger(__name__)
@@ -178,6 +180,7 @@ class AgentSupervisor:
         knowledge: KnowledgeWriter | None = None,
         agent_states_dir: Path | None = None,
         missing_after: timedelta = MISSING_AFTER,
+        now: Clock = utc_now,
     ) -> None:
         self._runs = runs
         self._agent_states_dir = agent_states_dir
@@ -201,7 +204,7 @@ class AgentSupervisor:
             knowledge,
         )
         self._recovery = AgentRecovery(
-            runs, terminal_host, agents, self._phases, self._alerts, missing_after
+            runs, terminal_host, agents, self._phases, self._alerts, missing_after, now
         )
         # Only for the log: the first cycle after a start reconciles the runs.
         self._reconciled = False

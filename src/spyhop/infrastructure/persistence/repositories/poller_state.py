@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 
 from spyhop.infrastructure.persistence.repositories._mapping import (
+    Clock,
     _to_datetime,
     _to_text,
     utc_now,
@@ -11,8 +12,9 @@ from spyhop.infrastructure.persistence.repositories._mapping import (
 
 
 class PollerStateRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
+        self._now = now
 
     def watermark(self) -> datetime | None:
         row = self._connection.execute("SELECT watermark FROM poller_state WHERE id = 1").fetchone()
@@ -43,7 +45,7 @@ class PollerStateRepository:
                 last_success_at = excluded.last_success_at,
                 last_error = NULL
             """,
-            (_to_text(watermark), _to_text(utc_now())),
+            (_to_text(watermark), _to_text(self._now())),
         )
 
     def record_error(self, message: str) -> None:

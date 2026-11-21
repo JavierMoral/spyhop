@@ -15,6 +15,7 @@ from spyhop.domain.models import (
 )
 from spyhop.infrastructure.persistence.database import transaction
 from spyhop.infrastructure.persistence.repositories._mapping import (
+    Clock,
     _phase_name,
     _phase_to_json,
     _record_event,
@@ -25,14 +26,15 @@ from spyhop.infrastructure.persistence.repositories._mapping import (
 
 
 class RunRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
+        self._now = now
 
     def create_discovered(self, entry: IssueEntry) -> AutomationRun | None:
         """Returns None when the transition is already recorded or the issue
         already has an active run."""
 
-        now = utc_now()
+        now = self._now()
         run_id = str(uuid.uuid4())
 
         with transaction(self._connection):
@@ -145,7 +147,7 @@ class RunRepository:
         self._update(run_id, RunStatus.READY, worktree_id=worktree_id)
 
     def mark_running(self, run_id: str) -> None:
-        self._update(run_id, RunStatus.RUNNING, started_at=_to_text(utc_now()))
+        self._update(run_id, RunStatus.RUNNING, started_at=_to_text(self._now()))
 
     def mark_resumed(self, run_id: str) -> None:
         """Back to RUNNING after waiting for a person."""
@@ -168,7 +170,7 @@ class RunRepository:
             RunStatus.COMPLETED,
             waiting_reason=None,
             error_message=None,
-            finished_at=_to_text(utc_now()),
+            finished_at=_to_text(self._now()),
         )
 
     def mark_cancelled(self, run_id: str, reason: str) -> None:
@@ -177,14 +179,14 @@ class RunRepository:
             RunStatus.CANCELLED,
             waiting_reason=None,
             error_message=reason,
-            finished_at=_to_text(utc_now()),
+            finished_at=_to_text(self._now()),
         )
 
     def create_retry(self, original: AutomationRun) -> AutomationRun | None:
         """A new run of the same ticket and transition, pending launch. None
         when the ticket already has an active run."""
 
-        now = utc_now()
+        now = self._now()
         run_id = str(uuid.uuid4())
 
         with transaction(self._connection):
@@ -255,7 +257,7 @@ class RunRepository:
         with transaction(self._connection):
             self._connection.execute(
                 "UPDATE automation_runs SET fix_requested_at = ? WHERE id = ?",
-                (_to_text(utc_now()), run_id),
+                (_to_text(self._now()), run_id),
             )
             self._event(run_id, "fix", "the agent fixes the findings of the checkpoints")
             self.mark_resumed(run_id)
@@ -305,7 +307,7 @@ class RunRepository:
             self._connection.execute(
                 "UPDATE run_commands SET consumed_at = ? "
                 "WHERE run_id = ? AND kind = 'replan' AND consumed_at IS NULL AND id <= ?",
-                (_to_text(utc_now()), run_id, row["id"]),
+                (_to_text(self._now()), run_id, row["id"]),
             )
 
             return str(row["payload"])
@@ -313,7 +315,7 @@ class RunRepository:
     def consume_command(self, command_id: int) -> None:
         self._connection.execute(
             "UPDATE run_commands SET consumed_at = ? WHERE id = ?",
-            (_to_text(utc_now()), command_id),
+            (_to_text(self._now()), command_id),
         )
 
     def declare(self, run_id: str, what: str) -> None:
@@ -323,7 +325,7 @@ class RunRepository:
         with transaction(self._connection):
             self._connection.execute(
                 "UPDATE automation_runs SET declared = ?, declared_at = ? WHERE id = ?",
-                (what, _to_text(utc_now()), run_id),
+                (what, _to_text(self._now()), run_id),
             )
             self._event(run_id, "declared", what)
 
@@ -354,7 +356,7 @@ class RunRepository:
         self._connection.execute(
             "UPDATE run_commands SET consumed_at = ? "
             "WHERE run_id = ? AND kind = ? AND consumed_at IS NULL",
-            (_to_text(utc_now()), run_id, kind),
+            (_to_text(self._now()), run_id, kind),
         )
 
     def events(self, run_id: str) -> builtins.list[RunEvent]:
@@ -371,12 +373,12 @@ class RunRepository:
         with transaction(self._connection):
             self._connection.execute(
                 "INSERT INTO run_commands (run_id, kind, payload, created_at) VALUES (?, ?, ?, ?)",
-                (run_id, kind, payload, _to_text(utc_now())),
+                (run_id, kind, payload, _to_text(self._now())),
             )
             self._event(run_id, "request", f"{kind}: {payload}" if payload else kind)
 
     def _event(self, run_id: str, kind: str, detail: str | None = None) -> None:
-        _record_event(self._connection, run_id, kind, detail)
+        _record_event(self._connection, run_id, kind, detail, self._now())
 
     def note_missing(self, run_id: str) -> AutomationRun:
         """Counts one more cycle without the agent of the run."""
@@ -389,7 +391,7 @@ class RunRepository:
                     missing_since = COALESCE(missing_since, ?)
                 WHERE id = ?
                 """,
-                (_to_text(utc_now()), run_id),
+                (_to_text(self._now()), run_id),
             )
 
             run = self.get(run_id)
@@ -428,7 +430,7 @@ class RunRepository:
             RunStatus.FAILED,
             waiting_reason=None,
             error_message=error_message[:2000],
-            finished_at=_to_text(utc_now()),
+            finished_at=_to_text(self._now()),
         )
 
     def _update(self, run_id: str, status: RunStatus, **columns: str | None) -> None:
@@ -447,7 +449,7 @@ class RunRepository:
                 or (reason is not None and run.waiting_reason != reason)
             )
 
-            columns["status_changed_at"] = _to_text(utc_now())
+            columns["status_changed_at"] = _to_text(self._now())
             assignments = ", ".join(f"{column} = ?" for column in ["status", *columns])
 
             self._connection.execute(

@@ -10,6 +10,7 @@ from spyhop.domain.models import (
 )
 from spyhop.infrastructure.persistence.database import transaction
 from spyhop.infrastructure.persistence.repositories._mapping import (
+    Clock,
     _record_event,
     _to_checkpoint_run,
     _to_text,
@@ -18,8 +19,9 @@ from spyhop.infrastructure.persistence.repositories._mapping import (
 
 
 class CheckpointRunRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
+        self._now = now
 
     def create(
         self,
@@ -58,7 +60,7 @@ class CheckpointRunRepository:
                     base,
                     head,
                     str(output_file),
-                    _to_text(utc_now()),
+                    _to_text(self._now()),
                 ),
             )
 
@@ -69,7 +71,7 @@ class CheckpointRunRepository:
                 self._connection.execute(
                     "UPDATE run_commands SET consumed_at = ? "
                     "WHERE run_id = ? AND kind = 'checks' AND consumed_at IS NULL",
-                    (_to_text(utc_now()), run_id),
+                    (_to_text(self._now()), run_id),
                 )
 
             checkpoint_run = self.get(checkpoint_run_id)
@@ -137,7 +139,7 @@ class CheckpointRunRepository:
             self._connection.execute(
                 "UPDATE checkpoint_runs SET status = 'DONE', verdict = ?, detail = ?, "
                 "finished_at = ? WHERE id = ?",
-                (verdict, detail, _to_text(utc_now()), checkpoint_run_id),
+                (verdict, detail, _to_text(self._now()), checkpoint_run_id),
             )
 
             row = self.get(checkpoint_run_id)
@@ -148,4 +150,5 @@ class CheckpointRunRepository:
                     row.run_id,
                     "checkpoint",
                     f"{row.name} round {row.round}: {verdict}",
+                    self._now(),
                 )

@@ -10,6 +10,7 @@ from spyhop.domain.models import (
     Worktree,
 )
 from spyhop.infrastructure.persistence.repositories._mapping import (
+    Clock,
     _to_text,
     _to_worktree,
     utc_now,
@@ -17,8 +18,9 @@ from spyhop.infrastructure.persistence.repositories._mapping import (
 
 
 class WorktreeRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
+        self._now = now
 
     def get(self, worktree_id: str) -> Worktree | None:
         row = self._connection.execute(
@@ -61,7 +63,7 @@ class WorktreeRepository:
                 str(orca_worktree.path),
                 orca_worktree.branch,
                 base_branch,
-                _to_text(utc_now()),
+                _to_text(self._now()),
                 WorktreeStatus.ACTIVE,
             ),
         )
@@ -102,7 +104,7 @@ class WorktreeRepository:
     def mark_removed(self, worktree_id: str, reason: str | None = None) -> None:
         self._connection.execute(
             "UPDATE worktrees SET status = ?, cleanup_error = ?, removed_at = ? WHERE id = ?",
-            (WorktreeStatus.REMOVED, reason, _to_text(utc_now()), worktree_id),
+            (WorktreeStatus.REMOVED, reason, _to_text(self._now()), worktree_id),
         )
 
     def set_supervisor(self, worktree_id: str, terminal: str | None, pane_key: str | None) -> None:

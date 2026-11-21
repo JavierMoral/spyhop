@@ -4,6 +4,7 @@ import dataclasses
 import json
 import logging
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,6 +24,11 @@ _log = logging.getLogger(__name__)
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+# What gives the current time. The daemon uses utc_now, and the tests a clock
+# that they can move.
+Clock = Callable[[], datetime]
 
 
 def _to_text(value: datetime | None) -> str | None:
@@ -69,11 +75,11 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
 
 
 def _record_event(
-    connection: sqlite3.Connection, run_id: str, kind: str, detail: str | None
+    connection: sqlite3.Connection, run_id: str, kind: str, detail: str | None, at: datetime
 ) -> None:
     connection.execute(
         "INSERT INTO run_events (run_id, at, kind, detail) VALUES (?, ?, ?, ?)",
-        (run_id, _to_text(utc_now()), kind, detail),
+        (run_id, _to_text(at), kind, detail),
     )
 
 

@@ -8,6 +8,7 @@ from spyhop.domain.models import (
     AgentSession,
 )
 from spyhop.infrastructure.persistence.repositories._mapping import (
+    Clock,
     _to_session,
     _to_text,
     utc_now,
@@ -15,8 +16,9 @@ from spyhop.infrastructure.persistence.repositories._mapping import (
 
 
 class SessionRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
+        self._now = now
 
     def find_launching(self, run_id: str) -> AgentSession | None:
         row = self._connection.execute(
@@ -55,13 +57,13 @@ class SessionRepository:
             UPDATE agent_sessions SET status = ?, agent_handle = ?, pane_key = ?, started_at = ?
             WHERE id = ?
             """,
-            (SessionStatus.LAUNCHED, agent_handle, pane_key, _to_text(utc_now()), session_id),
+            (SessionStatus.LAUNCHED, agent_handle, pane_key, _to_text(self._now()), session_id),
         )
 
     def mark_finished(self, session_id: str) -> None:
         self._connection.execute(
             "UPDATE agent_sessions SET status = ?, finished_at = ? WHERE id = ?",
-            (SessionStatus.FINISHED, _to_text(utc_now()), session_id),
+            (SessionStatus.FINISHED, _to_text(self._now()), session_id),
         )
 
     def find_launched(self, run_id: str) -> AgentSession | None:
@@ -78,7 +80,7 @@ class SessionRepository:
     def mark_failed(self, session_id: str) -> None:
         self._connection.execute(
             "UPDATE agent_sessions SET status = ?, finished_at = ? WHERE id = ?",
-            (SessionStatus.FAILED, _to_text(utc_now()), session_id),
+            (SessionStatus.FAILED, _to_text(self._now()), session_id),
         )
 
     def get(self, session_id: str) -> AgentSession | None:

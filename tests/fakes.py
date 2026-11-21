@@ -407,6 +407,22 @@ class FakeOrca:
         self.agents[orca_worktree_id] = [*others, row]
 
 
+class FakeClock:
+    """The real time until a test moves it. Then the time stays where the
+    test put it, so that the test can compare times exactly."""
+
+    def __init__(self) -> None:
+        self.fixed: datetime | None = None
+
+    def __call__(self) -> datetime:
+        return self.fixed or datetime.now(UTC)
+
+    def advance(self, delta: timedelta) -> datetime:
+        self.fixed = self() + delta
+
+        return self.fixed
+
+
 class Harness:
     def __init__(
         self,
@@ -416,9 +432,10 @@ class Harness:
     ) -> None:
         self.config = config or settings(tmp_path)
         self.connection = connect(tmp_path / "spyhop.db")
-        self.runs = RunRepository(self.connection)
-        self.worktrees = WorktreeRepository(self.connection)
-        self.sessions = SessionRepository(self.connection)
+        self.clock = FakeClock()
+        self.runs = RunRepository(self.connection, self.clock)
+        self.worktrees = WorktreeRepository(self.connection, self.clock)
+        self.sessions = SessionRepository(self.connection, self.clock)
         self.orca = FakeOrca(tmp_path)
         self.tickets = FakeTickets()
         self.history = 0
@@ -495,7 +512,7 @@ class Harness:
         self.agents_dir = tmp_path / "agents"
         self.agent_states_dir = tmp_path / "agent-states"
         self.results_dir = tmp_path / "results"
-        self.checkpoint_runs = CheckpointRunRepository(self.connection)
+        self.checkpoint_runs = CheckpointRunRepository(self.connection, self.clock)
         self.check_runner = CheckRunner(
             checkpoint_runs=self.checkpoint_runs,
             units=self.units,
@@ -504,6 +521,7 @@ class Harness:
             spyhop=SPYHOP,
             results_dir=self.results_dir,
             timeout=timedelta(hours=3),
+            now=self.clock,
             supervisor_session=self.supervisor_session,
         )
         self.restart_supervisor()
@@ -528,6 +546,7 @@ class Harness:
             agent_states_dir=self.agent_states_dir,
             # The tests count cycles; the time rule has its own test.
             missing_after=timedelta(0),
+            now=self.clock,
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:

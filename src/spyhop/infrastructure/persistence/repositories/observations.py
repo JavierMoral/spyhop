@@ -6,14 +6,16 @@ from spyhop.domain.models import (
     JiraIssue,
 )
 from spyhop.infrastructure.persistence.repositories._mapping import (
+    Clock,
     _to_text,
     utc_now,
 )
 
 
 class ObservationRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
+        self._now = now
 
     def record(self, issue: JiraIssue) -> None:
         self._connection.execute(
@@ -32,6 +34,6 @@ class ObservationRepository:
                 issue.status,
                 issue.assignee,
                 _to_text(issue.updated_at),
-                _to_text(utc_now()),
+                _to_text(self._now()),
             ),
         )

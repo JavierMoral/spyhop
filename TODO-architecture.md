@@ -197,11 +197,16 @@ give the commit.
     Done: `application/checkpoint_reports.py` has the result schema,
     `read_output`, `validate`, `append_report` and `write_verdicts`.
 
-17. [ ] **Inject a clock.** 32 calls read the time directly (`utc_now()`,
+17. [x] **Inject a clock.** 32 calls read the time directly (`utc_now()`,
     `datetime.now`) in the repositories, the launcher, the Orca client and
     `agent_state`. The tests change times with SQL or set
     `_recovery._started_at`. Add a small `Clock` that the daemon gives to
     the components, and a fixed clock for the tests.
+
+    Done: `Clock` (a function that gives the time) in the repositories,
+    `AgentSupervisor`, `AgentRecovery` and `CheckRunner`, with `utc_now` as
+    the default. The tests use `FakeClock` of `tests/fakes.py`. The ids of
+    the launch operations still read `time.time()`.
 
 18. [x] **Do not block the asyncio loop with git.** `infrastructure/git.py`
     calls `subprocess.run` from async code (`CheckRunner`, the janitor,
