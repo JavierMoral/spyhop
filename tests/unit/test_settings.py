@@ -20,6 +20,17 @@ def test_example_configuration_is_valid(tmp_path: Path) -> None:
     assert loaded.application.dry_run is True
     assert loaded.repositories["main"].path == Path.home() / "git" / "your-repository"
     assert loaded.service.env_source == "env_file"
+    assert loaded.pipeline("bug") == (
+        ChecksPhase(("ticket-info", "repro-steps", "reproduce"), "human"),
+        "plan",
+        "plan_review",
+        "implement",
+        ChecksPhase(("regressions", "mutation", "security"), "fix", 3),
+    )
+    assert loaded.pipeline("technical_task") == (
+        "implement",
+        ChecksPhase(("regressions", "security"), "fix", 3),
+    )
 
 
 @pytest.mark.parametrize(
