@@ -39,8 +39,9 @@ Spyhop gives you:
    changed files. Ignore the files that the branch deletes.
 3. Run the source formatter on those modules. Use the command that the
    repository's `CLAUDE.md` gives. If it gives no command, run
-   `../../../../gradlew formatSource` from each module directory, with the
-   Gradle wrapper of the repository. If the formatter fails because of a
+   `"$(git rev-parse --show-toplevel)/gradlew" formatSource` from each
+   module directory, with the Gradle wrapper at the root of the repository.
+   If the formatter fails because of a
    rule violation that it cannot fix, record the file, the line, and the
    message as a finding.
 4. Run `git status --porcelain` and `git diff`. Each change is a finding: the

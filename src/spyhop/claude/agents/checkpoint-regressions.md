@@ -42,8 +42,9 @@ the code without them.
    default, condition, query, or side effect), find the callers outside the
    diff with Grep. Include other modules. Decide if each caller still works.
 3. Find the modules that contain changed files. For each module, run its unit
-   tests with the Gradle wrapper of the repository, for example
-   `../../../../gradlew test` from the module directory. Follow the
+   tests with the Gradle wrapper at the root of the repository, for example
+   `"$(git rev-parse --show-toplevel)/gradlew" test` from the module
+   directory. Follow the
    instructions of the repository's `CLAUDE.md` for the exact command.
 4. Run the integration tests that cover the changed paths, with
    `gradlew testIntegration --tests '<class>'` from the module directory. The

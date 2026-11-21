@@ -52,9 +52,11 @@ the code without them.
    If there are production files but no test files, give a FAIL with a high
    finding: no test covers the change.
 5. Find the test methods that the commits add or change. Run them at `HEAD`
-   with the Gradle wrapper of the repository from the module directory:
-   `../../../../gradlew test --tests '<class>'` for unit tests, and
-   `../../../../gradlew testIntegration --tests '<class>'` for integration
+   with the Gradle wrapper at the root of the repository, from the module
+   directory. `GRADLEW` is the output of `git rev-parse --show-toplevel`,
+   followed by `/gradlew`:
+   `"$GRADLEW" test --tests '<class>'` for unit tests, and
+   `"$GRADLEW" testIntegration --tests '<class>'` for integration
    tests. The `testIntegration` task starts the portal bundle of the worktree
    if it does not run, and you can also start it yourself. The tests must
    pass. If one fails, restore nothing (you changed nothing yet) and give a

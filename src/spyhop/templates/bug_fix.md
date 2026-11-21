@@ -8,6 +8,6 @@ Corrección de un bug:
   correcciones con la misma premisa fallan, comprueba la premisa antes de
   intentar una tercera.
 - Indica en el plan dónde va el test de regresión: la clase de test y el punto
-  del código que ejerce. Si no hay un buen punto para el test, dilo en el plan.
+  del código que ejerce.
 - Añade un test que falle sin la corrección y pase con ella.
 - Haz el cambio mínimo que corrige la causa, no solo el síntoma.
