@@ -1,0 +1,453 @@
+"""The commands that start, follow and change the runs."""
+
+import asyncio
+import json
+import logging
+import os
+import sys
+from datetime import timedelta
+from typing import Annotated, Any
+
+import typer
+
+from spyhop.application.janitor import Cleanup, WorktreeRemover
+from spyhop.application.stats import run_stats
+from spyhop.cli.common import (
+    ConfigOption,
+    _duration,
+    _existing_database,
+    _finish,
+    _format,
+    _jira_client,
+    _load,
+    _orca,
+    _run_commands,
+    _setup_logging,
+    _wake,
+    app,
+)
+from spyhop.config.paths import (
+    database_file,
+    state_dir,
+)
+from spyhop.daemon import run_daemon
+from spyhop.domain.exceptions import OrcaCommandError, SpyhopError
+from spyhop.infrastructure.agent_state import AGENT_STATES, pane_key, write_state
+from spyhop.infrastructure.jira.mapping import ticket_text
+from spyhop.infrastructure.persistence.database import connect
+from spyhop.infrastructure.persistence.repositories import (
+    CheckpointRunRepository,
+    PollerStateRepository,
+    RunRepository,
+    SessionRepository,
+    WorktreeRepository,
+    utc_now,
+)
+from spyhop.infrastructure.process.units import SystemdUnits
+
+
+@app.command()
+def run(
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Override application.dry_run")
+    ] = None,
+    once: Annotated[bool, typer.Option(help="Poll once and exit")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Run the daemon in the foreground."""
+
+    _setup_logging(verbose)
+
+    settings = _load(config)
+
+    if dry_run is not None:
+        settings.application.dry_run = dry_run
+
+    try:
+        asyncio.run(run_daemon(settings, once=once))
+    except SpyhopError as error:
+        logging.getLogger("spyhop").error("%s", error)
+
+        raise typer.Exit(1) from None
+
+
+@app.command()
+def status(
+    issue_key: Annotated[str | None, typer.Argument(help="Only this ticket")] = None,
+    config: ConfigOption = None,
+    show_all: Annotated[bool, typer.Option("--all", help="Include finished runs")] = False,
+    timeline: Annotated[
+        bool, typer.Option("--timeline", help="Show what happened to each run, in order")
+    ] = False,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
+    ] = None,
+) -> None:
+    """Show the last poll and the automation runs."""
+
+    settings = _load(config)
+    use_dry_run = settings.application.dry_run if dry_run is None else dry_run
+    database = database_file(use_dry_run)
+
+    if not database.exists():
+        typer.echo(f"No database yet at {database}; has `spyhop run` been started?")
+
+        return
+
+    connection = connect(database)
+    poller_state = PollerStateRepository(connection)
+    sessions = SessionRepository(connection)
+    run_repository = RunRepository(connection)
+    runs = run_repository.list(issue_key=issue_key, include_terminal=show_all)
+
+    typer.echo(f"Database:       {database}{' (dry run)' if use_dry_run else ''}")
+    typer.echo(f"Last good poll: {_format(poller_state.last_success_at())}")
+    typer.echo(f"Watermark:      {_format(poller_state.watermark())}")
+
+    last_error = poller_state.last_error()
+
+    if last_error:
+        typer.echo(f"Last error:     {last_error}")
+
+    typer.echo("")
+
+    if not runs:
+        typer.echo("No runs." if show_all else "No active runs (use --all to include finished).")
+
+        return
+
+    typer.echo(f"{'RUN':<10}{'TICKET':<14}{'STATUS':<20}{'WORKFLOW':<18}{'ENTERED':<22}TRIGGER")
+
+    for automation_run in runs:
+        typer.echo(
+            f"{automation_run.id[:8]:<10}{automation_run.issue_key:<14}"
+            f"{automation_run.status:<20}{automation_run.workflow_name:<18}"
+            f"{_format(automation_run.triggered_at):<22}{automation_run.trigger_status}"
+        )
+
+        if automation_run.retry_of:
+            typer.echo(f"{'':<24}retry of {automation_run.retry_of[:8]}")
+
+        if automation_run.waiting_reason:
+            typer.echo(f"{'':<24}waiting: {automation_run.waiting_reason}")
+
+        if automation_run.error_message:
+            typer.echo(f"{'':<24}{automation_run.error_message}")
+
+        for session in sessions.list_for_run(automation_run.id):
+            typer.echo(
+                f"{'':<24}agent: {session.role or '-'} {session.model or '-'} "
+                f"{session.agent_handle or '-'} {session.status}"
+            )
+
+        if timeline:
+            for event in run_repository.events(automation_run.id):
+                typer.echo(
+                    f"{'':<24}{_format(event.at)}  {event.kind}"
+                    f"{f': {event.detail}' if event.detail else ''}"
+                )
+
+
+@app.command()
+def stats(
+    days: Annotated[int, typer.Option(min=1, help="Only the runs of the last days")] = 30,
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
+    ] = None,
+) -> None:
+    """Show what the runs of the last days took.
+
+    The cost is only the cost of the checkpoints, from their result files.
+    Orca does not give the cost of the plan and implementation agents."""
+
+    connection = connect(_existing_database(config, dry_run))
+    since = utc_now() - timedelta(days=days)
+    runs = [
+        run
+        for run in RunRepository(connection).list(include_terminal=True)
+        if run.created_at >= since
+    ]
+    sessions = SessionRepository(connection)
+    checkpoint_runs = CheckpointRunRepository(connection)
+    run_repository = RunRepository(connection)
+    result = run_stats(
+        runs,
+        [session for run in runs for session in sessions.list_for_run(run.id)],
+        [row for run in runs for row in checkpoint_runs.list_for_run(run.id)],
+        {run.id: run_repository.events(run.id) for run in runs},
+    )
+    statuses = ", ".join(f"{status} {count}" for status, count in result.runs_by_status.items())
+
+    typer.echo(f"Runs of the last {days} days: {len(runs)}{f' ({statuses})' if statuses else ''}")
+    typer.echo(f"Median time to the plan: {_duration(result.median_plan_seconds)}")
+    typer.echo(f"Median time to complete: {_duration(result.median_completed_seconds)}")
+    typer.echo(f"Restarts of agents: {result.restarts}")
+
+    if result.agents:
+        typer.echo(f"\n{'AGENT':<14}{'COUNT':>7}{'MEAN TIME':>12}")
+
+        for agent in result.agents:
+            typer.echo(f"{agent.role:<14}{agent.count:>7}{_duration(agent.mean_seconds):>12}")
+
+    if result.checkpoints:
+        typer.echo(f"\n{'CHECKPOINT':<18}{'RUNS':>6}{'PASS':>7}{'MEAN TIME':>12}{'COST':>10}")
+
+        for checkpoint in result.checkpoints:
+            typer.echo(
+                f"{checkpoint.name:<18}{checkpoint.count:>6}"
+                f"{checkpoint.passed / checkpoint.count:>7.0%}"
+                f"{_duration(checkpoint.mean_seconds):>12}{f'${checkpoint.cost_usd:.2f}':>10}"
+            )
+
+
+@app.command()
+def fail(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose active run is given up")],
+    reason: Annotated[str, typer.Option(help="Recorded as the run's error")] = (
+        "marked as failed by a person"
+    ),
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Mark a ticket's active run as FAILED, freeing its agent slot.
+
+    For runs Spyhop cannot conclude by itself, such as one waiting with
+    unknown_state. The agent and the worktree in Orca are left untouched."""
+
+    _finish(lambda: _run_commands(config, dry_run).fail(issue_key, reason))
+
+
+@app.command()
+def retry(
+    target: Annotated[str, typer.Argument(help="Run id (or its first characters) or ticket key")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Start a finished run again as a new run on the same worktree.
+
+    With a ticket key, retries the ticket's latest run. The running daemon
+    picks the new run up on its next cycle."""
+
+    _finish(lambda: _run_commands(config, dry_run).retry(target))
+
+
+@app.command()
+def cleanup(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose worktree is removed")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Remove a ticket's worktree now, whatever its JIRA status.
+
+    Cancels the ticket's active run and stops its agents. Removal is never
+    forced: with uncommitted changes the worktree stays, marked
+    CLEANUP_BLOCKED, until they are committed or discarded. Orca keeps the
+    branch unless it is merged."""
+
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+    worktrees = WorktreeRepository(connection)
+    worktree = worktrees.find_current(issue_key.upper())
+
+    if worktree is None:
+        typer.echo(f"{issue_key.upper()} has no worktree to remove.", err=True)
+
+        raise typer.Exit(1)
+
+    try:
+        orca = _orca(settings)
+        remover = WorktreeRemover(
+            RunRepository(connection),
+            worktrees,
+            worktree_host=orca,
+            terminal_host=orca,
+            board=orca,
+            units=SystemdUnits(),
+            repositories=settings.repositories,
+        )
+
+        async def remove() -> Cleanup:
+            await remover.ensure_ready()
+
+            return await remover.clean_up(worktree, "cleaned up by a person")
+
+        outcome = asyncio.run(remove())
+    except SpyhopError as error:
+        typer.echo(f"{worktree.issue_key}: removal not finished: {error}", err=True)
+
+        raise typer.Exit(1) from None
+    finally:
+        # The run can be cancelled also when the worktree stays.
+
+        _wake()
+
+    if outcome is Cleanup.BLOCKED:
+        blocked = worktrees.get(worktree.id)
+
+        typer.echo(
+            f"{worktree.issue_key}: {worktree.path} not removed: "
+            f"{blocked.cleanup_error if blocked else 'refused by Orca'}",
+            err=True,
+        )
+
+        raise typer.Exit(1)
+
+    typer.echo(f"{worktree.issue_key}: {worktree.path} removed")
+
+
+@app.command()
+def approve(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose plan is approved")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Approve the plan of a run that waits for its review.
+
+    The running daemon starts the next phase on its next cycle. The card of
+    the worktree also moves to orca.plan_approved_status, to show it on the
+    board."""
+
+    _finish(lambda: _run_commands(config, dry_run).approve(issue_key))
+
+
+@app.command()
+def declare(
+    issue_key: Annotated[str, typer.Argument(help="Ticket of the agent")],
+    what: Annotated[
+        str, typer.Argument(help="plan: CLAUDE-PLAN.md is ready. done: CLAUDE-RESULT.md is ready")
+    ],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Declare that the plan or the work of the run is ready.
+
+    The agent of the run runs this command at the end of its /goal. The card
+    of the worktree also moves, to show it on the board."""
+
+    _finish(lambda: _run_commands(config, dry_run).declare(issue_key, what))
+
+
+@app.command()
+def replan(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose plan changes")],
+    changes: Annotated[str, typer.Argument(help="The changes to the plan")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Start a new plan agent that changes CLAUDE-PLAN.md.
+
+    For a plan that waits for its review when its agent is closed. The running
+    daemon starts the agent on its next cycle, and the plan waits for the
+    review again."""
+
+    _finish(lambda: _run_commands(config, dry_run).replan(issue_key, changes))
+
+
+@app.command()
+def tell(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose agent gets the message")],
+    text: Annotated[str, typer.Argument(help="The message for the agent")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Send a message to the agent of a ticket's active run.
+
+    Orca types the message into the terminal of the agent and submits it."""
+
+    settings = _load(config)
+    connection = connect(_existing_database(config, dry_run, settings))
+    active = RunRepository(connection).list(issue_key=issue_key.upper())
+
+    if not active:
+        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
+
+        raise typer.Exit(1)
+
+    automation_run = active[0]
+    session = SessionRepository(connection).find_launched(automation_run.id)
+
+    if session is None or session.agent_handle is None:
+        typer.echo(f"{automation_run.issue_key} has no agent.", err=True)
+
+        raise typer.Exit(1)
+
+    agent = f"{session.role or 'run'} agent {session.agent_handle}"
+
+    try:
+        asyncio.run(_orca(settings).send_prompt(session.agent_handle, text))
+    except OrcaCommandError as error:
+        typer.echo(
+            f"{automation_run.issue_key}: Orca refused the message for the {agent}, "
+            f"which can be closed: {error}",
+            err=True,
+        )
+
+        raise typer.Exit(1) from None
+    except SpyhopError as error:
+        typer.echo(
+            f"{automation_run.issue_key}: the message may not have reached the {agent}: {error}",
+            err=True,
+        )
+
+        raise typer.Exit(1) from None
+
+    typer.echo(f"{automation_run.issue_key}: message sent to the {agent}.")
+
+
+@app.command()
+def ticket(
+    issue_key: Annotated[str, typer.Argument(help="Ticket to read")],
+    config: ConfigOption = None,
+) -> None:
+    """Show a JIRA ticket with all its fields and comments.
+
+    Rich text becomes plain text. Fields without a value are left out."""
+
+    settings = _load(config)
+
+    async def read() -> dict[str, Any]:
+        async with _jira_client(settings) as jira:
+            return await jira.issue(issue_key.upper(), ["*all"], expand="names")
+
+    try:
+        issue = asyncio.run(read())
+    except SpyhopError as error:
+        typer.echo(f"{issue_key.upper()}: cannot read the ticket: {error}", err=True)
+
+        raise typer.Exit(1) from None
+
+    typer.echo(ticket_text(issue), nl=False)
+
+
+@app.command(hidden=True)
+def hook() -> None:
+    """Record the state of the Claude agent of this terminal. The Claude Code
+    hooks of each worktree run this command with the event on stdin."""
+
+    # A hook must never stop Claude: any problem here is ignored.
+
+    try:
+        pane = pane_key(dict(os.environ))
+
+        if pane is not None and write_state(
+            state_dir() / AGENT_STATES, pane, json.loads(sys.stdin.read() or "{}")
+        ):
+            _wake()
+    except Exception as error:  # noqa: BLE001
+        logging.getLogger("spyhop").debug("hook ignored: %s", error)

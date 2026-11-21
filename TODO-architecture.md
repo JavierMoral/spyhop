@@ -92,11 +92,18 @@ give the commit.
    seconds. The 90 seconds count from the start of the service at the
    earliest, and a new agent clears the count.
 
-7. [ ] **Move the logic out of `cli.py`.** `approve`, `declare`, `replan`,
+7. [x] **Move the logic out of `cli.py`.** `approve`, `declare`, `replan`,
    `retry` and `fail` decide and move cards in the CLI. Move that logic to an
    application service, `RunCommands`, so that tests do not go through typer
    and other callers can use it. Split `cli.py` (1155 lines) into
    `cli/runs.py`, `cli/checkpoints.py` and `cli/service.py`.
+
+   Done in the branch `split-cli-and-supervisor`. `RunCommands`
+   (`application/run_commands.py`) has the logic of `approve`, `declare`,
+   `replan`, `retry` and `fail`, and its own tests. `cli.py` is now the
+   package `cli/`: `common.py` (the typer apps and the helpers), `runs.py`,
+   `checkpoints.py` and `service.py`. The commands and their output did not
+   change.
 
 8. [x] **Split `AgentSupervisor`.** It has 821 lines with observation, phase
    changes, restarts, replan, alerts and knowledge. Keep `observe()` as the

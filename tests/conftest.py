@@ -8,6 +8,6 @@ def woken(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
 
     calls: list[bool] = []
 
-    monkeypatch.setattr("spyhop.cli.wake_service", lambda: calls.append(True))
+    monkeypatch.setattr("spyhop.cli.common.wake_service", lambda: calls.append(True))
 
     return calls

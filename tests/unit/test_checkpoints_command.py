@@ -557,7 +557,7 @@ def test_exec_writes_a_result_when_it_stops_on_an_error(
     def broken(*arguments: object) -> None:
         raise KeyError("message")
 
-    monkeypatch.setattr("spyhop.cli._run_checkpoint", broken)
+    monkeypatch.setattr("spyhop.cli.checkpoints._run_checkpoint", broken)
 
     result = CliRunner().invoke(
         app,
@@ -595,7 +595,7 @@ def test_approve_moves_the_card_of_a_plan_that_waits_for_its_review(
     runs = RunRepository(connect(database_file(dry_run=False)))
     [automation_run] = runs.list(issue_key="LPD-1")
 
-    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: board)
+    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: board)
 
     result = CliRunner().invoke(app, ["approve", "LPD-1", "--config", str(config_file)])
 
@@ -631,7 +631,7 @@ def test_tell_sends_the_message_to_the_agent_of_the_active_run(
     [automation_run] = RunRepository(connection).list(issue_key="LPD-1")
     sessions = SessionRepository(connection)
 
-    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: terminals)
+    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: terminals)
 
     result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
 
@@ -659,7 +659,7 @@ def test_tell_reports_an_agent_that_orca_refuses(
     session = sessions.create_launching(automation_run.id, "claude", "opus", "1-abc", "plan")
 
     sessions.mark_launched(session.id, "term_1", "tab:leaf")
-    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: terminals)
+    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: terminals)
 
     result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
 
@@ -672,7 +672,7 @@ def test_tell_needs_an_active_run(
 ) -> None:
     terminals = FakeTerminals()
 
-    monkeypatch.setattr("spyhop.cli.orca_client", lambda settings: terminals)
+    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: terminals)
 
     result = CliRunner().invoke(app, ["tell", "LPD-2", "Add a test", "--config", str(config_file)])
 
