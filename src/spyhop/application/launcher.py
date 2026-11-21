@@ -139,9 +139,11 @@ class AgentLauncher:
             [Path, WorktreeRequest, float], Awaitable[Path]
         ] = run_worktree_script,
         supervisor_session: SupervisorSession | None = None,
+        notify: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._runs = runs
         self._supervisor_session = supervisor_session
+        self._notify = notify
         self._worktrees = worktrees
         self._sessions = sessions
         self._resolver = resolver
@@ -208,12 +210,18 @@ class AgentLauncher:
             # Only a run with a worktree can have a supervisor session.
 
             worktree = self._worktrees.find_current(run.issue_key)
+            text = f"la run ha fallado al arrancar: {error}"
 
             if worktree is not None:
-                await self._tell(worktree, f"la run ha fallado al arrancar: {error}")
+                await self._tell_notices(run, worktree)
+                await self._tell(worktree, text)
+            else:
+                await self._notice(run, text, queue=False)
         except _Waiting as waiting:
             if run.waiting_reason is not waiting.reason:
                 _log.warning("%s: will retry every cycle: %s", run.issue_key, waiting)
+
+                await self._notice(run, f"espera ({waiting.reason}): {waiting}")
 
             self._runs.note_wait(run.id, waiting.reason, str(waiting))
         except JiraAuthenticationError:
@@ -254,6 +262,8 @@ class AgentLauncher:
         if run.waiting_reason is not WaitingReason.DISK_SPACE:
             _log.warning("%s: %s", run.issue_key, message)
 
+            await self._notice(run, f"espera ({WaitingReason.DISK_SPACE}): {message}")
+
         self._runs.note_wait(run.id, WaitingReason.DISK_SPACE, message)
 
         return True
@@ -279,6 +289,7 @@ class AgentLauncher:
             raise _RunFailed(str(error)) from error
 
         self._runs.mark_ready(run.id, worktree.id)
+        await self._tell_notices(run, worktree)
 
         return _Prepared(workflow, worktree)
 
@@ -378,6 +389,24 @@ class AgentLauncher:
     async def _tell(self, worktree: Worktree, text: str) -> None:
         if self._supervisor_session is not None:
             await self._supervisor_session.tell(worktree, text)
+
+    async def _notice(self, run: AutomationRun, text: str, queue: bool = True) -> None:
+        """Tells about a run that has no worktree, so no supervisor session:
+        with a desktop notification now, and, with ``queue``, to the session
+        once the worktree exists."""
+
+        if self._notify is not None:
+            await self._notify(f"Spyhop: {run.issue_key}", text)
+
+        if queue:
+            self._runs.add_notice(run.id, text)
+
+    async def _tell_notices(self, run: AutomationRun, worktree: Worktree) -> None:
+        if self._supervisor_session is None:
+            return
+
+        for text in self._runs.take_notices(run.id):
+            await self._tell(worktree, f"antes del worktree: {text}")
 
     def _workflow(self, run: AutomationRun) -> ResolvedWorkflow:
         workflow = self._resolver.resolve_for_run(run)

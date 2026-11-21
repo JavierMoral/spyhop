@@ -409,6 +409,7 @@ class Harness:
         self.history = 0
         self.branches: set[str] = set()
         self.free_gb = 500.0
+        self.notifications: list[tuple[str, str]] = []
         self.measured: list[Path] = []
         self.dirty: set[Path] = set()
         self.context = ContextBuilder(
@@ -440,6 +441,7 @@ class Harness:
             branch_exists=lambda repository, branch: branch in self.branches,
             free_bytes=lambda path: self.free_bytes(path),
             supervisor_session=self.supervisor_session,
+            notify=self.notify,
         )
         self.cleaned: list[Path] = []
         self.cleanup_errors: list[Exception] = []
@@ -493,6 +495,9 @@ class Harness:
             raise self.cleanup_errors.pop(0)
 
         self.cleaned.append(worktree.path)
+
+    async def notify(self, title: str, body: str) -> None:
+        self.notifications.append((title, body))
 
     def free_bytes(self, path: Path) -> int:
         self.measured.append(path)

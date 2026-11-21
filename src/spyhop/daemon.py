@@ -35,6 +35,7 @@ from spyhop.domain.exceptions import (
     JiraRateLimitedError,
     OrcaError,
 )
+from spyhop.infrastructure.desktop import notify
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.client import OrcaClient
 from spyhop.infrastructure.orca.discovery import find_orca_executable
@@ -224,6 +225,7 @@ def _agents(
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,
         min_free_disk_gb=settings.application.min_free_disk_gb,
+        notify=notify,
         supervisor_session=supervisor_session,
     )
 

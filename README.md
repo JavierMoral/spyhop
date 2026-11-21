@@ -88,8 +88,10 @@ Each worktree gets one Claude session in an Orca tab named `spyhop`. Spyhop
 sends it a message that starts with `[spyhop]` for each event: the new
 worktree, the start of an agent or a checkpoint, each verdict, a run that
 fails to start, the end of the run, and each reason why the run waits for you.
-Spyhop cannot tell the session about a run that has no worktree yet, for
-example a run that waits for disk space.
+A run that has no worktree yet has no session: for example, a run that waits
+for disk space or for its worktree script, or that fails before its worktree
+exists. Spyhop shows a desktop notification (`notify-send`) for it, and tells
+the session about it once the worktree exists.
 
 When the run waits, the session tells you what happened and gives the options
 with their commands. When a plan waits for its review, the session gives a

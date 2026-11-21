@@ -4,6 +4,7 @@ import pytest
 
 from spyhop.application.janitor import TICKET_CLOSED
 from spyhop.domain.enums import RunStatus, WaitingReason
+from spyhop.domain.exceptions import OrcaCommandError
 from spyhop.infrastructure.disk import free_bytes
 from tests.factories import settings
 from tests.fakes import Harness
@@ -109,3 +110,48 @@ async def test_waiting_run_of_a_closed_ticket_is_cancelled(harness: Harness) -> 
 
 def test_free_bytes_measures_the_nearest_existing_directory(tmp_path: Path) -> None:
     assert free_bytes(tmp_path / "not" / "created" / "yet") == free_bytes(tmp_path)
+
+
+async def test_a_wait_without_worktree_is_notified_once_and_told_to_the_session_later(
+    tmp_path: Path,
+) -> None:
+    harness = Harness(
+        tmp_path,
+        settings(tmp_path, application={"min_free_disk_gb": 30}),
+        with_supervisor_session=True,
+    )
+    harness.free_gb = 10
+    harness.discover()
+
+    await harness.launcher.launch_pending()
+    await harness.launcher.launch_pending()
+
+    [(title, body)] = harness.notifications
+
+    assert title == "Spyhop: LPD-1"
+    assert body.startswith("espera (disk_space): waiting for disk space: 10.0 GB free")
+    assert harness.orca.terminals == []
+
+    harness.free_gb = 31
+
+    await harness.launcher.launch_pending()
+
+    [session] = harness.orca.terminals
+
+    assert f"[spyhop] LPD-1: antes del worktree: {body}" in session["command"]
+    assert len(harness.notifications) == 1
+
+
+async def test_a_run_that_fails_without_worktree_is_notified(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, with_supervisor_session=True)
+    run = harness.discover()
+
+    harness.orca.create_errors.append(OrcaCommandError("refused", "bad_request"))
+
+    await harness.launcher.launch_pending()
+
+    [(_, body)] = harness.notifications
+
+    assert harness.run(run.id).status is RunStatus.FAILED
+    assert body.startswith("la run ha fallado al arrancar: ")
+    assert harness.runs.take_notices(run.id) == []

@@ -172,6 +172,11 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs ADD COLUMN plan_changes TEXT;
     """,
+    # The notices of a run without a worktree, as a JSON list, for its
+    # supervisor session once the worktree exists.
+    """
+    ALTER TABLE automation_runs ADD COLUMN notices TEXT;
+    """,
 ]
 
 

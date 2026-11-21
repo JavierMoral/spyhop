@@ -1,4 +1,5 @@
 import builtins
+import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -249,6 +250,29 @@ class RunRepository:
             "WHERE id = ?",
             (_to_text(utc_now()), failed_only, run_id),
         )
+
+    def add_notice(self, run_id: str, text: str) -> None:
+        row = self._connection.execute(
+            "SELECT notices FROM automation_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        notices = [*json.loads(row["notices"] or "[]"), text] if row else [text]
+
+        self._connection.execute(
+            "UPDATE automation_runs SET notices = ? WHERE id = ?", (json.dumps(notices), run_id)
+        )
+
+    def take_notices(self, run_id: str) -> builtins.list[str]:
+        """The notices of the run, oldest first. They are removed."""
+
+        row = self._connection.execute(
+            "SELECT notices FROM automation_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+
+        self._connection.execute(
+            "UPDATE automation_runs SET notices = NULL WHERE id = ?", (run_id,)
+        )
+
+        return list(json.loads(row["notices"])) if row and row["notices"] else []
 
     def request_plan_changes(self, run_id: str, changes: str | None) -> None:
         self._connection.execute(
