@@ -249,10 +249,10 @@ class AgentSupervisor:
 
             return
 
-        # `worktree ps` lists every worktree of Orca, also one without agents.
-        # The supervisor asks Orca for the worktree only when the worktree is
-        # not in that list, or for the card of a run from before
-        # `spyhop declare`.
+        # `worktree ps` lists the worktrees of Orca, also the ones without
+        # agents, but it can leave some out (`truncated`). The supervisor asks
+        # Orca for the worktree only when the worktree is not in that list, or
+        # for the card of a run from before `spyhop declare`.
 
         card = None
 

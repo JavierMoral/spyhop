@@ -416,6 +416,26 @@ async def test_only_a_run_that_reads_its_card_asks_orca_for_the_worktree(
     assert harness.orca.shown == [worktree.orca_worktree_id]
 
 
+async def test_a_worktree_that_ps_leaves_out_is_asked_for_and_followed(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, worktree, pane = await launched(harness)
+    listed = harness.orca.worktree_agents
+
+    async def truncated() -> dict[str, list[AgentRow]]:
+        return {
+            key: rows for key, rows in (await listed()).items() if key != worktree.orca_worktree_id
+        }
+
+    monkeypatch.setattr(harness.orca, "worktree_agents", truncated)
+    harness.orca.set_agent(worktree.orca_worktree_id, "working", pane)
+
+    await harness.supervisor.supervise()
+
+    assert harness.orca.shown == [worktree.orca_worktree_id]
+    assert harness.run(run.id).waiting_reason is not WaitingReason.UNKNOWN_STATE
+
+
 async def test_a_deleted_worktree_folder_is_handed_to_a_person(harness: Harness) -> None:
     run, worktree, _ = await launched(harness)
 
