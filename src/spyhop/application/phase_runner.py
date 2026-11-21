@@ -284,6 +284,12 @@ class PhaseRunner:
             await self._terminal_host.send_prompt(
                 session.agent_handle, self._context.fix_prompt(run.issue_key, failed)
             )
+        except OrcaUnavailableError:
+            # The prompt did not go: the next cycle asks for the fix again.
+
+            self._runs.clear_fix_request(run.id)
+
+            raise
         except (OrcaCommandError, OrcaUncertainError) as error:
             await self._alerts.wait(
                 run,

@@ -93,8 +93,6 @@ class RunCommands:
         if worktree is None:
             raise RunCommandError(f"{run.issue_key} has no worktree.")
 
-        self._runs.approve(run.id)
-
         warnings: tuple[str, ...] = ()
 
         try:
@@ -102,12 +100,15 @@ class RunCommands:
                 worktree.orca_worktree_id, self._statuses["plan_approved_status"]
             )
         except SpyhopError as error:
-            # A run from before `spyhop declare` reads the approval from the card.
+            # A run from before `spyhop declare` reads the approval from the
+            # card, so without the card there is no approval to store.
 
             if run.signals == "card":
                 raise RunCommandError(f"{run.issue_key}: plan not approved: {error}") from error
 
             warnings = (f"{run.issue_key}: the card did not move: {error}",)
+
+        self._runs.approve(run.id)
 
         return CommandResult(
             f"{run.issue_key}: plan approved; the next phase starts on the next cycle.", warnings

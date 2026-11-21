@@ -102,8 +102,9 @@ give the commit.
    (`application/run_commands.py`) has the logic of `approve`, `declare`,
    `replan`, `retry` and `fail`, and its own tests. `cli.py` is now the
    package `cli/`: `common.py` (the typer apps and the helpers), `runs.py`,
-   `checkpoints.py` and `service.py`. The commands and their output did not
-   change.
+   `checkpoints.py` and `service.py`. Two small changes: each refusal of
+   these commands now goes to stderr (`retry` wrote one to stdout), and
+   `declare` checks the step after it opens the database.
 
 8. [x] **Split `AgentSupervisor`.** It has 821 lines with observation, phase
    changes, restarts, replan, alerts and knowledge. Keep `observe()` as the

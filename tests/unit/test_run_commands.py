@@ -62,6 +62,14 @@ async def test_a_board_failure_is_a_warning_except_for_a_card_run(harness: Harne
     with pytest.raises(RunCommandError, match="plan not approved"):
         await commands(harness).approve("LPD-1")
 
+    # Only the first approval is stored.
+
+    [approvals] = harness.connection.execute(
+        "SELECT COUNT(*) FROM run_commands WHERE kind = 'approve'"
+    ).fetchone()
+
+    assert approvals == 1
+
 
 async def test_declare_needs_a_known_step_and_an_active_run(harness: Harness) -> None:
     with pytest.raises(RunCommandError, match="Declare one of: plan, done"):

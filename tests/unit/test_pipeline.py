@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from spyhop.domain.enums import RunStatus, WaitingReason
-from spyhop.domain.exceptions import UnitError
+from spyhop.domain.exceptions import OrcaUnavailableError, UnitError
 from spyhop.domain.models import AutomationRun, CheckpointRun, ChecksPhase, Worktree
 from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
@@ -327,6 +327,29 @@ async def test_a_run_from_before_the_stored_pipeline_gets_it_on_supervision(
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).pipeline == ("implement", ChecksPhase(("regressions",), "fix"))
+
+
+async def test_a_fix_prompt_that_orca_cannot_take_is_asked_again(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
+    run, _, _ = await implemented(harness)
+    send_prompt = harness.orca.send_prompt
+    closed = [OrcaUnavailableError("Orca is closed")]
+
+    async def closed_once(terminal: str, prompt: str) -> None:
+        if closed:
+            raise closed.pop()
+
+        await send_prompt(terminal, prompt)
+
+    harness.orca.send_prompt = closed_once  # type: ignore[method-assign]
+    answer(harness, run, "regressions", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).fix_requested_at is None
+
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).fix_requested_at is not None
 
 
 async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
