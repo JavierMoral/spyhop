@@ -111,6 +111,8 @@ hagas push.
 - Qué hallazgos de la revisión se aplicaron y cuáles se descartaron, y por qué.
 {% endif -%}
 - Riesgos o limitaciones detectados.
+- Visto pero no tocado: los problemas que has encontrado fuera del alcance del
+  ticket y que no has cambiado, con fichero y línea.
 - Trabajo pendiente, si lo hubiera.
 {% if workflow.plan_review %}
 ## Phases
