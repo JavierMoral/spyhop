@@ -148,9 +148,10 @@ class ContextBuilder:
 
         return oneline(text)
 
-    def fix_prompt(self, issue_key: str, failed: Sequence[str]) -> str:
+    def fix_prompt(self, issue_key: str, failed: Sequence[str], new_agent: bool = False) -> str:
         text = self._render(
             "fix.md",
+            new_agent=new_agent,
             spyhop=str(self._spyhop),
             issue_key=issue_key,
             failed=list(failed),

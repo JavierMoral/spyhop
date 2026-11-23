@@ -241,7 +241,7 @@ class PhaseRunner:
         elif outcome.state == "passed":
             await self.enter(run, worktree, workflow, run.phase + 1, session)
         elif phase.on_fail == "fix" and outcome.round < phase.rounds:
-            await self.request_fix(run, session, outcome.failed)
+            await self.request_fix(run, worktree, session, outcome.failed)
         else:
             rounds = f" after {outcome.round} rounds" if phase.on_fail == "fix" else ""
 
@@ -252,18 +252,20 @@ class PhaseRunner:
             )
 
     async def request_fix(
-        self, run: AutomationRun, session: AgentSession | None, failed: tuple[str, ...]
+        self,
+        run: AutomationRun,
+        worktree: Worktree,
+        session: AgentSession | None,
+        failed: tuple[str, ...],
     ) -> None:
-        if session is None or session.agent_handle is None:
-            await self._alerts.wait(
-                run, WaitingReason.CHECKPOINTS_FAILED, "no agent to fix the findings"
-            )
-
-            return
-
         # Recorded first: a prompt whose outcome is unknown is not sent twice.
 
         self._runs.mark_fix_requested(run.id)
+
+        if session is None or session.agent_handle is None:
+            await self._fix_with_new_agent(run, worktree, session, failed)
+
+            return
 
         try:
             await self._terminal_host.send_prompt(
@@ -275,7 +277,15 @@ class PhaseRunner:
             self._runs.clear_fix_request(run.id)
 
             raise
-        except (OrcaCommandError, OrcaUncertainError) as error:
+        except OrcaCommandError as error:
+            # The terminal of the agent is gone: a new agent fixes the findings.
+
+            _log.info("%s: the agent cannot take the fix prompt: %s", run.issue_key, error)
+
+            await self._fix_with_new_agent(run, worktree, session, failed)
+
+            return
+        except OrcaUncertainError as error:
             await self._alerts.wait(
                 run,
                 WaitingReason.UNKNOWN_STATE,
@@ -287,3 +297,21 @@ class PhaseRunner:
         _log.info("%s: asked the agent to fix %s", run.issue_key, ", ".join(failed))
 
         await self._alerts.tell(run, f"el agente corrige los hallazgos de {', '.join(failed)}")
+
+    async def _fix_with_new_agent(
+        self,
+        run: AutomationRun,
+        worktree: Worktree,
+        session: AgentSession | None,
+        failed: tuple[str, ...],
+    ) -> None:
+        await self.launch(
+            run,
+            worktree,
+            session,
+            self._agents.model,
+            self._context.fix_prompt(run.issue_key, failed, new_agent=True),
+            "implement",
+            "implementation",
+            "use `spyhop retry` or start the agent yourself",
+        )

@@ -1,6 +1,8 @@
 {#- The prompt that Spyhop sends to the implementation agent when checkpoints
-    after the implementation fail. Rendered as a single line. -#}
-Spyhop ha ejecutado los checkpoints y han fallado: {{ failed | join(", ") }}.
+    after the implementation fail. Rendered as a single line. new_agent: the
+    launch prompt of a new agent, when the agent of the run is gone. -#}
+{% if new_agent %}/goal Lee CLAUDE-TASK.md y CLAUDE-RESULT.md: otro agente ha implementado {{ issue_key }} en los commits de esta rama.
+{% endif %}Spyhop ha ejecutado los checkpoints y han fallado: {{ failed | join(", ") }}.
 Lee CLAUDE-CHECKPOINTS.md y los informes {% for name in failed %}CLAUDE-CHECKPOINT-{{ name }}.md{{ ", " if not loop.last }}{% endfor %}.
 Corrige los hallazgos high y medium que sean correctos, con un commit por corrección, y vuelve a pasar los tests de los módulos que cambies.
 En un hallazgo de mutation, corrige el test, no el código de producción.

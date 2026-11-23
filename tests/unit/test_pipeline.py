@@ -13,7 +13,7 @@ import pytest
 
 from spyhop.application import checkpoint_runner
 from spyhop.domain.enums import RunStatus, WaitingReason
-from spyhop.domain.exceptions import OrcaUnavailableError, UnitError
+from spyhop.domain.exceptions import OrcaCommandError, OrcaUnavailableError, UnitError
 from spyhop.domain.models import AutomationRun, CheckpointRun, ChecksPhase, Worktree
 from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
@@ -395,6 +395,24 @@ async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
     assert harness.run(run.id).fix_requested_at is None
     assert harness.checkpoint_runs.last_round(run.id, 1) == 2
     assert [row.name for row in running(harness, run)] == ["regressions"]
+
+
+async def test_a_new_agent_fixes_the_findings_when_the_agent_is_gone(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
+    run, _, _ = await implemented(harness)
+    launches = len(harness.orca.launches)
+
+    harness.orca.prompt_errors.append(OrcaCommandError("terminal_handle_stale", "stale"))
+    answer(harness, run, "regressions", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    fixing = harness.run(run.id)
+    launch = harness.orca.launches[launches]
+
+    assert fixing.status is RunStatus.RUNNING
+    assert fixing.fix_requested_at is not None
+    assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md y CLAUDE-RESULT.md")
+    assert "han fallado: regressions." in launch["prompt"]
 
 
 async def test_a_rerun_after_a_fix_request_starts_a_round_without_the_fix(
