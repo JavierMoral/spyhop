@@ -43,6 +43,8 @@ EXCLUDED_PATHS = (
     # Written by /checkpoints: the verdicts and one report per checkpoint.
     "/CLAUDE-CHECKPOINTS.md",
     "/CLAUDE-CHECKPOINT-*.md",
+    # Written by the implementation agent: a note for one checkpoint.
+    "/CLAUDE-NOTE-*.md",
 )
 
 Phase = Literal["plan", "replan", "implement", "full"]

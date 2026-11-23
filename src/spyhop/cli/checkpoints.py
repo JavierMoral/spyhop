@@ -275,7 +275,7 @@ def _run_checkpoint(
     command = [
         "claude",
         "-p",
-        checkpoint_prompt(base, head_sha, root),
+        checkpoint_prompt(name, base, head_sha, root),
         "--agent",
         f"{AGENT_PREFIX}{name}",
         "--verbose",

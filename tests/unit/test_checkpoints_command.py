@@ -10,6 +10,7 @@ import respx
 import yaml
 from typer.testing import CliRunner
 
+from spyhop.application.checkpoint_runner import checkpoint_prompt
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.cli import app
 from spyhop.config.paths import database_file
@@ -770,3 +771,14 @@ def test_status_timeline_shows_what_happened_to_the_run(
     assert result.exit_code == 0, result.output
     assert "created: In Progress (bug_fix)" in result.output
     assert result.output.index("created:") < result.output.index("declared: plan")
+
+
+def test_the_checkpoint_prompt_gives_the_note_of_its_checkpoint(tmp_path: Path) -> None:
+    (tmp_path / "CLAUDE-NOTE-regressions.md").write_text("FooTest fails at BASE too.\n")
+
+    prompt = checkpoint_prompt("regressions", "b" * 40, "h" * 40, tmp_path)
+
+    assert prompt.startswith(f"BASE={'b' * 40}\nHEAD={'h' * 40}\n")
+    assert "verify it with your own commands" in prompt
+    assert prompt.endswith("FooTest fails at BASE too.")
+    assert "CLAUDE-NOTE" not in checkpoint_prompt("security", "b", "h", tmp_path)

@@ -157,7 +157,10 @@ def test_the_task_tells_which_checkpoints_run_before_and_after(tmp_path: Path) -
     assert "## Checkpoints\n" in task
     assert "ha ejecutado ticket-info, reproduce. Lee\n  sus informes antes de planificar" in task
     assert "Spyhop ejecuta regressions, mutation\n  sobre tus commits" in task
-    assert "igual que\n   CLAUDE-CHECKPOINTS.md y CLAUDE-CHECKPOINT-*.md, están excluidos" in task
+    assert (
+        "igual que\n   CLAUDE-CHECKPOINTS.md, CLAUDE-CHECKPOINT-*.md y CLAUDE-NOTE-*.md, "
+        "están excluidos" in task
+    )
     assert "/checkpoints" not in task
     assert "## Review" not in task
 
@@ -264,7 +267,7 @@ def test_prepare_writes_the_context_and_excludes_it_once(tmp_path: Path) -> None
     assert exclude.read_text() == (
         "# git's own comment\n*.log\n\n# Added by Spyhop: files written for its agents\n"
         "/CLAUDE-TASK.md\n/CLAUDE-PLAN.md\n/CLAUDE-RESULT.md\n/.claude/settings.local.json\n"
-        "/CLAUDE-CHECKPOINTS.md\n/CLAUDE-CHECKPOINT-*.md\n"
+        "/CLAUDE-CHECKPOINTS.md\n/CLAUDE-CHECKPOINT-*.md\n/CLAUDE-NOTE-*.md\n"
     )
 
 
