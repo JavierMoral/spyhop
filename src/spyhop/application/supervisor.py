@@ -303,6 +303,18 @@ class AgentSupervisor:
 
             return
 
+        # A person asked for checkpoints after the fix request: the new round
+        # does not wait for the fix.
+
+        if (
+            run.fix_requested_at is not None
+            and run.checks_requested_at is not None
+            and run.checks_requested_at > run.fix_requested_at
+        ):
+            self._runs.clear_fix_request(run.id)
+
+            run = self._reload(run)
+
         if isinstance(workflow.phases[run.phase], ChecksPhase) and run.fix_requested_at is None:
             busy = any(row.agent_type == AGENT and row.state == "working" for row in rows)
 

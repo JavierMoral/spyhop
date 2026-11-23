@@ -397,6 +397,26 @@ async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
     assert [row.name for row in running(harness, run)] == ["regressions"]
 
 
+async def test_a_rerun_after_a_fix_request_starts_a_round_without_the_fix(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
+    run, worktree, pane = await implemented(harness)
+
+    answer(harness, run, "regressions", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).fix_requested_at is not None
+
+    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
+    harness.runs.request_checks(run.id, failed_only=True)
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).fix_requested_at is None
+    assert harness.checkpoint_runs.last_round(run.id, 1) == 2
+    assert [row.name for row in running(harness, run)] == ["regressions"]
+
+
 async def test_the_last_round_does_not_fix(tmp_path: Path) -> None:
     harness = harness_with(
         tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix", "rounds": 1}
