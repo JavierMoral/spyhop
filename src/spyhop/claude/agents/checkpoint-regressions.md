@@ -26,9 +26,15 @@ the code without them.
 
 ## Rules
 
-- Do not change, add, or delete a tracked file. Do not commit, stash, reset,
-  or check out.
+- Do not change, add, or delete a tracked file, except with the commands of
+  step 7. Do not commit, stash, reset, or check out.
 - You run alone in the worktree, so you can run builds and tests.
+- If you cannot restore the worktree after step 7, stop. Do not try other
+  commands. Give a FAIL whose first finding is high and lists the files that
+  are not restored.
+- If you deployed a module in the state of `BASE`, deploy it again in the
+  state of `HEAD` before you finish, also when a step fails. If that deploy
+  fails, give a FAIL whose first finding is high and names the module.
 - At the start, run `git rev-parse HEAD`. If the result is not `HEAD`, stop
   and give a FAIL with one finding that says so.
 - At the end, run `git status --porcelain`. If it shows a change, give a FAIL
@@ -62,12 +68,39 @@ the code without them.
      still exists, and that no new test replaces.
    - An assertion that the commits delete or make less strict in a test that
      still exists.
+7. If a test failed in step 3 or 4, run it again with the code at `BASE`. A
+   test that fails at `BASE` too is not a regression of the branch. Skip this
+   step for a test class that the commits add: its failure is always a
+   finding.
+   - Run `git status --porcelain`. If it shows a change, do not do this step:
+     each failed test stays a finding.
+   - Run `git diff --name-status BASE HEAD`. Put the code at `BASE` in all the
+     changed files, test files too. Use `--worktree` so that the index does
+     not change. A renamed file (`R`) counts as a deleted old path and an
+     added new path.
+     - Modified (`M`) or deleted by the branch (`D`):
+       `git restore --source=BASE --worktree -- <file>`.
+     - Added by the branch (`A`): `mv <file> <file>.checkpoint-regressions`.
+   - For an integration test, deploy the changed modules, as the
+     repository's `CLAUDE.md` says (for example `gradlew deploy`).
+   - Run only the failed test methods, with the same command as before.
+   - Restore the worktree, also when a command stops with an error:
+     - Modified: `git restore --source=HEAD --worktree -- <file>`.
+     - Deleted by the branch: `rm <file>`.
+     - Added by the branch: `mv <file>.checkpoint-regressions <file>`.
+   - If you deployed modules, deploy them again.
+   - Run `git status --porcelain` and `git rev-parse HEAD`. The status must be
+     empty and HEAD must be `HEAD`.
+   - A test that fails at `BASE` with the same error is a low finding whose
+     summary starts with "Fails at BASE too:". Put the output of both runs in
+     `evidence`. A test that passes at `BASE`, or that fails there with a
+     different error, is a high finding.
 
 ## Verdict
 
-- `PASS`: all the tests that you ran pass, and you have no high or medium
-  finding.
-- `FAIL`: a test fails, or you have a high or medium finding.
+- `PASS`: all the tests that you ran pass, or each failed test fails at
+  `BASE` too, and you have no high or medium finding.
+- `FAIL`: you have a high or medium finding.
 
 A test that you did not run is not a pass. Do not give a PASS without the
 commands that prove it.
@@ -96,4 +129,6 @@ Give your result as one JSON object of this form:
 ```
 
 Use `high` for a broken caller or a failed test, `medium` for a probable
-regression, and `low` for a risk that you could not verify.
+regression, and `low` for a risk that you could not verify or a test that
+fails at `BASE` too. Include every command of step 7 in `commands`, the
+restore commands too.
