@@ -56,6 +56,7 @@ _DEFINITE_CODES = {
     "agent_session_operation_conflict",
     "selector_not_found",
     "invalid_argument",
+    "terminal_handle_stale",
 }
 
 
