@@ -152,6 +152,22 @@ async def test_link_worktree_adds_the_reference_and_shows_the_worktree() -> None
     ]
 
 
+async def test_set_display_name_sets_the_orca_name_of_the_worktree() -> None:
+    runner = FakeRunner('{"ok": true, "result": {}}')
+
+    await client(runner).set_display_name(WORKTREE_ID, "PROJ-123 Fix the import")
+
+    assert runner.calls[0][0][1:] == [
+        "worktree",
+        "set",
+        "--worktree",
+        f"id:{WORKTREE_ID}",
+        "--display-name",
+        "PROJ-123 Fix the import",
+        "--json",
+    ]
+
+
 async def test_create_worktree_inherits_the_setup_policy_by_default() -> None:
     runner = FakeRunner(fixture("worktree_create.json"))
 

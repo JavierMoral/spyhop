@@ -158,6 +158,7 @@ class FakeOrca:
         self.create_errors: list[Exception] = []
         self.linked: list[str] = []
         self.link_errors: list[Exception] = []
+        self.display_names: dict[str, str] = {}
         self.agents: dict[str, list[AgentRow]] = {}
         self.open_terminals: dict[str, int] = {}
         self.closed_terminals: list[str] = []
@@ -247,6 +248,9 @@ class FakeOrca:
             raise self.create_errors.pop(0)
 
         return worktree
+
+    async def set_display_name(self, orca_worktree_id: str, display_name: str) -> None:
+        self.display_names[orca_worktree_id] = display_name
 
     async def link_worktree(self, path: Path, reference: str) -> OrcaWorktree:
         self.linked.append(str(path))

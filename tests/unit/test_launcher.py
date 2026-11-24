@@ -42,8 +42,9 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert run.status is RunStatus.RUNNING
     assert run.started_at is not None
     assert worktree is not None and run.worktree_id == worktree.id
-    assert worktree.branch_name == "me/LPD-1-summary-of-lpd-1"
-    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
+    assert worktree.branch_name == "me/LPD-1"
+    assert harness.orca.created == ["LPD-1"]
+    assert harness.orca.display_names == {worktree.orca_worktree_id: "LPD-1 Summary of LPD-1"}
     assert (worktree.path / "CLAUDE-TASK.md").read_text().startswith("# Task: LPD-1")
     assert (worktree.path / ".claude" / "settings.local.json").exists()
     assert launch["worktree"] == worktree.orca_worktree_id
@@ -119,7 +120,7 @@ async def test_next_run_of_the_ticket_reuses_its_worktree(harness: Harness) -> N
 
     assert harness.run(second.id).status is RunStatus.RUNNING
     assert harness.run(second.id).worktree_id == harness.run(first.id).worktree_id
-    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
+    assert harness.orca.created == ["LPD-1"]
     assert len(harness.orca.launches) == 2
 
 
@@ -189,7 +190,7 @@ async def test_lost_launch_answer_is_replayed_with_the_same_operation_id(
     assert first["operation_id"] == second["operation_id"] == launching.launch_operation_id
     assert first["prompt"] == second["prompt"]
     assert harness.run(run.id).status is RunStatus.RUNNING
-    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
+    assert harness.orca.created == ["LPD-1"]
     assert len(harness.sessions.list_for_run(run.id)) == 1
 
 
@@ -222,7 +223,7 @@ async def test_uncertain_worktree_creation_is_found_by_reference_next_time(
 
     await harness.launcher.launch_pending()
 
-    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
+    assert harness.orca.created == ["LPD-1"]
     assert harness.run(run.id).status is RunStatus.RUNNING
 
 
@@ -341,12 +342,13 @@ async def test_worktree_script_creates_the_worktree_instead_of_orca(tmp_path: Pa
         WorktreeRequest(
             "LPD-1",
             "LPD-1-summary-of-lpd-1",
-            "LPD-1-summary-of-lpd-1",
+            "LPD-1",
             "master",
             tmp_path / "portal",
         )
     ]
     assert harness.orca.linked == [str(path)]
+    assert harness.orca.display_names == {f"repo::{path}": "LPD-1 Summary of LPD-1"}
     assert worktree is not None and worktree.path == path
     assert (path / "CLAUDE-TASK.md").exists()
 

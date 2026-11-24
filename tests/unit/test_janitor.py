@@ -267,7 +267,7 @@ async def test_reopened_ticket_reuses_a_worktree_that_could_not_be_removed(
     assert harness.run(second.id).status is RunStatus.RUNNING
     assert harness.run(second.id).worktree_id == worktree.id
     assert worktree_status(harness, worktree) is WorktreeStatus.ACTIVE
-    assert harness.orca.created == ["LPD-1-summary-of-lpd-1"]
+    assert harness.orca.created == ["LPD-1"]
 
 
 async def test_run_waits_while_its_worktree_is_being_removed(harness: Harness) -> None:

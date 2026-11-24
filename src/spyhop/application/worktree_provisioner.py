@@ -121,8 +121,11 @@ class WorktreeProvisioner:
         base_branch = workflow.base_branch
 
         if orca_worktree is None:
+            # The branch is only the ticket key: the title of a private
+            # ticket must not show in the pull request.
+
             name = worktree_name(issue_key, ticket.summary)
-            branch = name
+            branch = issue_key
             previous = await self._reopened(issue_key, workflow)
 
             if previous is not None:
@@ -139,6 +142,11 @@ class WorktreeProvisioner:
                     workflow.worktree_script_timeout,
                 )
             else:
+                # Orca names the branch after the worktree, so the worktree
+                # gets the ticket key as its name.
+
+                name = issue_key
+
                 if previous is not None:
                     # The same name makes Orca check the kept branch out
                     # again instead of creating a new one, even if the
@@ -162,12 +170,23 @@ class WorktreeProvisioner:
                 orca_worktree.branch,
                 base_branch,
             )
+
+            await self._set_display_name(orca_worktree, f"{issue_key} {ticket.summary}")
         else:
             _log.info("%s: reusing worktree %s linked in Orca", issue_key, orca_worktree.path)
 
         return self._worktrees.create(
             issue_key, orca_worktree, workflow.repository_path, base_branch
         )
+
+    async def _set_display_name(self, orca_worktree: OrcaWorktree, display_name: str) -> None:
+        """Shows the ticket title in Orca. The name is only for people, so a
+        failure is only logged."""
+
+        try:
+            await self._worktree_host.set_display_name(orca_worktree.id, display_name)
+        except OrcaCommandError as error:
+            _log.warning("cannot set the Orca name of %s: %s", orca_worktree.path, error)
 
     async def _scripted_worktree(
         self, request: WorktreeRequest, script: Path, time_limit: float

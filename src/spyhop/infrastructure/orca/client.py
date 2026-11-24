@@ -189,6 +189,20 @@ class OrcaClient:
 
         return to_orca_worktree(result["worktree"])
 
+    async def set_display_name(self, orca_worktree_id: str, display_name: str) -> None:
+        await self._call(
+            [
+                "worktree",
+                "set",
+                "--worktree",
+                f"id:{orca_worktree_id}",
+                "--display-name",
+                display_name,
+            ],
+            self._operation_timeout,
+            uncertain=False,
+        )
+
     async def launch_agent(
         self,
         orca_worktree_id: str,
