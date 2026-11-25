@@ -281,7 +281,7 @@ def test_recall_command_runs_before_the_plan(tmp_path: Path) -> None:
     recall = ContextBuilder(template_environment(tmp_path), ORCA, recall_command="/recall")
 
     assert "## Earlier findings" not in plain.render_task(ticket(), workflow())
-    assert "`/recall <palabras clave>`" in recall.render_task(ticket(), workflow())
+    assert f"`/recall {ticket().key} <palabras clave>`" in recall.render_task(ticket(), workflow())
 
 
 def test_the_settings_record_the_state_of_the_agent_with_hooks(tmp_path: Path) -> None:
