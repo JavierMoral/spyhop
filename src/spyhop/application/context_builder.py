@@ -21,7 +21,7 @@ from jinja2 import (
 )
 
 from spyhop.domain.exceptions import SpyhopError
-from spyhop.domain.models import ResolvedWorkflow, TicketDetails
+from spyhop.domain.models import CodeReviewPhase, ResolvedWorkflow, TicketDetails
 
 # Named CLAUDE-*.md so that liferay-portal's "ant clean" (and "ant all") keeps
 # them: its git clean -X removes ignored files except those matching
@@ -114,7 +114,10 @@ class ContextBuilder:
             guidance=guidance,
             orca=str(self._orca_executable),
             implement_goal=self.goal(ticket.key, "implement"),
-            review_command=self._review_command,
+            review_command=next(
+                (phase.command for phase in workflow.phases if isinstance(phase, CodeReviewPhase)),
+                self._review_command,
+            ),
             recall_command=self._recall_command,
         )
 

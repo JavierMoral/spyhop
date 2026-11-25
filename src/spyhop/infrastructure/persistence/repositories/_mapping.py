@@ -6,12 +6,14 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
     ChecksPhase,
+    CodeReviewPhase,
     Phase,
     StepRun,
     Worktree,
@@ -75,11 +77,27 @@ def _record_event(
 
 
 def _phase_name(phase: Phase) -> str:
-    return phase if isinstance(phase, str) else f"checks ({', '.join(phase.checkpoints)})"
+    if isinstance(phase, str):
+        return phase
+
+    if isinstance(phase, CodeReviewPhase):
+        return f"code_review ({phase.command})"
+
+    return f"checks ({', '.join(phase.checkpoints)})"
 
 
 def _phase_to_json(phase: Phase) -> object:
     return phase if isinstance(phase, str) else dataclasses.asdict(phase)
+
+
+def _phase_from_json(phase: Any) -> Phase:
+    if isinstance(phase, str):
+        return phase
+
+    if "command" in phase:
+        return CodeReviewPhase(**phase)
+
+    return ChecksPhase(**{**phase, "checkpoints": tuple(phase["checkpoints"])})
 
 
 def _pipeline_from_json(text: str | None) -> tuple[Phase, ...] | None:
@@ -90,14 +108,12 @@ def _pipeline_from_json(text: str | None) -> tuple[Phase, ...] | None:
         return None
 
     try:
-        phases = tuple(
-            phase
-            if isinstance(phase, str)
-            else ChecksPhase(**{**phase, "checkpoints": tuple(phase["checkpoints"])})
-            for phase in json.loads(text)
-        )
+        phases = tuple(_phase_from_json(phase) for phase in json.loads(text))
 
         for phase in phases:
+            if isinstance(phase, CodeReviewPhase) and not isinstance(phase.command, str):
+                raise ValueError(f"not a code_review phase: {phase}")
+
             if isinstance(phase, ChecksPhase) and (
                 phase.on_fail not in ("human", "fix")
                 or not all(isinstance(name, str) for name in phase.checkpoints)

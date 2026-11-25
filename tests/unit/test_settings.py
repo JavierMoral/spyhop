@@ -6,7 +6,7 @@ import pytest
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings, load_settings
 from spyhop.domain.exceptions import ConfigurationError
-from spyhop.domain.models import ChecksPhase
+from spyhop.domain.models import ChecksPhase, CodeReviewPhase
 from tests.factories import settings
 
 
@@ -107,6 +107,7 @@ def test_a_pipeline_gives_the_phases_and_the_plan_review(tmp_path: Path) -> None
                 "plan",
                 "plan_review",
                 "implement",
+                {"code_review": " /code-review-loop --rounds 2 "},
                 {"checks": ["regressions"], "on_fail": "fix", "rounds": 2},
             ]
         },
@@ -120,6 +121,7 @@ def test_a_pipeline_gives_the_phases_and_the_plan_review(tmp_path: Path) -> None
         "plan",
         "plan_review",
         "implement",
+        CodeReviewPhase("/code-review-loop --rounds 2"),
         ChecksPhase(("regressions",), "fix", 2),
     )
     assert workflow.checkpoints_around_implement() == (("ticket-info",), ("regressions",))
@@ -149,6 +151,12 @@ def test_without_a_pipeline_plan_review_gives_the_phases(tmp_path: Path) -> None
         (["review", "implement"], "Input should be"),
         (["implement", {"checks": []}], "at least 1 item"),
         (["implement", {"checks": ["a"], "rounds": 0}], "greater than or equal to 1"),
+        ([{"code_review": "/review"}, "implement"], "code_review must come after the implement"),
+        (
+            ["implement", {"code_review": "/a"}, {"code_review": "/b"}],
+            "code_review is in the pipeline more than once",
+        ),
+        (["implement", {"code_review": ""}], "at least 1 character"),
     ],
 )
 def test_a_wrong_pipeline_is_rejected(tmp_path: Path, pipeline: list[object], error: str) -> None:

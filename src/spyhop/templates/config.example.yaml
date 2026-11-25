@@ -64,6 +64,7 @@ pipelines:                        # checkpoints are subagents in
     - plan
     - plan_review
     - implement
+    # - code_review: /code-review-loop --rounds 2  # reviews the commits
     - checks: [format, regressions, verify-fix, mutation, variants, security]
       on_fail: fix                # the agent fixes the findings
       rounds: 3

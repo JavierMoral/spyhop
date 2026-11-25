@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
-from spyhop.domain.models import ChecksPhase, OrcaWorktree
+from spyhop.domain.models import ChecksPhase, CodeReviewPhase, OrcaWorktree
 from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect, transaction
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
@@ -174,7 +174,11 @@ def test_the_pipeline_of_a_run_is_stored_and_a_broken_one_is_ignored(tmp_path: P
     )
 
     runs = RunRepository(connection)
-    pipeline = ("implement", ChecksPhase(("regressions", "security"), "fix", 2))
+    pipeline = (
+        "implement",
+        CodeReviewPhase("/code-review-loop"),
+        ChecksPhase(("regressions", "security"), "fix", 2),
+    )
 
     runs.set_pipeline("r1", pipeline)
 
@@ -187,6 +191,7 @@ def test_the_pipeline_of_a_run_is_stored_and_a_broken_one_is_ignored(tmp_path: P
         '[{"checkpoints": 1}]',
         '["implement", {"checkpoints": ["a"], "on_fail": "x"}]',
         '["plan"]',
+        '["implement", {"command": 1}]',
     ):
         connection.execute("UPDATE automation_runs SET pipeline = ?", (broken,))
 

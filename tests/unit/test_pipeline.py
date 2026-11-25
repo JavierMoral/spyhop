@@ -299,6 +299,22 @@ async def test_checks_after_the_implementation_run_in_stages_and_complete_the_ru
     assert table.index("| security | PASS") < table.index("| mutation | PASS")
 
 
+async def test_an_orca_run_reviews_in_the_implementation_and_passes_the_code_review(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(
+        tmp_path, "implement", {"code_review": "/code-review-loop"}, {"checks": ["regressions"]}
+    )
+    run, worktree, _ = await implemented(harness)
+
+    assert (
+        "ejecuta `/code-review-loop` antes de escribir"
+        in (worktree.path / "CLAUDE-TASK.md").read_text()
+    )
+    assert run.phase == 2
+    assert [row.name for row in running(harness, run)] == ["regressions"]
+
+
 async def test_a_run_in_progress_keeps_its_pipeline_when_the_configuration_changes(
     tmp_path: Path,
 ) -> None:

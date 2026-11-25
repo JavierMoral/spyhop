@@ -25,7 +25,7 @@ from pydantic_settings import (
 
 from spyhop.config.paths import default_env_file, expand_path
 from spyhop.domain.exceptions import ConfigurationError
-from spyhop.domain.models import ChecksPhase, Phase, validate_pipeline
+from spyhop.domain.models import ChecksPhase, CodeReviewPhase, Phase, validate_pipeline
 
 
 def _expand(value: Any) -> Any:
@@ -81,7 +81,17 @@ class ChecksPhaseSettings(BaseModel):
     rounds: int = Field(default=3, ge=1)
 
 
-PipelineItem = Literal["plan", "plan_review", "implement"] | ChecksPhaseSettings
+class CodeReviewPhaseSettings(BaseModel):
+    """A review of the commits after the implementation, with a command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code_review: str = Field(min_length=1)
+
+
+PipelineItem = (
+    Literal["plan", "plan_review", "implement"] | ChecksPhaseSettings | CodeReviewPhaseSettings
+)
 
 
 class WorkflowSettings(BaseModel):
@@ -253,6 +263,8 @@ class Settings(BaseSettings):
         return tuple(
             item
             if isinstance(item, str)
+            else CodeReviewPhase(item.code_review.strip())
+            if isinstance(item, CodeReviewPhaseSettings)
             else ChecksPhase(tuple(item.checks), item.on_fail, item.rounds)
             for item in self.pipelines[name]
         )

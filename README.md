@@ -279,6 +279,7 @@ pipelines:
     - plan
     - plan_review
     - implement
+    - code_review: /code-review-loop --rounds 2
     - checks: [format, regressions, verify-fix, mutation, variants, security]
       on_fail: fix                # the agent fixes the findings
       rounds: 3
@@ -289,6 +290,11 @@ projects:
       Bug:
         pipeline: bug             # instead of plan_review
 ```
+
+A `code_review` phase comes after `implement`, at most once. It runs its
+command over the commits of the implementation, before the checks after it.
+In an Orca run, the implementation agent runs the command itself, before it
+writes CLAUDE-RESULT.md, and the phase does nothing more.
 
 A run keeps the pipeline that it started with. A change of `pipelines:`
 applies to the runs that start after the change. The workflow of the run and

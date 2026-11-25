@@ -24,6 +24,7 @@ from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
     ChecksPhase,
+    CodeReviewPhase,
     ResolvedWorkflow,
     Worktree,
 )
@@ -115,6 +116,10 @@ class PhaseRunner:
 
         if isinstance(phase, ChecksPhase):
             await self.checks(run, worktree, workflow, session)
+        elif isinstance(phase, CodeReviewPhase):
+            # In an Orca run, the implementation agent ran the review itself.
+
+            await self.enter(run, worktree, workflow, index + 1, session)
         elif phase == "plan":
             await self.launch(
                 run,

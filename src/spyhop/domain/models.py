@@ -56,7 +56,18 @@ class ChecksPhase:
     rounds: int = 3
 
 
-Phase = ChecksPhase | str
+@dataclass(frozen=True)
+class CodeReviewPhase:
+    """A review of the commits of the implementation with ``command``, for
+    example /code-review-loop. In a headless run, it is a turn of the
+    implementation session. In an Orca run, the implementation agent runs
+    the command itself (the Review section of CLAUDE-TASK.md), so the phase
+    does nothing."""
+
+    command: str
+
+
+Phase = ChecksPhase | CodeReviewPhase | str
 
 
 def validate_pipeline(phases: tuple[Phase, ...]) -> None:
@@ -86,9 +97,16 @@ def validate_pipeline(phases: tuple[Phase, ...]) -> None:
 
     implement = phases.index("implement")
     names: list[str] = []
+    reviews = [index for index, phase in enumerate(phases) if isinstance(phase, CodeReviewPhase)]
+
+    if len(reviews) > 1:
+        raise ValueError("code_review is in the pipeline more than once")
+
+    if reviews and reviews[0] < implement:
+        raise ValueError("code_review must come after the implement step")
 
     for index, phase in enumerate(phases):
-        if isinstance(phase, str):
+        if isinstance(phase, str | CodeReviewPhase):
             continue
 
         if phase.on_fail == "fix" and index < implement:
