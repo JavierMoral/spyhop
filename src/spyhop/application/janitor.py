@@ -17,8 +17,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 
-from spyhop.application.checkpoint_runner import unit_pattern
 from spyhop.application.launcher import PENDING
+from spyhop.application.step_runner import unit_pattern
 from spyhop.config.settings import CleanupSettings, RepositorySettings
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import (

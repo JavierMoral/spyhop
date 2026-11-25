@@ -578,7 +578,7 @@ def test_eval_grades_a_review_agent_by_its_findings(
 
         return 0, review_payload(review_finding(10, check="ORD-01"))["output"]
 
-    monkeypatch.setattr("spyhop.cli.evals._run_agent", run_agent)
+    monkeypatch.setattr("spyhop.cli.evals.run_agent", run_agent)
 
     result = CliRunner().invoke(app, ["eval", "reviewer"])
 

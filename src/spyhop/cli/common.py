@@ -57,6 +57,9 @@ checkpoints_app = typer.Typer(
     help="Plan, check and run again the checkpoints of a run.",
     no_args_is_help=True,
 )
+steps_app = typer.Typer(
+    cls=SortedGroup, help="Run the steps of a run in their units.", no_args_is_help=True
+)
 config_app = typer.Typer(cls=SortedGroup, help="Manage the configuration.", no_args_is_help=True)
 service_app = typer.Typer(
     cls=SortedGroup, help="Manage the systemd user service.", no_args_is_help=True
@@ -71,6 +74,7 @@ app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(claude_app, name="claude")
 app.add_typer(config_app, name="config")
 app.add_typer(service_app, name="service")
+app.add_typer(steps_app, name="steps", hidden=True)
 
 ConfigOption = Annotated[
     Path | None,

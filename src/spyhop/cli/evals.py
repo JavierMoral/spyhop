@@ -26,10 +26,11 @@ from spyhop.application.evals import (
     run_metrics,
 )
 from spyhop.application.executions import result_execution
-from spyhop.cli.checkpoints import _run_agent, _run_checkpoint
 from spyhop.cli.common import _load, app
+from spyhop.cli.steps import _run_checkpoint
 from spyhop.config.paths import claude_agents_dir, database_file, eval_cases_dir, evals_dir
 from spyhop.domain.exceptions import SpyhopError
+from spyhop.infrastructure.claude_cli import run_agent
 from spyhop.infrastructure.git import has_changes
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import ExecutionRepository
@@ -138,7 +139,7 @@ def eval_checkpoint(
                     base, head = build_repository(eval_case, root, task)
                     transcript = results_dir / f"{eval_case.name}-{number}.jsonl"
                     exit_code, result = (
-                        _run_agent(
+                        run_agent(
                             checkpoint,
                             review_prompt(base, head),
                             REVIEW_SCHEMA,

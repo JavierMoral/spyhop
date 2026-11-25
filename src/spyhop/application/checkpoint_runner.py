@@ -1,9 +1,9 @@
 """Runs the checkpoints of a pipeline phase and records their verdicts.
 
 Each checkpoint runs in its own systemd user unit, outside the Spyhop
-service, with `spyhop checkpoints exec`. That command runs the subagent with
-``claude -p --agent checkpoint-<name>`` and writes its result to a file, and
-its steps to a log file next to it. The supervisor calls advance() every
+service, with `spyhop steps exec` (see StepRunner). That command runs the
+subagent with ``claude -p --agent checkpoint-<name>`` and writes its result
+to a file, and its steps to a log file next to it. The supervisor calls advance() every
 cycle:
 
 - A round runs the stages of the phase in order (see CheckpointPlanner). A
@@ -26,14 +26,10 @@ cycle:
   it cannot change the worktree under the next stage.
 
 The rows of checkpoint_runs keep the state, so a restart of Spyhop continues
-the round, and a restart does not stop the units. A row is stored before its
-unit starts. The unit has a fixed name, and its command does nothing when
-another one runs for the same row or its result exists, so a checkpoint never
-runs twice.
+the round, and a restart does not stop the units.
 """
 
 import asyncio
-import fcntl
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,6 +49,7 @@ from spyhop.application.checkpoint_reports import (
 )
 from spyhop.application.checkpoint_verdicts import fingerprint
 from spyhop.application.context_builder import EXCLUDED_PATHS, add_exclusions, git_exclude_file
+from spyhop.application.step_runner import StepRunner, log_file
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.exceptions import UnitError
@@ -68,19 +65,6 @@ from spyhop.infrastructure.git import has_changes, head
 from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository
 
 _log = logging.getLogger(__name__)
-
-UNIT_PREFIX = "spyhop-checkpoint-"
-
-
-def unit_pattern(run_id: str) -> str:
-    """The units of the checkpoints of a run."""
-
-    return f"{UNIT_PREFIX}{run_id}-*"
-
-
-def log_file(row: CheckpointRun) -> Path:
-    return row.output_file.with_suffix(".log")
-
 
 NOTE_FILE = "CLAUDE-NOTE-{name}.md"
 
@@ -127,12 +111,10 @@ class CheckRunner:
     ) -> None:
         self._checkpoint_runs = checkpoint_runs
         self._supervisor_session = supervisor_session
-        self._units = units
+        self._steps = StepRunner(checkpoint_runs, units, spyhop, timeout, now)
         self._planner = planner
         self._tickets = tickets
-        self._spyhop = spyhop
         self._results_dir = results_dir
-        self._timeout = timeout
         self._now = now
 
     async def advance(
@@ -317,11 +299,7 @@ class CheckRunner:
         worktree: Worktree,
         workflow: ResolvedWorkflow,
     ) -> None:
-        unit = f"{UNIT_PREFIX}{run.id}-{row.id}"
-        command = [
-            str(self._spyhop),
-            "checkpoints",
-            "exec",
+        arguments = [
             row.name,
             "--base",
             row.base,
@@ -334,7 +312,7 @@ class CheckRunner:
         ]
 
         try:
-            await self._units.start(unit, command, worktree.path, log_file(row))
+            await self._steps.start(row, arguments, worktree.path)
         except UnitError as error:
             await self._record(
                 row,
@@ -345,8 +323,6 @@ class CheckRunner:
             )
 
             return
-
-        self._checkpoint_runs.set_unit(row.id, unit, self._now())
 
         if self._supervisor_session is not None:
             await self._supervisor_session.tell(
@@ -359,37 +335,22 @@ class CheckRunner:
         """Records the result of a checkpoint that runs, when there is one.
         Returns why the phase is blocked, or None."""
 
-        if row.output_file.is_file():
+        poll = await self._steps.poll(row)
+
+        if poll.state == "result":
             result = await self._after_exclusive(
                 row, worktree, validate(read_output(row.output_file), row.head)
             )
 
             await self._record(row, run, worktree, workflow, result)
-        elif row.unit is None:
-            # Spyhop stopped between the row and the start of its unit. A
-            # second start of the unit does nothing. The timeout counts from
-            # the start of the unit.
-
+        elif poll.state == "unstarted":
             await self._start_unit(row, run, worktree, workflow)
-        elif self._now() - row.started_at > self._timeout:
-            try:
-                await self._units.stop(row.unit)
-            except UnitError as error:
-                _log.warning("%s: %s", run.issue_key, error)
-
-            if _still_runs(row.output_file):
-                return (
-                    f"checkpoint {row.name} has no result after {self._timeout} and its "
-                    f"process still runs; stop it with `systemctl --user stop {row.unit}`"
-                )
-
+        elif poll.state == "timeout":
             await self._record(
-                row,
-                run,
-                worktree,
-                workflow,
-                CheckpointResult("FAIL", f"no result after {self._timeout}", None),
+                row, run, worktree, workflow, CheckpointResult("FAIL", poll.message, None)
             )
+        elif poll.state == "blocked":
+            return poll.message
 
         return None
 
@@ -510,22 +471,3 @@ def _requested(run: AutomationRun, rows: Sequence[CheckpointRun]) -> bool:
     started = min(row.started_at for row in rows)
 
     return run.checks_requested_at is not None and run.checks_requested_at > started
-
-
-def _still_runs(output_file: Path) -> bool:
-    """Whether `spyhop checkpoints exec` holds the lock of the result file."""
-
-    lock_file = output_file.parent / f"{output_file.name}.lock"
-
-    if not lock_file.is_file():
-        return False
-
-    with lock_file.open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-
-        fcntl.flock(lock, fcntl.LOCK_UN)
-
-    return False

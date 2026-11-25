@@ -1,17 +1,12 @@
 """The `spyhop checkpoints` commands."""
 
-import fcntl
 import json
-import subprocess
-from contextlib import nullcontext
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
 from spyhop.application.checkpoint_planner import AGENT_PREFIX, CheckpointPlanner
-from spyhop.application.checkpoint_reports import RESULT_SCHEMA
-from spyhop.application.checkpoint_runner import checkpoint_prompt
 from spyhop.application.checkpoint_verdicts import (
     VERDICTS_FILE,
     check_verdicts,
@@ -28,6 +23,7 @@ from spyhop.cli.common import (
     _workflow,
     checkpoints_app,
 )
+from spyhop.cli.steps import steps_exec
 from spyhop.config.paths import (
     claude_agents_dir,
 )
@@ -171,47 +167,10 @@ def checkpoints_exec(
     root: Annotated[Path, typer.Option(help="The root of the worktree")],
     output: Annotated[Path, typer.Option(help="The file for the result")],
 ) -> None:
-    """Run one checkpoint and write its result to --output. Spyhop starts this
-    command in a systemd user unit. It does nothing when the result exists or
-    another instance runs for the same file."""
+    """The old name of `spyhop steps exec`, for the units that started before
+    it."""
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-
-    with (output.parent / f"{output.name}.lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            typer.echo(f"Checkpoint {name} already runs for {output}.")
-
-            return
-
-        if output.exists():
-            typer.echo(f"Checkpoint {name} already has a result in {output}.")
-
-            return
-
-        typer.echo(f"Checkpoint {name} on {head_sha[:12]} in {root}")
-
-        # Always a result file: without one, Spyhop waits for the timeout.
-
-        try:
-            exit_code, result = _run_checkpoint(name, base, head_sha, root)
-        except Exception as error:
-            typer.echo(f"Checkpoint {name} stopped: {error!r}", err=True)
-
-            exit_code, result = 1, None
-
-        partial = output.parent / f"{output.name}.partial"
-
-        partial.write_text(json.dumps({"exit_code": exit_code, "output": result}))
-        partial.replace(output)
-
-    _wake()
-
-    data = (result or {}).get("structured_output")
-    verdict = data.get("verdict") if isinstance(data, dict) else None
-
-    typer.echo(f"Checkpoint {name}: {verdict or 'no verdict'}. Spyhop reads {output}.")
+    steps_exec(name, base, head_sha, root, output)
 
 
 @checkpoints_app.command("check")
@@ -265,88 +224,3 @@ def checkpoints_check(
 
     if reason is not None:
         raise typer.Exit(1)
-
-
-def _run_checkpoint(
-    name: str, base: str, head_sha: str, root: Path, transcript: Path | None = None
-) -> tuple[int, dict[str, object] | None]:
-    """Runs the subagent and shows its steps. Returns the exit code of claude
-    and its result event. With ``transcript``, writes each event of the
-    stream to that file."""
-
-    return _run_agent(
-        f"{AGENT_PREFIX}{name}",
-        checkpoint_prompt(name, base, head_sha, root),
-        RESULT_SCHEMA,
-        root,
-        transcript,
-    )
-
-
-def _run_agent(
-    agent: str,
-    prompt: str,
-    schema: dict[str, Any],
-    root: Path,
-    transcript: Path | None = None,
-) -> tuple[int, dict[str, object] | None]:
-    """Runs ``agent`` with ``prompt`` in ``root`` and shows its steps. Returns
-    the exit code of claude and its result event, which holds the JSON object
-    of ``schema``. With ``transcript``, writes each event of the stream to
-    that file."""
-
-    command = [
-        "claude",
-        "-p",
-        prompt,
-        "--agent",
-        agent,
-        "--verbose",
-        "--output-format",
-        "stream-json",
-        "--json-schema",
-        json.dumps(schema),
-        "--dangerously-skip-permissions",
-    ]
-    result: dict[str, object] | None = None
-
-    try:
-        process = subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, text=True)
-    except OSError as error:
-        typer.echo(f"Cannot run claude: {error}", err=True)
-
-        return 127, None
-
-    assert process.stdout is not None
-
-    with transcript.open("w") if transcript else nullcontext() as log:
-        for line in process.stdout:
-            if log is not None:
-                log.write(line)
-
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-
-            if not isinstance(event, dict):
-                continue
-
-            if event.get("type") == "result":
-                result = event
-            elif event.get("type") == "assistant":
-                for content in (event.get("message") or {}).get("content") or []:
-                    if not isinstance(content, dict):
-                        continue
-
-                    if (
-                        content.get("type") == "tool_use"
-                        and content.get("name") != "StructuredOutput"
-                    ):
-                        detail = json.dumps(content.get("input"))[:200]
-
-                        typer.echo(f"> {content.get('name')}: {detail}")
-                    elif content.get("type") == "text":
-                        typer.echo(content.get("text", ""))
-
-    return process.wait(), result

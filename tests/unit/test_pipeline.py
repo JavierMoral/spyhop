@@ -133,7 +133,7 @@ async def test_checks_before_the_plan_run_without_an_agent_and_then_start_it(
     [row] = running(harness, run)
 
     assert unit["unit"] == f"spyhop-checkpoint-{run.id}-{row.id}"
-    assert unit["command"][:5] == [str(SPYHOP), "checkpoints", "exec", "ticket-info", "--base"]
+    assert unit["command"][:5] == [str(SPYHOP), "steps", "exec", "ticket-info", "--base"]
     assert unit["cwd"] == worktree.path
     assert unit["log"] == row.output_file.with_suffix(".log")
     assert row.unit == unit["unit"]

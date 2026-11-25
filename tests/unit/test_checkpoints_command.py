@@ -524,7 +524,7 @@ def test_exec_runs_the_subagent_and_writes_its_result_once(
     calls = fake_claude(tmp_path / "bin", monkeypatch)
     output = tmp_path / "results" / "run" / "row.json"
     arguments = [
-        "checkpoints",
+        "steps",
         "exec",
         "security",
         "--base",
@@ -552,7 +552,7 @@ def test_exec_runs_the_subagent_and_writes_its_result_once(
     assert calls.read_text().count("--dangerously-skip-permissions") == 1
 
 
-def test_exec_writes_a_result_when_it_stops_on_an_error(
+def test_the_old_exec_name_writes_a_result_when_it_stops_on_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     output = tmp_path / "results" / "run" / "row.json"
@@ -560,7 +560,7 @@ def test_exec_writes_a_result_when_it_stops_on_an_error(
     def broken(*arguments: object) -> None:
         raise KeyError("message")
 
-    monkeypatch.setattr("spyhop.cli.checkpoints._run_checkpoint", broken)
+    monkeypatch.setattr("spyhop.cli.steps._run_checkpoint", broken)
 
     result = CliRunner().invoke(
         app,
