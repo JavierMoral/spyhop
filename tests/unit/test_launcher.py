@@ -55,6 +55,21 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert run.pipeline == ("plan", "plan_review", "implement")
 
 
+async def test_a_run_keeps_the_runner_of_its_start(tmp_path: Path) -> None:
+    config = settings(tmp_path)
+    config.agents.runner = "headless"
+    harness = Harness(tmp_path, config)
+    run = harness.discover()
+
+    assert harness.run(run.id).runner == "orca"  # not started yet
+
+    await harness.launcher.launch_pending()
+
+    config.agents.runner = "orca"
+
+    assert harness.run(run.id).runner == "headless"
+
+
 @pytest.mark.parametrize(("plan_review", "model"), [(True, "opus"), (False, "sonnet")])
 async def test_plan_comes_from_the_plan_model(
     tmp_path: Path, plan_review: bool, model: str

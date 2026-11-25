@@ -156,6 +156,14 @@ class AgentSettings(BaseModel):
     review_command: str | None = None
     # A checkpoint that runs longer than this counts as a FAIL.
     checkpoint_timeout_minutes: float = Field(default=180, gt=0)
+    # Where the implementation agent runs: in an Orca terminal, or as
+    # `claude -p` turns in systemd units. A run keeps the runner that it
+    # started with.
+    runner: Literal["orca", "headless"] = "orca"
+    # A headless turn without a result after this time stops, and the agent
+    # continues in a new turn.
+    implement_timeout_minutes: float = Field(default=360, gt=0)
+    code_review_timeout_minutes: float = Field(default=120, gt=0)
 
     @field_validator("review_command")
     @classmethod

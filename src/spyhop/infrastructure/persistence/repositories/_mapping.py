@@ -61,6 +61,7 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         missing_since=_to_datetime(row["missing_since"]),
         plan_agent_closed_told=bool(row["plan_agent_closed_told"]),
         alert_pending=bool(row["alert_pending"]),
+        runner=row["runner"],
     )
 
 

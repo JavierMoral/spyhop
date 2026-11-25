@@ -329,6 +329,10 @@ _MIGRATIONS = [
 
     CREATE INDEX idx_step_runs_run ON step_runs(run_id, phase, round);
     """,
+    # Where the implementation agent of the run runs: orca or headless.
+    """
+    ALTER TABLE automation_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'orca';
+    """,
 ]
 
 

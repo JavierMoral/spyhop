@@ -218,6 +218,8 @@ class AutomationRun:
     plan_agent_closed_told: bool = False
     # Whether the last wait did not reach the supervisor session.
     alert_pending: bool = False
+    # Where the implementation agent runs, fixed when the run starts.
+    runner: Literal["orca", "headless"] = "orca"
 
 
 @dataclass(frozen=True)

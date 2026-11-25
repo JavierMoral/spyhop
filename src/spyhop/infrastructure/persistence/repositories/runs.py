@@ -361,6 +361,14 @@ class RunRepository:
             (json.dumps([_phase_to_json(phase) for phase in phases]), run_id),
         )
 
+    def set_runner(self, run_id: str, runner: str) -> None:
+        """Keeps the runner of the run, so that a change of the configuration
+        does not move an active run to the other runner."""
+
+        self._connection.execute(
+            "UPDATE automation_runs SET runner = ? WHERE id = ?", (runner, run_id)
+        )
+
     def request_plan_changes(self, run_id: str, changes: str) -> None:
         """A new plan agent makes the changes. The supervisor consumes the
         request when it starts that agent."""

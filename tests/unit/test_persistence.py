@@ -265,7 +265,9 @@ def test_the_checkpoint_rows_become_check_steps(tmp_path: Path) -> None:
     database = tmp_path / "spyhop.db"
     legacy = sqlite3.connect(database, isolation_level=None)
 
-    for index, script in enumerate(_MIGRATIONS[:-1], start=1):
+    rename = next(index for index, script in enumerate(_MIGRATIONS) if "step_runs" in script)
+
+    for index, script in enumerate(_MIGRATIONS[:rename], start=1):
         legacy.executescript(f"BEGIN; {script}; PRAGMA user_version = {index}; COMMIT;")
 
     _running_run(legacy)

@@ -226,10 +226,11 @@ class AgentLauncher:
             raise RunFailed(str(error)) from error
 
         # CLAUDE-TASK.md describes this pipeline, and run.phase is an index
-        # into it from now on.
+        # into it from now on. The run also keeps its runner.
 
         if run.pipeline is None:
             self._runs.set_pipeline(run.id, workflow.phases)
+            self._runs.set_runner(run.id, self._agents.runner)
 
         self._runs.mark_ready(run.id, worktree.id)
         await self._tell_notices(run, worktree)
