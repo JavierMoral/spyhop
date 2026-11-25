@@ -126,6 +126,15 @@ class StepRunRepository:
 
             return row
 
+    def list_work(self, run_id: str) -> list[StepRun]:
+        """The turns of the agents of the run, oldest first."""
+
+        rows = self._connection.execute(
+            "SELECT * FROM step_runs WHERE run_id = ? AND kind = 'work' ORDER BY rowid", (run_id,)
+        )
+
+        return [_to_step_run(row) for row in rows]
+
     def last_work(self, run_id: str, phase: int | None = None) -> StepRun | None:
         """The last turn of the run, or of one phase of the run."""
 

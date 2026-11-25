@@ -19,6 +19,7 @@ from spyhop.application.executions import history as agent_history
 from spyhop.application.executions import profile_history, total_tokens
 from spyhop.application.janitor import Cleanup, WorktreeRemover
 from spyhop.application.stats import run_stats
+from spyhop.application.step_runner import log_file
 from spyhop.cli.common import (
     ConfigOption,
     _duration,
@@ -107,6 +108,7 @@ def status(
     connection = connect(database)
     poller_state = PollerStateRepository(connection)
     sessions = SessionRepository(connection)
+    steps = StepRunRepository(connection)
     run_repository = RunRepository(connection)
     runs = run_repository.list(issue_key=issue_key, include_terminal=show_all)
 
@@ -148,6 +150,12 @@ def status(
             typer.echo(
                 f"{'':<24}agent: {session.role or '-'} {session.model or '-'} "
                 f"{session.agent_handle or '-'} {session.status}"
+            )
+
+        for turn in steps.list_work(automation_run.id):
+            typer.echo(
+                f"{'':<24}turn: {turn.name} {turn.turn} {turn.outcome or 'running'} "
+                f"session {turn.session_id} log {log_file(turn)}"
             )
 
         if timeline:

@@ -758,6 +758,10 @@ def test_tell_queues_the_message_of_a_headless_agent(
     assert [text for _, text in runs.pending_messages(automation_run.id)] == ["Add a test"]
     assert terminals.prompts == []
 
+    status = CliRunner().invoke(app, ["status", "LPD-1", "--config", str(config_file)])
+
+    assert "turn: implement launch running session s-1 log " in status.output
+
 
 def test_tell_reports_an_agent_that_orca_refuses(
     config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
