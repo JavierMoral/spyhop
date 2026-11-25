@@ -317,7 +317,7 @@ class AgentSupervisor:
         # of an Orca terminal.
 
         if run.runner == "headless" and (
-            phase == "implement"
+            phase in ("plan", "implement")
             or isinstance(phase, CodeReviewPhase)
             or (
                 isinstance(phase, ChecksPhase)

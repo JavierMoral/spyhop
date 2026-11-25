@@ -8,7 +8,7 @@ import logging
 from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
-from spyhop.application.context_builder import RESULT_FILE, ContextBuilder
+from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBuilder
 from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.application.step_runner import log_file
@@ -71,6 +71,28 @@ class PhaseRunner:
 
         if run.waiting_reason is not WaitingReason.PLAN_REVIEW:
             _log.warning("%s: plan changes ignored: no plan waits for a review", run.issue_key)
+
+            return
+
+        if self._headless(run):
+            # A turn of the plan session, which keeps the context of the plan.
+
+            session_id = self._work_runner().last_session(run.id, "plan")
+
+            await self.start_turn(
+                run,
+                worktree,
+                "plan",
+                "replan",
+                self._context.turn_prompt(
+                    run.issue_key,
+                    "replan",
+                    worktree.path,
+                    changes=changes,
+                    new_session=session_id is None,
+                ),
+                session_id,
+            )
 
             return
 
@@ -145,6 +167,15 @@ class PhaseRunner:
                 # In an Orca run, the implementation agent ran the review itself.
 
                 await self.enter(run, worktree, workflow, index + 1, session)
+        elif phase == "plan" and self._headless(run):
+            await self.start_turn(
+                run,
+                worktree,
+                "plan",
+                "launch",
+                self._context.turn_prompt(run.issue_key, "plan", worktree.path),
+                previous=session,
+            )
         elif phase == "plan":
             await self.launch(
                 run,
@@ -227,7 +258,13 @@ class PhaseRunner:
 
         state = await self._work_runner().advance(run, worktree)
         phase = workflow.phases[run.phase]
-        name = "code_review" if isinstance(phase, CodeReviewPhase) else "implement"
+        name = (
+            "code_review"
+            if isinstance(phase, CodeReviewPhase)
+            else "plan"
+            if phase == "plan"
+            else "implement"
+        )
         messages = self._runs.pending_messages(run.id)
 
         if messages and state.state not in ("running", "blocked"):
@@ -247,6 +284,11 @@ class PhaseRunner:
                 self._runs.request_checks(run.id)
 
             await self.checks(self._runs.get(run.id) or run, worktree, workflow, None)
+
+            return
+
+        if state.state == "done" and phase == "plan":
+            await self._plan_done(run, worktree, workflow)
 
             return
 
@@ -283,6 +325,7 @@ class PhaseRunner:
                     worktree.path,
                     changes=state.detail or state.state,
                     new_session=new_session,
+                    planning=name == "plan",
                 ),
                 None if new_session else state.row.session_id,
             )
@@ -306,7 +349,7 @@ class PhaseRunner:
             if state.state == "resume_failed"
             else state.row.session_id
             if state.row is not None
-            else self._work_runner().last_session(run.id, "implement")
+            else self._work_runner().last_session(run.id, name)
         )
         turn = "answer" if run.waiting_reason is WaitingReason.AGENT_QUESTION else "message"
 
@@ -321,12 +364,44 @@ class PhaseRunner:
                 worktree.path,
                 changes="\n".join(text for _, text in messages),
                 new_session=session_id is None,
+                planning=name == "plan",
             ),
             session_id,
         )
 
         for command_id, _ in messages:
             self._runs.consume_command(command_id)
+
+    async def _plan_done(
+        self, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
+    ) -> None:
+        """The plan waits for its review. After `spyhop approve`, the phase
+        after plan_review starts."""
+
+        approved = (
+            run.waiting_reason is WaitingReason.PLAN_REVIEW
+            and run.approved_at is not None
+            and run.status_changed_at is not None
+            and run.approved_at >= run.status_changed_at
+        )
+
+        if not approved:
+            await self._alerts.wait(
+                run, WaitingReason.PLAN_REVIEW, f"review {worktree.path / PLAN_FILE}"
+            )
+
+            return
+
+        self._runs.consume(run.id, "approve")
+
+        phases = workflow.phases
+        after = (
+            phases.index("plan_review") + 1
+            if "plan_review" in phases
+            else phases.index("implement")
+        )
+
+        await self.enter(run, worktree, workflow, after, None)
 
     def has_messages(self, run: AutomationRun) -> bool:
         return bool(self._runs.pending_messages(run.id))

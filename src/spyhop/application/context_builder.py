@@ -123,6 +123,7 @@ class ContextBuilder:
             guidance=guidance,
             orca=str(self._orca_executable),
             implement_goal=self.goal(ticket.key, "implement"),
+            headless=headless,
             review_command=None
             if headless
             else next(
@@ -173,8 +174,10 @@ class ContextBuilder:
         command: str = "",
         new_session: bool = False,
         failed: Sequence[str] = (),
+        planning: bool = False,
     ) -> str:
-        """The prompt of a turn of a headless agent (see turn.md)."""
+        """The prompt of a turn of a headless agent (see turn.md). ``planning``:
+        a turn of the plan agent, also a message or a continue turn."""
 
         text = self._render(
             "turn.md",
@@ -185,6 +188,7 @@ class ContextBuilder:
             command=command,
             new_session=new_session,
             failed=list(failed),
+            planning=planning or turn in ("plan", "replan"),
             spyhop=str(self._spyhop),
             orca=str(self._orca_executable),
         )

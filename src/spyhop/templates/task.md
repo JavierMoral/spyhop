@@ -118,6 +118,15 @@ hagas push.
 {% if workflow.plan_review %}
 ## Phases
 
+{% if headless -%}
+Fase A: escribir CLAUDE-PLAN.md y terminar el turno. Una persona revisa el plan.
+Si pide cambios, o te escribe, recibes otro turno en esta misma sesión. La fase
+B la hace otro agente, que no ve esta conversación: deja en CLAUDE-PLAN.md todo
+lo que hayas acordado con la persona.
+
+Fase B: cuando la persona apruebe el plan, Spyhop arranca un agente nuevo que lo
+implementa. El agente de la fase A no la empieza por su cuenta.
+{% else -%}
 Fase A: escribir CLAUDE-PLAN.md y esperar la revisión de una persona. Si te
 responde con cambios, actualiza CLAUDE-PLAN.md y vuelve a declarar el plan como en
 la fase A. La fase B la hace otro agente, que no ve esta conversación: deja en
@@ -129,4 +138,5 @@ agente nuevo con este objetivo. El agente de la fase A no la empieza por su cuen
 ```
 {{ implement_goal }}
 ```
+{% endif -%}
 {% endif -%}

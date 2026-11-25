@@ -316,8 +316,8 @@ class AgentLauncher:
 
         current = self._runs.get(run.id) or run
 
-        if current.runner == "headless" and step == "implement":
-            return await self._launch_turn(current, prepared, change)
+        if current.runner == "headless":
+            return await self._launch_turn(current, prepared, change, step)
 
         try:
             session = await self._starter.start(run, prepared.worktree, model, goal, step)
@@ -358,10 +358,10 @@ class AgentLauncher:
         return True
 
     async def _launch_turn(
-        self, run: AutomationRun, prepared: _Prepared, change: str | None
+        self, run: AutomationRun, prepared: _Prepared, change: str | None, step: str
     ) -> bool:
-        """Starts the first turn of a headless implementation agent: the
-        whole task, or the change of a person after a completed run."""
+        """Starts the first turn of a headless agent: the plan, the whole
+        task, or the change of a person after a completed run."""
 
         if self._work is None:
             raise RunFailed("this Spyhop runs no headless turns")
@@ -378,7 +378,7 @@ class AgentLauncher:
         )
         prompt = self._context.turn_prompt(
             run.issue_key,
-            "change" if change is not None else "full",
+            "change" if change is not None else step if step == "plan" else "full",
             worktree.path,
             changes=change or "",
             new_session=change is not None and session_id is None,
@@ -386,7 +386,7 @@ class AgentLauncher:
         row = await self._work.turn(
             run,
             worktree,
-            "implement",
+            step,
             "change" if change is not None else "launch",
             prompt,
             session_id,
@@ -406,7 +406,7 @@ class AgentLauncher:
         await self._tell(
             worktree,
             f"worktree listo en {worktree.path} (rama {worktree.branch_name}); turno "
-            f"{row.turn} de implement arrancado; log en {log_file(row)}",
+            f"{row.turn} de {step} arrancado; log en {log_file(row)}",
         )
 
         return True

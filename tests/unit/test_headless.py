@@ -2,6 +2,7 @@
 `claude -p` turns in units, one work row for each turn."""
 
 import json
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -419,3 +420,86 @@ async def test_a_change_after_a_completed_run_resumes_its_session(tmp_path: Path
         prompt_file(change).read_text()
     )
     assert "su sesión ya no existe" not in prompt_file(change).read_text()
+
+
+def commands(harness: Harness) -> RunCommands:
+    return RunCommands(
+        harness.runs, harness.worktrees, lambda: harness.orca, PLAN_REVIEW, PLAN_APPROVED
+    )
+
+
+def planned(row: StepRun, worktree: Worktree) -> None:
+    written(worktree.path / "CLAUDE-PLAN.md", f"plan of {row.turn}", ahead=1)
+    end_turn(row, {"is_error": False, "structured_output": {"status": "done", "summary": "Plan"}})
+
+
+async def test_a_headless_plan_waits_for_its_review_and_a_new_session_implements_it(
+    tmp_path: Path,
+) -> None:
+    harness, run, worktree = await implementing(tmp_path, "plan", "plan_review", "implement")
+    [plan] = turns(harness)
+    command = unit_of(harness, plan)
+
+    assert harness.orca.launches == []
+    assert (plan.name, plan.turn) == ("plan", "launch")
+    assert command[command.index("--model") + 1] == "opus"
+    assert "escribe CLAUDE-PLAN.md" in prompt_file(plan).read_text()
+    assert "No modifiques código" in prompt_file(plan).read_text()
+    assert "terminar el turno" in (worktree.path / "CLAUDE-TASK.md").read_text()
+
+    planned(plan, worktree)
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
+    assert len(turns(harness)) == 1
+
+    # The changes of the person go to the plan session.
+
+    commands(harness).replan("LPD-1", "Add a test for the tablet viewport")
+    await harness.supervisor.supervise()
+
+    [_, replan] = turns(harness)
+
+    assert (replan.turn, replan.session_id) == ("replan", plan.session_id)
+    assert "Add a test for the tablet viewport" in prompt_file(replan).read_text()
+
+    planned(replan, worktree)
+    await harness.supervisor.supervise()
+
+    # A question about the plan changes nothing, and the plan waits again.
+
+    os.utime(worktree.path / "CLAUDE-PLAN.md", (1, 1))
+    tell(harness, "Why a new class?")
+    await harness.supervisor.supervise()
+
+    [*_, question] = turns(harness)
+
+    assert (question.name, question.turn, question.session_id) == (
+        "plan",
+        "message",
+        plan.session_id,
+    )
+    assert "No modifiques código" in prompt_file(question).read_text()
+
+    end_turn(
+        question,
+        {"is_error": False, "structured_output": {"status": "done", "summary": "Because"}},
+    )
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
+    assert len(turns(harness)) == 3
+
+    await commands(harness).approve("LPD-1")
+    await harness.supervisor.supervise()
+
+    [*_, implement] = turns(harness)
+    command = unit_of(harness, implement)
+
+    assert harness.run(run.id).phase == 2
+    assert (implement.name, implement.turn) == ("implement", "launch")
+    assert implement.session_id != plan.session_id
+    assert "--resume" not in command
+    assert command[command.index("--model") + 1] == "sonnet"
+    assert "implementa CLAUDE-PLAN.md" in prompt_file(implement).read_text()

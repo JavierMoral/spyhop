@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 from spyhop.application.checkpoint_reports import read_output
-from spyhop.application.context_builder import RESULT_FILE
+from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE
 from spyhop.application.step_runner import StepRunner
 from spyhop.application.work_results import validate_work
 from spyhop.config.settings import AgentSettings
@@ -183,7 +183,7 @@ class WorkRunner:
             "--prompt-file",
             str(prompt_file(row)),
             "--model",
-            self._agents.model,
+            self._agents.plan_model if row.name == "plan" else self._agents.model,
             "--effort",
             self._agents.effort,
         ]
@@ -208,10 +208,19 @@ class WorkRunner:
         if await asyncio.to_thread(has_changes, worktree.path):
             return f"the worktree {worktree.path} has uncommitted changes"
 
-        result = worktree.path / RESULT_FILE
+        # A message to the plan agent can be a question about the plan, which
+        # changes nothing.
+
+        if row.name == "plan" and row.turn in ("message", "answer"):
+            return None
+
+        # The plan agent writes the plan; the others write the result.
+
+        written = PLAN_FILE if row.name == "plan" else RESULT_FILE
+        result = worktree.path / written
 
         if not result.is_file() or result.stat().st_mtime < row.started_at.timestamp():
-            return f"{RESULT_FILE} was not written in this turn"
+            return f"{written} was not written in this turn"
 
         return None
 
