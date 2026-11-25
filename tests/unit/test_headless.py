@@ -241,7 +241,7 @@ async def test_checks_before_the_implementation_start_the_first_turn(tmp_path: P
     assert harness.orca.launches == []
 
 
-async def test_a_failed_check_of_a_headless_run_waits_for_a_person(tmp_path: Path) -> None:
+async def test_a_failed_check_gets_a_fix_turn_and_a_new_round(tmp_path: Path) -> None:
     harness, run, worktree = await implementing(
         tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"}
     )
@@ -253,8 +253,31 @@ async def test_a_failed_check_of_a_headless_run_waits_for_a_person(tmp_path: Pat
     answer(harness, run, "regressions", "FAIL")
     await harness.supervisor.supervise()
 
-    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+    [_, fix] = turns(harness)
+
+    assert (fix.phase, fix.turn, fix.session_id) == (1, "fix", first.session_id)
+    assert "--resume" in unit_of(harness, fix)
+    assert "han fallado: regressions" in prompt_file(fix).read_text()
+    assert "declare" not in prompt_file(fix).read_text()
     assert harness.orca.launches == []
+
+    # No new round while the fix runs, also after a commit of the fix.
+
+    commit(worktree, "class App { int fixed = 1; }\n")
+    await harness.supervisor.supervise()
+
+    assert running(harness, run) == []
+
+    done(fix, worktree)
+    await harness.supervisor.supervise()
+
+    assert harness.checkpoint_runs.get(fix.id).outcome == "done"  # type: ignore[union-attr]
+    assert [(row.name, row.round) for row in running(harness, run)] == [("regressions", 2)]
+
+    answer(harness, run, "regressions")
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).status is RunStatus.COMPLETED
 
 
 async def test_the_review_command_becomes_a_code_review_phase(tmp_path: Path) -> None:

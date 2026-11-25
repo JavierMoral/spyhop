@@ -172,6 +172,7 @@ class ContextBuilder:
         changes: str = "",
         command: str = "",
         new_session: bool = False,
+        failed: Sequence[str] = (),
     ) -> str:
         """The prompt of a turn of a headless agent (see turn.md)."""
 
@@ -183,6 +184,9 @@ class ContextBuilder:
             changes=oneline(changes),
             command=command,
             new_session=new_session,
+            failed=list(failed),
+            spyhop=str(self._spyhop),
+            orca=str(self._orca_executable),
         )
 
         return oneline(text)
@@ -191,6 +195,7 @@ class ContextBuilder:
         text = self._render(
             "fix.md",
             new_agent=new_agent,
+            headless=False,
             spyhop=str(self._spyhop),
             issue_key=issue_key,
             failed=list(failed),

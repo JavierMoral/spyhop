@@ -313,7 +313,9 @@ class AgentSupervisor:
         # of an Orca terminal.
 
         if run.runner == "headless" and (
-            phase == "implement" or isinstance(phase, CodeReviewPhase)
+            phase == "implement"
+            or isinstance(phase, CodeReviewPhase)
+            or (isinstance(phase, ChecksPhase) and self._phases.turn_after_checks(run))
         ):
             await self._phases.work(run, worktree, workflow)
 

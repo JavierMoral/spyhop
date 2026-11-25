@@ -229,6 +229,18 @@ class PhaseRunner:
         phase = workflow.phases[run.phase]
         name = "code_review" if isinstance(phase, CodeReviewPhase) else "implement"
 
+        if state.state == "done" and isinstance(phase, ChecksPhase):
+            # A fix or a message for the failed round: the round runs again.
+
+            assert state.row is not None and state.row.finished_at is not None
+
+            if run.checks_requested_at is None or run.checks_requested_at < state.row.finished_at:
+                self._runs.request_checks(run.id)
+
+            await self.checks(self._runs.get(run.id) or run, worktree, workflow, None)
+
+            return
+
         if state.state == "running":
             await self._alerts.resume(run)
         elif state.state == "blocked":
@@ -271,6 +283,12 @@ class PhaseRunner:
                 WaitingReason.UNKNOWN_STATE,
                 f"the turn of {name} ended {state.state}: {state.detail}",
             )
+
+    def turn_after_checks(self, run: AutomationRun) -> bool:
+        """Whether a headless turn for the failed round of the current checks
+        phase runs or has to be acted on (see WorkRunner)."""
+
+        return self._headless(run) and self._work_runner().turn_after_checks(run)
 
     def _headless(self, run: AutomationRun) -> bool:
         return run.runner == "headless"
@@ -390,10 +408,23 @@ class PhaseRunner:
         failed: tuple[str, ...],
     ) -> None:
         if self._headless(run):
-            await self._alerts.wait(
+            # A turn of the implementation session, in the checks phase.
+
+            session_id = self._work_runner().last_session(run, "implement")
+
+            await self.start_turn(
                 run,
-                WaitingReason.CHECKPOINTS_FAILED,
-                f"failed: {', '.join(failed)}; a headless run does not fix the findings yet",
+                worktree,
+                "implement",
+                "fix",
+                self._context.turn_prompt(
+                    run.issue_key,
+                    "fix",
+                    worktree.path,
+                    new_session=session_id is None,
+                    failed=failed,
+                ),
+                session_id,
             )
 
             return

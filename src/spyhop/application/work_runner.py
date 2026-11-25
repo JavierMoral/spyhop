@@ -101,6 +101,20 @@ class WorkRunner:
     def last_session(self, run: AutomationRun, name: str) -> str | None:
         return self._rows.last_session(run.id, name)
 
+    def turn_after_checks(self, run: AutomationRun) -> bool:
+        """Whether the last turn of the current checks phase came after the
+        start of its last round of checkpoints: a fix or a message for that
+        round, which runs or still has to be acted on."""
+
+        row = self._rows.last_work(run.id, run.phase)
+
+        if row is None:
+            return False
+
+        checks = self._rows.list_round(run.id, run.phase, self._rows.last_round(run.id, run.phase))
+
+        return not checks or row.started_at >= min(check.started_at for check in checks)
+
     async def advance(self, run: AutomationRun, worktree: Worktree) -> TurnState:
         """Records the result of the last turn of the current phase, when it
         has one, and gives its state."""
