@@ -8,6 +8,7 @@ from spyhop.application.supervisor_session import UNUSABLE
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AutomationRun, OrcaTerminal, StepRun, Worktree
+from spyhop.infrastructure.agent_state import write_state
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
 from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started, written
 
@@ -318,3 +319,30 @@ async def test_the_session_hears_that_the_run_failed_to_start(tmp_path: Path) ->
         "[spyhop] LPD-1: la run ha fallado al arrancar: Orca refused the launch"
         in (session["command"])
     )
+
+
+async def test_a_session_that_the_user_closed_starts_again_at_once(tmp_path: Path) -> None:
+    harness, run, worktree = await failed_check(tmp_path)
+
+    await harness.supervisor.supervise()
+
+    current = harness.worktrees.get(worktree.id)
+
+    assert current is not None and current.supervisor_pane_key is not None
+    assert len(harness.orca.terminals) == 1
+
+    write_state(
+        harness.agent_states_dir, current.supervisor_pane_key, {"hook_event_name": "SessionEnd"}
+    )
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    [_, session] = harness.orca.terminals
+    reopened = harness.worktrees.get(worktree.id)
+
+    assert "la sesión supervisora anterior se cerró" in session["command"]
+    assert (
+        f"la run {run.id[:8]} sigue (WAITING_FOR_HUMAN, espera: checkpoints_failed)"
+        in (session["command"])
+    )
+    assert reopened is not None and reopened.supervisor_pane_key != current.supervisor_pane_key

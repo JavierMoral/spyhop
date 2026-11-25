@@ -20,6 +20,7 @@ from spyhop.application.context_builder import ContextBuilder
 from spyhop.domain.exceptions import OrcaCommandError, OrcaError
 from spyhop.domain.models import Worktree
 from spyhop.domain.protocols import BoardMirror, TerminalHost
+from spyhop.infrastructure.agent_state import read_state
 from spyhop.infrastructure.persistence.repositories import WorktreeRepository
 
 _log = logging.getLogger(__name__)
@@ -94,6 +95,30 @@ class SupervisorSession:
                 return False
 
         return await self._start(current, message)
+
+    async def reopen(self, worktree: Worktree, text: str) -> bool:
+        """Starts a new session for a worktree whose session ended, so that
+        the user can talk with it before the next message of the run."""
+
+        current = self._worktrees.get(worktree.id) or worktree
+
+        if current.supervisor_terminal in (None, UNUSABLE):
+            return False
+
+        _log.info("%s: supervisor session ended; starting a new one", worktree.issue_key)
+
+        return await self._start(current, f"{PREFIX} {worktree.issue_key}: {text}")
+
+    def ended(self, worktree: Worktree, states_dir: Path) -> bool:
+        """Whether the hooks of the session of the worktree recorded its end:
+        the user closed it."""
+
+        if worktree.supervisor_terminal in (None, UNUSABLE) or worktree.supervisor_pane_key is None:
+            return False
+
+        state = read_state(states_dir, worktree.supervisor_pane_key)
+
+        return state is not None and state.state == "ended"
 
     async def alert(self, worktree: Worktree, text: str) -> bool:
         """Tells the session that the run waits for a person, and marks the

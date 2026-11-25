@@ -74,6 +74,7 @@ from spyhop.domain.models import (
     ChecksPhase,
     CodeReviewPhase,
     ResolvedWorkflow,
+    Worktree,
 )
 from spyhop.domain.protocols import TerminalHost, WorktreeHost
 from spyhop.infrastructure.agent_state import read_state
@@ -194,6 +195,7 @@ class AgentSupervisor:
         self._plan_review_status = plan_review_status
         self._plan_approved_status = plan_approved_status
         self._alerts = RunAlerts(runs, worktrees, supervisor_session)
+        self._supervisor_session = supervisor_session
         self._phases = PhaseRunner(
             runs,
             sessions,
@@ -283,6 +285,8 @@ class AgentSupervisor:
                 )
 
                 return
+
+        await self._reopen_session(run, worktree)
 
         workflow = self._workflow(run)
 
@@ -451,6 +455,25 @@ class AgentSupervisor:
                 WaitingReason.UNKNOWN_STATE,
                 "the agent stopped without declaring the plan or the end",
             )
+
+    async def _reopen_session(self, run: AutomationRun, worktree: Worktree) -> None:
+        """A run in progress keeps a supervisor session: when the user closes
+        it, a new one starts at once."""
+
+        if (
+            self._supervisor_session is None
+            or self._agent_states_dir is None
+            or not self._supervisor_session.ended(worktree, self._agent_states_dir)
+        ):
+            return
+
+        waiting = f", espera: {run.waiting_reason}" if run.waiting_reason else ""
+
+        await self._supervisor_session.reopen(
+            worktree,
+            f"la sesión supervisora anterior se cerró; la run {run.id[:8]} sigue "
+            f"({run.status}{waiting}); muestra su estado al usuario",
+        )
 
     def _with_hook_state(self, agent: AgentRow | None) -> AgentRow | None:
         """The agent with the state that its hooks recorded, when there is
