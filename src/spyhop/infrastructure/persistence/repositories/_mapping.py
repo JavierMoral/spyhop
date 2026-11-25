@@ -129,6 +129,10 @@ def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:
         detail=row["detail"],
         started_at=datetime.fromisoformat(row["started_at"]),
         finished_at=_to_datetime(row["finished_at"]),
+        kind=row["kind"],
+        session_id=row["session_id"],
+        turn=row["turn"],
+        outcome=row["outcome"],
     )
 
 

@@ -1,4 +1,4 @@
-"""The checkpoints that ran for a run."""
+"""The steps that ran for a run: its checkpoints and the turns of its agents."""
 
 import sqlite3
 import uuid
@@ -44,7 +44,7 @@ class CheckpointRunRepository:
 
             self._connection.execute(
                 """
-                INSERT INTO checkpoint_runs (
+                INSERT INTO step_runs (
                     id, run_id, phase, round, name, inputs, base, head, output_file,
                     status, started_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)
@@ -81,7 +81,7 @@ class CheckpointRunRepository:
 
     def get(self, checkpoint_run_id: str) -> CheckpointRun | None:
         row = self._connection.execute(
-            "SELECT * FROM checkpoint_runs WHERE id = ?", (checkpoint_run_id,)
+            "SELECT * FROM step_runs WHERE id = ?", (checkpoint_run_id,)
         ).fetchone()
 
         return _to_checkpoint_run(row) if row else None
@@ -90,7 +90,7 @@ class CheckpointRunRepository:
         """The number of the last round of the phase, or 0 before the first."""
 
         row = self._connection.execute(
-            "SELECT MAX(round) FROM checkpoint_runs WHERE run_id = ? AND phase = ?",
+            "SELECT MAX(round) FROM step_runs WHERE run_id = ? AND phase = ? AND kind = 'check'",
             (run_id, phase),
         ).fetchone()
 
@@ -98,16 +98,19 @@ class CheckpointRunRepository:
 
     def list_round(self, run_id: str, phase: int, round_number: int) -> list[CheckpointRun]:
         rows = self._connection.execute(
-            "SELECT * FROM checkpoint_runs WHERE run_id = ? AND phase = ? AND round = ? "
-            "ORDER BY rowid",
+            "SELECT * FROM step_runs "
+            "WHERE run_id = ? AND phase = ? AND round = ? AND kind = 'check' ORDER BY rowid",
             (run_id, phase, round_number),
         )
 
         return [_to_checkpoint_run(row) for row in rows]
 
     def list_for_run(self, run_id: str) -> list[CheckpointRun]:
+        """The checkpoints of the run, oldest first."""
+
         rows = self._connection.execute(
-            "SELECT * FROM checkpoint_runs WHERE run_id = ? ORDER BY rowid", (run_id,)
+            "SELECT * FROM step_runs WHERE run_id = ? AND kind = 'check' ORDER BY rowid",
+            (run_id,),
         )
 
         return [_to_checkpoint_run(row) for row in rows]
@@ -117,8 +120,8 @@ class CheckpointRunRepository:
         of the run."""
 
         rows = self._connection.execute(
-            "SELECT * FROM checkpoint_runs WHERE run_id = ? AND status = 'DONE' "
-            "AND (? IS NULL OR phase = ?) ORDER BY rowid",
+            "SELECT * FROM step_runs WHERE run_id = ? AND status = 'DONE' "
+            "AND kind = 'check' AND (? IS NULL OR phase = ?) ORDER BY rowid",
             (run_id, phase, phase),
         )
 
@@ -129,14 +132,14 @@ class CheckpointRunRepository:
         of its unit."""
 
         self._connection.execute(
-            "UPDATE checkpoint_runs SET unit = ?, started_at = ? WHERE id = ?",
+            "UPDATE step_runs SET unit = ?, started_at = ? WHERE id = ?",
             (unit, _to_text(started_at), checkpoint_run_id),
         )
 
     def finish(self, checkpoint_run_id: str, verdict: str, detail: str | None) -> None:
         with transaction(self._connection):
             self._connection.execute(
-                "UPDATE checkpoint_runs SET status = 'DONE', verdict = ?, detail = ?, "
+                "UPDATE step_runs SET status = 'DONE', verdict = ?, detail = ?, "
                 "finished_at = ? WHERE id = ?",
                 (verdict, detail, _to_text(self._now()), checkpoint_run_id),
             )

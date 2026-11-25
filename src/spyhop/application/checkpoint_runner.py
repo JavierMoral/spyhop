@@ -25,7 +25,7 @@ cycle:
   first, and the phase stays blocked while its process still runs, so that
   it cannot change the worktree under the next stage.
 
-The rows of checkpoint_runs keep the state, so a restart of Spyhop continues
+The rows of step_runs keep the state, so a restart of Spyhop continues
 the round, and a restart does not stop the units.
 """
 

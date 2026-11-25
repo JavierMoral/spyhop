@@ -547,7 +547,7 @@ async def test_a_checkpoint_whose_unit_did_not_start_starts_again(tmp_path: Path
 
     running(harness, run)
     late = harness.clock.advance(timedelta(hours=4))
-    harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL")
+    harness.connection.execute("UPDATE step_runs SET unit = NULL")
     await harness.supervisor.supervise()
     after = harness.clock()
 
@@ -620,7 +620,7 @@ async def test_a_checkpoint_whose_unit_did_not_start_gets_no_second_row(
     # Spyhop stopped before the unit of ticket-info, the second of the read
     # stage, started.
 
-    harness.connection.execute("UPDATE checkpoint_runs SET unit = NULL WHERE name = 'ticket-info'")
+    harness.connection.execute("UPDATE step_runs SET unit = NULL WHERE name = 'ticket-info'")
     await harness.supervisor.supervise()
     answer(harness, run, "security")
     await harness.supervisor.supervise()

@@ -307,6 +307,12 @@ class CheckpointRun:
     detail: str | None
     started_at: datetime
     finished_at: datetime | None
+    # "check": a checkpoint. "work": a turn of an agent of the run.
+    kind: Literal["check", "work"] = "check"
+    # A work row: the Claude session, the kind of the turn, and its outcome.
+    session_id: str | None = None
+    turn: str | None = None
+    outcome: str | None = None
 
 
 @dataclass(frozen=True)

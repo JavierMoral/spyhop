@@ -311,6 +311,24 @@ _MIGRATIONS = [
 
     CREATE INDEX agent_executions_by_agent ON agent_executions(agent, started_at);
     """,
+    # The steps of a run: the checkpoints (kind check) and, later, the turns
+    # of the agents (kind work). A work row has the Claude session that it
+    # starts or resumes, the kind of its turn, and its outcome.
+    """
+    ALTER TABLE checkpoint_runs RENAME TO step_runs;
+
+    ALTER TABLE step_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'check';
+
+    ALTER TABLE step_runs ADD COLUMN session_id TEXT;
+
+    ALTER TABLE step_runs ADD COLUMN turn TEXT;
+
+    ALTER TABLE step_runs ADD COLUMN outcome TEXT;
+
+    DROP INDEX idx_checkpoint_runs_run;
+
+    CREATE INDEX idx_step_runs_run ON step_runs(run_id, phase, round);
+    """,
 ]
 
 

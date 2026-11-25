@@ -7,6 +7,7 @@ from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import ChecksPhase, OrcaWorktree
 from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect, transaction
 from spyhop.infrastructure.persistence.repositories import (
+    CheckpointRunRepository,
     RunRepository,
     SessionRepository,
     WorktreeRepository,
@@ -258,3 +259,40 @@ def test_a_failed_commit_ends_the_transaction(tmp_path: Path) -> None:
     assert sqlite3.connect(tmp_path / "spyhop.db").execute(
         "SELECT restarts, worktree_id FROM automation_runs"
     ).fetchone() == (1, None)
+
+
+def test_the_checkpoint_rows_become_check_steps(tmp_path: Path) -> None:
+    database = tmp_path / "spyhop.db"
+    legacy = sqlite3.connect(database, isolation_level=None)
+
+    for index, script in enumerate(_MIGRATIONS[:-1], start=1):
+        legacy.executescript(f"BEGIN; {script}; PRAGMA user_version = {index}; COMMIT;")
+
+    _running_run(legacy)
+    legacy.execute(
+        "INSERT INTO checkpoint_runs (id, run_id, phase, round, name, inputs, base, head, "
+        "output_file, status, verdict, started_at) "
+        "VALUES ('c1', 'r1', 0, 1, 'security', 'x', 'b', 'h', '/results/c1.json', 'DONE', "
+        "'PASS', '2026-11-01T10:00:00+00:00')"
+    )
+    legacy.close()
+
+    connection = connect(database)
+    steps = CheckpointRunRepository(connection)
+
+    # A work row of the same phase and round is not a checkpoint.
+
+    connection.execute(
+        "INSERT INTO step_runs (id, run_id, phase, round, name, inputs, base, head, "
+        "output_file, status, started_at, kind, session_id, turn) "
+        "VALUES ('w1', 'r1', 0, 2, 'implement', '', 'b', 'h', '/results/w1.json', "
+        "'DONE', '2026-11-01T11:00:00+00:00', 'work', 's1', 'launch')"
+    )
+
+    [row] = steps.list_for_run("r1")
+
+    assert (row.id, row.kind, row.verdict) == ("c1", "check", "PASS")
+    assert steps.last_round("r1", 0) == 1
+    assert steps.list_round("r1", 0, 2) == []
+    assert list(steps.latest("r1")) == ["security"]
+    assert steps.get("w1") is not None and steps.get("w1").session_id == "s1"  # type: ignore[union-attr]
