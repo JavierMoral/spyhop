@@ -242,14 +242,15 @@ async def test_unreadable_launch_outcome_is_uncertain(answer: object) -> None:
         await client(runner).launch_agent(WORKTREE_ID, "/goal", "1-a", None, None)
 
 
-async def test_stale_terminal_handle_is_a_command_error() -> None:
-    error = {"code": "terminal_handle_stale", "data": {"orchestrationRequestId": "1-a"}}
+@pytest.mark.parametrize("code", ["terminal_handle_stale", "terminal_not_writable"])
+async def test_a_stale_or_closed_terminal_is_a_command_error(code: str) -> None:
+    error = {"code": code, "data": {"orchestrationRequestId": "1-a"}}
     runner = FakeRunner(json.dumps({"ok": False, "error": error}))
 
     with pytest.raises(OrcaCommandError) as raised:
         await client(runner).send_prompt("term_1", "hello")
 
-    assert raised.value.code == "terminal_handle_stale"
+    assert raised.value.code == code
 
 
 async def test_read_command_timeout_means_unavailable() -> None:

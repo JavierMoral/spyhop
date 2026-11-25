@@ -57,6 +57,8 @@ _DEFINITE_CODES = {
     "selector_not_found",
     "invalid_argument",
     "terminal_handle_stale",
+    # The terminal is closed: the input did not go.
+    "terminal_not_writable",
 }
 
 
@@ -412,7 +414,8 @@ class OrcaClient:
             raise OrcaUnavailableError(f"`orca {name}`: {message}")
 
         # A lost reply comes back as an error carrying the id to replay with.
-        # A stale handle or a reused id are definite refusals, not lost replies.
+        # A stale handle, a closed terminal or a reused id are definite
+        # refusals, not lost replies.
 
         data = failed.get("data")
 
