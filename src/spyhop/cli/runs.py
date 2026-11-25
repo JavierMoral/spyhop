@@ -1,15 +1,20 @@
 """The commands that start, follow and change the runs."""
 
 import asyncio
+import csv
+import dataclasses
 import json
 import logging
 import os
+import statistics
 import sys
 from datetime import timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import typer
 
+from spyhop.application.executions import history as agent_history
+from spyhop.application.executions import profile_history, total_tokens
 from spyhop.application.janitor import Cleanup, WorktreeRemover
 from spyhop.application.stats import run_stats
 from spyhop.cli.common import (
@@ -33,11 +38,12 @@ from spyhop.config.paths import (
 from spyhop.daemon import run_daemon
 from spyhop.domain.clock import utc_now
 from spyhop.domain.exceptions import OrcaCommandError, SpyhopError
+from spyhop.domain.models import AgentExecution
 from spyhop.infrastructure.agent_state import AGENT_STATES, pane_key, write_state
 from spyhop.infrastructure.jira.mapping import ticket_text
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
+    ExecutionRepository,
     PollerStateRepository,
     RunRepository,
     SessionRepository,
@@ -151,55 +157,165 @@ def status(
 
 @app.command()
 def stats(
-    days: Annotated[int, typer.Option(min=1, help="Only the runs of the last days")] = 30,
+    agent: Annotated[
+        str | None,
+        typer.Argument(help="The agent, for example implement or checkpoint-security"),
+    ] = None,
+    days: Annotated[int, typer.Option(min=1, help="Only the last days")] = 30,
+    by: Annotated[
+        Literal["day", "week", "month"], typer.Option(help="The period of each row of an agent")
+    ] = "week",
+    source: Annotated[
+        Literal["pipeline", "eval", "all"],
+        typer.Option(help="The executions of the runs, of the evals, or both"),
+    ] = "pipeline",
+    as_csv: Annotated[
+        bool, typer.Option("--csv", help="Print each execution as CSV, for other tools")
+    ] = False,
+    profile: Annotated[
+        bool, typer.Option("--profile", help="Show where the agent can improve")
+    ] = False,
     config: ConfigOption = None,
     dry_run: Annotated[
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to read")
     ] = None,
 ) -> None:
-    """Show what the runs of the last days took.
+    """Show what the runs and the agents of the last days took.
 
-    The cost is only the cost of the checkpoints, from their result files.
-    Orca does not give the cost of the plan and implementation agents."""
+    Without an agent, shows the runs and a summary of each agent. With an
+    agent, shows how its tokens and its time change, period by period. The
+    service records an execution for each Claude session of a checkpoint, of
+    an agent of a run, and of the supervisor session. `spyhop eval` records
+    its runs with the source eval. TIME is the time that the agent worked,
+    without the waits for a person. IN counts the input tokens with the cache.
+
+    With --profile, shows the medians of the tool calls (CALLS), of the
+    growth of the context that each later call pays again (CTX+), of the size
+    of the tool results (RESULT), of the Bash calls that start like an earlier
+    call (REPEAT), and of the errors. MAX is the largest tool result. TOOLS and
+    ERRORS add the calls and the errors of the period: exit (an exit code that
+    is not zero), hook (a hook blocked the call), denied (the permissions or
+    the person refused the call), and tool (the input of the call is not
+    valid)."""
 
     connection = connect(_existing_database(config, dry_run))
     since = utc_now() - timedelta(days=days)
-    runs = [
-        run
-        for run in RunRepository(connection).list(include_terminal=True)
-        if run.created_at >= since
-    ]
-    sessions = SessionRepository(connection)
-    checkpoint_runs = CheckpointRunRepository(connection)
-    run_repository = RunRepository(connection)
-    result = run_stats(
-        runs,
-        [session for run in runs for session in sessions.list_for_run(run.id)],
-        [row for run in runs for row in checkpoint_runs.list_for_run(run.id)],
-        {run.id: run_repository.events(run.id) for run in runs},
+    executions = ExecutionRepository(connection).list(
+        agent, since, None if source == "all" else source
     )
-    statuses = ", ".join(f"{status} {count}" for status, count in result.runs_by_status.items())
 
-    typer.echo(f"Runs of the last {days} days: {len(runs)}{f' ({statuses})' if statuses else ''}")
-    typer.echo(f"Median time to the plan: {_duration(result.median_plan_seconds)}")
-    typer.echo(f"Median time to complete: {_duration(result.median_completed_seconds)}")
-    typer.echo(f"Restarts of agents: {result.restarts}")
+    if as_csv:
+        writer = csv.writer(sys.stdout)
 
-    if result.agents:
-        typer.echo(f"\n{'AGENT':<14}{'COUNT':>7}{'MEAN TIME':>12}")
+        writer.writerow(field.name for field in dataclasses.fields(AgentExecution))
 
-        for agent in result.agents:
-            typer.echo(f"{agent.role:<14}{agent.count:>7}{_duration(agent.mean_seconds):>12}")
-
-    if result.checkpoints:
-        typer.echo(f"\n{'CHECKPOINT':<18}{'RUNS':>6}{'PASS':>7}{'MEAN TIME':>12}{'COST':>10}")
-
-        for checkpoint in result.checkpoints:
-            typer.echo(
-                f"{checkpoint.name:<18}{checkpoint.count:>6}"
-                f"{checkpoint.passed / checkpoint.count:>7.0%}"
-                f"{_duration(checkpoint.mean_seconds):>12}{f'${checkpoint.cost_usd:.2f}':>10}"
+        for execution in executions:
+            writer.writerow(
+                json.dumps(value) if isinstance(value, dict) else value
+                for value in (
+                    getattr(execution, field.name) for field in dataclasses.fields(execution)
+                )
             )
+
+        return
+
+    if agent is None:
+        run_repository = RunRepository(connection)
+        runs = [
+            run for run in run_repository.list(include_terminal=True) if run.created_at >= since
+        ]
+        result = run_stats(runs, {run.id: run_repository.events(run.id) for run in runs})
+        statuses = ", ".join(f"{status} {count}" for status, count in result.runs_by_status.items())
+
+        typer.echo(
+            f"Runs of the last {days} days: {len(runs)}{f' ({statuses})' if statuses else ''}"
+        )
+        typer.echo(f"Median time to the plan: {_duration(result.median_plan_seconds)}")
+        typer.echo(f"Median time to complete: {_duration(result.median_completed_seconds)}")
+        typer.echo(f"Restarts of agents: {result.restarts}")
+
+        groups: dict[str, list[AgentExecution]] = {}
+
+        for execution in executions:
+            groups.setdefault(execution.agent, []).append(execution)
+
+        if groups:
+            typer.echo(
+                f"\n{'AGENT':<26}{'RUNS':>6}{'PASS':>6}{'MEDIAN TIME':>13}"
+                f"{'MEDIAN TOKENS':>15}  LAST"
+            )
+
+        for name, group in sorted(groups.items()):
+            verdicts = [execution.outcome for execution in group if execution.outcome]
+            passed = (
+                f"{sum(verdict == 'PASS' for verdict in verdicts) / len(verdicts):.0%}"
+                if verdicts
+                else "-"
+            )
+
+            typer.echo(
+                f"{name:<26}{len(group):>6}{passed:>6}"
+                f"{_time(statistics.median(e.active_ms for e in group)):>13}"
+                f"{_tokens(statistics.median(total_tokens(e) for e in group)):>15}"
+                f"  {_format(group[-1].started_at)}"
+            )
+
+        return
+
+    if not executions:
+        typer.echo(f"No executions of {agent} in the last {days} days.")
+
+        return
+
+    if profile:
+        typer.echo(
+            f"{'PERIOD':<12}{'RUNS':>6}{'CALLS':>7}{'CTX+':>8}{'RESULT':>9}{'MAX':>9}"
+            f"{'REPEAT':>8}{'ERRORS':>8}  TOOLS / ERRORS"
+        )
+
+        for item in profile_history(executions, by):
+            tools = " ".join(f"{name} {count}" for name, count in list(item.calls.items())[:4])
+            errors = " ".join(f"{kind} {count}" for kind, count in item.errors.items())
+
+            typer.echo(
+                f"{item.period:<12}{item.count:>6}{item.median_calls:>7g}"
+                f"{_tokens(item.median_context_added_tokens):>8}"
+                f"{_tokens(item.median_result_bytes) + 'B':>9}"
+                f"{_tokens(item.max_result_bytes) + 'B':>9}"
+                f"{item.median_repeated_bash:>8g}{item.median_errors:>8g}"
+                f"  {tools}{f' / {errors}' if errors else ''}"
+            )
+
+        return
+
+    typer.echo(
+        f"{'PERIOD':<12}{'RUNS':>6}{'PASS':>6}{'TIME':>9}{'P90':>9}"
+        f"{'IN':>9}{'OUT':>8}{'TOTAL':>9}  NEW VERSION"
+    )
+
+    for row in agent_history(executions, by):
+        passed = f"{row.passed / row.count:.0%}" if row.passed is not None else "-"
+
+        typer.echo(
+            f"{row.period:<12}{row.count:>6}{passed:>6}"
+            f"{_time(row.median_active_ms):>9}{_time(row.p90_active_ms):>9}"
+            f"{_tokens(row.median_input_tokens):>9}{_tokens(row.median_output_tokens):>8}"
+            f"{_tokens(row.total_tokens):>9}  {' '.join(row.new_versions)}"
+        )
+
+
+def _time(milliseconds: float) -> str:
+    return (
+        f"{milliseconds / 1000:.0f}s" if milliseconds < 60_000 else _duration(milliseconds / 1000)
+    )
+
+
+def _tokens(count: float) -> str:
+    for limit, unit in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if count >= limit:
+            return f"{count / limit:.1f}{unit}"
+
+    return str(round(count))
 
 
 @app.command()

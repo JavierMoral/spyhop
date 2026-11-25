@@ -282,6 +282,35 @@ _MIGRATIONS = [
             ORDER BY id DESC LIMIT 1), 0) AS checks_failed_only
     FROM automation_runs AS runs;
     """,
+    # One row for each Claude session of an agent, for the history of its
+    # tokens and times. The session id of Claude is the key, so a second read
+    # of the same session updates its row.
+    """
+    CREATE TABLE agent_executions (
+        session_id TEXT PRIMARY KEY,
+        agent TEXT NOT NULL,
+        source TEXT NOT NULL,
+        run_id TEXT,
+        issue_key TEXT,
+        agent_sha TEXT,
+        models TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        wall_ms INTEGER NOT NULL,
+        active_ms INTEGER NOT NULL,
+        turns INTEGER,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        cache_read_tokens INTEGER NOT NULL,
+        cache_creation_tokens INTEGER NOT NULL,
+        cost_usd REAL,
+        outcome TEXT,
+        context_added_tokens INTEGER,
+        profile TEXT
+    );
+
+    CREATE INDEX agent_executions_by_agent ON agent_executions(agent, started_at);
+    """,
 ]
 
 

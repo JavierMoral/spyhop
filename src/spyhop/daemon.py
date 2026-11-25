@@ -12,6 +12,7 @@ from pathlib import Path
 from spyhop.application.checkpoint_planner import CheckpointPlanner
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.context_builder import ContextBuilder, template_environment
+from spyhop.application.executions import ExecutionRecorder
 from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.launcher import AgentLauncher
@@ -25,6 +26,7 @@ from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.credentials import credentials_from_environment
 from spyhop.config.paths import (
     claude_agents_dir,
+    claude_dir,
     database_file,
     spyhop_executable,
     state_dir,
@@ -45,6 +47,7 @@ from spyhop.infrastructure.orca.discovery import find_orca_executable
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     CheckpointRunRepository,
+    ExecutionRepository,
     ObservationRepository,
     PollerStateRepository,
     RunRepository,
@@ -95,6 +98,16 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
             margin=timedelta(minutes=settings.jira.transition_margin_minutes),
         )
 
+        recorder = ExecutionRecorder(
+            executions=ExecutionRepository(connection),
+            runs=RunRepository(connection),
+            worktrees=WorktreeRepository(connection),
+            sessions=SessionRepository(connection),
+            checkpoint_runs=CheckpointRunRepository(connection),
+            claude_dir=claude_dir(),
+            agents_dir=claude_agents_dir(),
+        )
+
         stop, wake = _signal_events()
         loop = asyncio.get_running_loop()
         next_poll = loop.time()
@@ -128,6 +141,13 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                     monitor.record_error(str(error))
 
                 next_poll = loop.time() + delay
+
+                # The history of the agents must never stop the service.
+
+                try:
+                    recorder.sweep()
+                except (OSError, ValueError, sqlite3.Error) as error:
+                    _log.warning("The executions of the agents were not recorded: %s", error)
 
             if agents is None and not dry_run:
                 # Orca may be missing at start, for example while the session

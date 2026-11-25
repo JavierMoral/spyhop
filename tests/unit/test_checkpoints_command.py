@@ -11,16 +11,18 @@ import yaml
 from typer.testing import CliRunner
 
 from spyhop.application.checkpoint_runner import checkpoint_prompt
+from spyhop.application.executions import period_of
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.cli import app
 from spyhop.config.paths import database_file
 from spyhop.config.settings import load_settings
 from spyhop.domain.enums import WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError
-from spyhop.domain.models import IssueEntry, OrcaWorktree
+from spyhop.domain.models import AgentExecution, IssueEntry, OrcaWorktree
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
+    ExecutionRepository,
     RunRepository,
     SessionRepository,
     WorktreeRepository,
@@ -712,6 +714,75 @@ def test_stats_show_the_runs_of_the_last_days(config_file: Path, run_worktree: P
     assert result.exit_code == 0
     assert "Runs of the last 30 days: 1 (READY 1)" in result.output
     assert "Median time to complete: -" in result.output
+
+
+def test_stats_show_the_agents_and_the_periods_of_one_agent(
+    config_file: Path, run_worktree: Path
+) -> None:
+    executions = ExecutionRepository(connect(database_file(dry_run=False)))
+    now = datetime.now(UTC)
+
+    for number, (agent, source) in enumerate(
+        [("implement", "pipeline"), ("implement", "pipeline"), ("implement", "eval")]
+    ):
+        executions.save(
+            AgentExecution(
+                session_id=f"s{number}",
+                agent=agent,
+                source=source,  # type: ignore[arg-type]
+                run_id=None,
+                issue_key="LPD-1",
+                agent_sha=None,
+                models="claude-sonnet",
+                started_at=now,
+                finished_at=now,
+                wall_ms=120_000,
+                active_ms=30_000,
+                turns=1,
+                input_tokens=1_000,
+                output_tokens=2_500,
+                cache_read_tokens=1_500_000,
+                cache_creation_tokens=0,
+                cost_usd=None,
+                outcome=None,
+                context_added_tokens=40_000,
+                profile={
+                    "calls": {"Bash": 10, "Read": 2},
+                    "result_bytes": {"Bash": 20_000},
+                    "max_result_bytes": {"Bash": 9_000},
+                    "repeated_bash": 3,
+                    "errors": {"exit": 1},
+                },
+            )
+        )
+
+    agents = CliRunner().invoke(app, ["stats", "--config", str(config_file)])
+    periods = CliRunner().invoke(app, ["stats", "implement", "--config", str(config_file)])
+    rows = CliRunner().invoke(
+        app, ["stats", "implement", "--source", "all", "--csv", "--config", str(config_file)]
+    )
+
+    assert agents.exit_code == 0, agents.output
+    assert "Runs of the last 30 days: 1 (READY 1)" in agents.output
+    assert "implement                      2     -          30s           1.5M" in agents.output
+    assert periods.exit_code == 0, periods.output
+    assert (
+        f"{period_of(now, 'week'):<12}     2     -      30s      30s     1.5M    2.5k     3.0M"
+        in (periods.output)
+    )
+    assert rows.output.splitlines()[0].startswith("session_id,agent,source,")
+    assert '""repeated_bash"": 3' in rows.output
+
+    profiles = CliRunner().invoke(
+        app, ["stats", "implement", "--profile", "--config", str(config_file)]
+    )
+
+    assert profiles.exit_code == 0, profiles.output
+    assert (
+        f"{period_of(now, 'week'):<12}     2     12   40.0k   20.0kB    9.0kB       3       1"
+        "  Bash 20 Read 4 / exit 2"
+    ) in profiles.output
+    assert len(rows.output.splitlines()) == 4
 
 
 def test_replan_asks_for_a_new_plan_agent_only_for_a_plan_in_review(

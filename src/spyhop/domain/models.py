@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 
@@ -307,6 +307,38 @@ class CheckpointRun:
     detail: str | None
     started_at: datetime
     finished_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AgentExecution:
+    """One Claude session of an agent: a checkpoint, an agent of a run, the
+    supervisor session, or an eval. ``active_ms`` is the time that the agent
+    worked, without the time that it waited for a person."""
+
+    session_id: str
+    agent: str
+    source: Literal["pipeline", "eval"]
+    run_id: str | None
+    issue_key: str | None
+    agent_sha: str | None  # the sha256 of the agent file, when it is known
+    models: str | None  # comma-separated
+    started_at: datetime
+    finished_at: datetime
+    wall_ms: int
+    active_ms: int
+    turns: int | None
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    cost_usd: float | None  # only when Claude gives it
+    outcome: str | None  # PASS or FAIL, when the agent gives a verdict
+    # The growth of the context from the first call to the largest call:
+    # each later call pays these tokens again.
+    context_added_tokens: int | None = None
+    # The calls of each tool, the size of their results, the Bash calls that
+    # start like an earlier call, and the errors of each kind.
+    profile: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

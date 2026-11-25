@@ -370,7 +370,7 @@ knowledge:
 | `spyhop cleanup KEY` | Remove the worktree of the ticket now. |
 | `spyhop checkpoints rerun KEY [--failed]` | Run the checkpoints again. With `--failed`, run only the failed and stale checkpoints. |
 | `spyhop run` | Run in the foreground. `--once` polls one time. `-v` shows debug logs. |
-| `spyhop stats [--days N]` | Show the counts, times and costs of the runs of the last days. |
+| `spyhop stats [AGENT]` | Show the runs and the agents of the last days. With an agent, show how its tokens and its time change, period by period. `--profile` shows where the agent can improve. `--by day\|week\|month`, `--source pipeline\|eval\|all`, `--csv` for other tools. |
 | `spyhop doctor` | Check the configuration and everything that Spyhop needs to run. |
 | `spyhop config init` | Create the configuration and the credentials file. |
 | `spyhop claude install` | Link the subagents, skills, and scripts of Spyhop in `~/.claude`. |
@@ -379,6 +379,29 @@ knowledge:
 
 The agents use `spyhop declare` and `spyhop checkpoints plan` / `check`. You
 do not need them.
+
+### The history of the agents
+
+On each poll, the service records each Claude session of an agent in the
+table `agent_executions` of its database: the checkpoints, the plan and
+implementation agents, and the supervisor session. `spyhop eval` records its
+runs with the source `eval`. Each row has the tokens, the models, the time,
+and the verdict of a checkpoint. The time is the time that the agent worked,
+without the waits for a person. A checkpoint also has the sha256 of its agent
+file, so `spyhop stats AGENT` shows when a new version of the agent starts.
+
+`spyhop stats AGENT --profile` shows where the agent can improve: the tool
+calls, the growth of the context that each later call pays again, the size
+of the tool results, the Bash calls that start like an earlier call (a loop
+that a script can do in one call), and the errors of each kind (exit code,
+hook, denied, tool input). The CSV has the full profile of each execution as
+JSON.
+
+The tokens of the agents in Orca come from the transcripts that Claude Code
+keeps in `~/.claude/projects`, and the agent comes from the title of the
+session. Claude Code deletes old transcripts after `cleanupPeriodDays`, 30
+days by default. The rows stay in the database. A checkpoint that stops
+before its result has no row.
 
 To follow the logs of the service:
 
