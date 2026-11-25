@@ -25,6 +25,7 @@ from spyhop.infrastructure.persistence.repositories import (
     ExecutionRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 from tests.factories import issue
@@ -734,6 +735,28 @@ def test_tell_sends_the_message_to_the_agent_of_the_active_run(
     assert result.exit_code == 0
     assert "LPD-1: message sent to the plan agent term_1." in result.output
     assert terminals.prompts == [("term_1", "Add a test")]
+
+
+def test_tell_queues_the_message_of_a_headless_agent(
+    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    terminals = FakeTerminals()
+    connection = connect(database_file(dry_run=False))
+    runs = RunRepository(connection)
+    [automation_run] = runs.list(issue_key="LPD-1")
+
+    runs.set_runner(automation_run.id, "headless")
+    StepRunRepository(connection).create_work(
+        automation_run.id, 0, "implement", "launch", "s-1", "h", tmp_path
+    )
+    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: terminals)
+
+    result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "the agent gets the message when the turn that runs ends" in result.output
+    assert [text for _, text in runs.pending_messages(automation_run.id)] == ["Add a test"]
+    assert terminals.prompts == []
 
 
 def test_tell_reports_an_agent_that_orca_refuses(

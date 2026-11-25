@@ -315,7 +315,15 @@ class AgentSupervisor:
         if run.runner == "headless" and (
             phase == "implement"
             or isinstance(phase, CodeReviewPhase)
-            or (isinstance(phase, ChecksPhase) and self._phases.turn_after_checks(run))
+            or (
+                isinstance(phase, ChecksPhase)
+                and (
+                    self._phases.turn_after_checks(run)
+                    or (
+                        run.status is RunStatus.WAITING_FOR_HUMAN and self._phases.has_messages(run)
+                    )
+                )
+            )
         ):
             await self._phases.work(run, worktree, workflow)
 

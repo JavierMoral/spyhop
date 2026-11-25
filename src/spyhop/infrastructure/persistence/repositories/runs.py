@@ -281,6 +281,25 @@ class RunRepository:
     def add_notice(self, run_id: str, text: str) -> None:
         self._command(run_id, "notice", text)
 
+    def add_message(self, run_id: str, text: str) -> None:
+        """A message of a person for the headless agent of the run. It goes
+        to the agent as its next turn."""
+
+        self._command(run_id, "message", text)
+
+    def pending_messages(self, run_id: str) -> builtins.list[tuple[int, str]]:
+        """The messages that did not reach the agent, oldest first, with the
+        id that `consume_command` takes."""
+
+        return [
+            (row["id"], row["payload"])
+            for row in self._connection.execute(
+                "SELECT id, payload FROM run_commands "
+                "WHERE run_id = ? AND kind = 'message' AND consumed_at IS NULL ORDER BY id",
+                (run_id,),
+            )
+        ]
+
     def pending_notices(self, run_id: str) -> builtins.list[tuple[int, str]]:
         """The notices of the run that did not reach the session, oldest first,
         with the id that `consume_command` takes."""

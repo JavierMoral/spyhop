@@ -6,10 +6,13 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from spyhop.application.run_commands import RunCommandError, RunCommands
 from spyhop.application.work_runner import prompt_file
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.models import AutomationRun, ChecksPhase, CodeReviewPhase, StepRun, Worktree
-from tests.fakes import SPYHOP, Harness, git
+from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
 from tests.unit.test_pipeline import answer, harness_with, running, started, written
 
 REVIEW = {"code_review": "/code-review-loop --rounds 1"}
@@ -293,3 +296,100 @@ async def test_the_review_command_becomes_a_code_review_phase(tmp_path: Path) ->
         ChecksPhase(("regressions",)),
     )
     assert "## Review" not in (worktree.path / "CLAUDE-TASK.md").read_text()
+
+
+def tell(harness: Harness, text: str) -> str:
+    return (
+        RunCommands(
+            harness.runs, harness.worktrees, lambda: harness.orca, PLAN_REVIEW, PLAN_APPROVED
+        )
+        .message("LPD-1", text)
+        .message
+    )
+
+
+async def test_the_answer_to_a_question_resumes_the_session(tmp_path: Path) -> None:
+    harness, run, _ = await implementing(tmp_path, "implement")
+    [first] = turns(harness)
+
+    end_turn(
+        first,
+        {
+            "is_error": False,
+            "structured_output": {"status": "question", "question": "Keep it?", "summary": "-"},
+        },
+    )
+    await harness.supervisor.supervise()
+
+    assert tell(harness, "Keep it") == "LPD-1: the agent gets the message on the next cycle."
+
+    await harness.supervisor.supervise()
+
+    [_, answer_turn] = turns(harness)
+
+    assert (answer_turn.turn, answer_turn.session_id) == ("answer", first.session_id)
+    assert "responde a tu pregunta: Keep it" in prompt_file(answer_turn).read_text()
+    assert harness.run(run.id).status is RunStatus.RUNNING
+    assert harness.runs.pending_messages(run.id) == []
+
+
+async def test_a_message_waits_for_the_end_of_the_turn_and_goes_first(tmp_path: Path) -> None:
+    harness, run, worktree = await implementing(tmp_path, "implement", REVIEW)
+    [first] = turns(harness)
+
+    assert "when the turn that runs ends" in tell(harness, "Use the new API")
+
+    await harness.supervisor.supervise()
+
+    assert len(turns(harness)) == 1
+
+    commit(worktree)
+    done(first, worktree)
+    await harness.supervisor.supervise()
+
+    [_, message] = turns(harness)
+
+    assert (message.phase, message.turn, message.session_id) == (0, "message", first.session_id)
+    assert "La persona te dice: Use the new API" in prompt_file(message).read_text()
+
+    done(message, worktree)
+    await harness.supervisor.supervise()
+
+    assert turns(harness)[-1].name == "code_review"
+
+
+async def test_a_message_to_a_run_that_waits_after_its_checks_starts_a_turn(
+    tmp_path: Path,
+) -> None:
+    harness, run, worktree = await implementing(tmp_path, "implement", {"checks": ["regressions"]})
+    [first] = turns(harness)
+
+    commit(worktree)
+    done(first, worktree)
+    await harness.supervisor.supervise()
+    answer(harness, run, "regressions", "FAIL")
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+
+    tell(harness, "The finding is right, fix it")
+    await harness.supervisor.supervise()
+
+    [_, message] = turns(harness)
+
+    assert (message.phase, message.turn) == (1, "message")
+
+    commit(worktree, "class App { int fixed = 2; }\n")
+    done(message, worktree)
+    await harness.supervisor.supervise()
+
+    assert [(row.name, row.round) for row in running(harness, run)] == [("regressions", 2)]
+
+
+def test_a_message_needs_a_headless_run(tmp_path: Path) -> None:
+    harness = Harness(tmp_path)
+
+    harness.discover()
+
+    with pytest.raises(RunCommandError, match="is not headless"):
+        tell(harness, "Hello")

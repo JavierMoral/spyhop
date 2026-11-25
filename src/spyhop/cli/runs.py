@@ -49,6 +49,7 @@ from spyhop.infrastructure.persistence.repositories import (
     PollerStateRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 from spyhop.infrastructure.process.units import SystemdUnits
@@ -486,7 +487,8 @@ def tell(
 ) -> None:
     """Send a message to the agent of a ticket's active run.
 
-    Orca types the message into the terminal of the agent and submits it.
+    Orca types the message into the terminal of the agent and submits it. A
+    headless agent gets it as its next turn, when the turn that runs ends.
     After a completed run, a new run starts where a new implementation agent
     makes the change, and the checkpoints after the implementation run again."""
 
@@ -500,6 +502,15 @@ def tell(
         return
 
     automation_run = active[0]
+
+    if (
+        automation_run.runner == "headless"
+        and StepRunRepository(connection).last_work(automation_run.id) is not None
+    ):
+        _finish(lambda: _run_commands(config, dry_run).message(issue_key, text))
+
+        return
+
     session = SessionRepository(connection).find_launched(automation_run.id)
 
     if session is None or session.agent_handle is None:

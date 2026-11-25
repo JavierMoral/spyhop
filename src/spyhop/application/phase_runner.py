@@ -12,7 +12,7 @@ from spyhop.application.context_builder import RESULT_FILE, ContextBuilder
 from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.application.step_runner import log_file
-from spyhop.application.work_runner import WorkRunner
+from spyhop.application.work_runner import TurnState, WorkRunner
 from spyhop.config.settings import AgentSettings
 from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason
@@ -228,6 +228,15 @@ class PhaseRunner:
         state = await self._work_runner().advance(run, worktree)
         phase = workflow.phases[run.phase]
         name = "code_review" if isinstance(phase, CodeReviewPhase) else "implement"
+        messages = self._runs.pending_messages(run.id)
+
+        if messages and state.state not in ("running", "blocked"):
+            # The messages of a person go before what the end of the turn
+            # starts.
+
+            await self._deliver(run, worktree, name, state, messages)
+
+            return
 
         if state.state == "done" and isinstance(phase, ChecksPhase):
             # A fix or a message for the failed round: the round runs again.
@@ -283,6 +292,44 @@ class PhaseRunner:
                 WaitingReason.UNKNOWN_STATE,
                 f"the turn of {name} ended {state.state}: {state.detail}",
             )
+
+    async def _deliver(
+        self,
+        run: AutomationRun,
+        worktree: Worktree,
+        name: str,
+        state: TurnState,
+        messages: list[tuple[int, str]],
+    ) -> None:
+        session_id = (
+            None
+            if state.state == "resume_failed"
+            else state.row.session_id
+            if state.row is not None
+            else self._work_runner().last_session(run, "implement")
+        )
+        turn = "answer" if run.waiting_reason is WaitingReason.AGENT_QUESTION else "message"
+
+        await self.start_turn(
+            run,
+            worktree,
+            name,
+            turn,
+            self._context.turn_prompt(
+                run.issue_key,
+                turn,
+                worktree.path,
+                changes="\n".join(text for _, text in messages),
+                new_session=session_id is None,
+            ),
+            session_id,
+        )
+
+        for command_id, _ in messages:
+            self._runs.consume_command(command_id)
+
+    def has_messages(self, run: AutomationRun) -> bool:
+        return bool(self._runs.pending_messages(run.id))
 
     def turn_after_checks(self, run: AutomationRun) -> bool:
         """Whether a headless turn for the failed round of the current checks

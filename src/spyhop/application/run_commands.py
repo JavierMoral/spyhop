@@ -86,6 +86,29 @@ class RunCommands:
             f"({original.status})"
         )
 
+    def message(self, issue_key: str, text: str) -> CommandResult:
+        """A message for the headless agent of the active run. It goes as the
+        next turn of the agent: at once when the run waits, or when the turn
+        that runs ends."""
+
+        [run, *_] = self._active(issue_key)
+
+        if run.runner != "headless":
+            raise RunCommandError(f"{run.issue_key}: the agent of the run is not headless.")
+
+        if not text.strip():
+            raise RunCommandError("Give the message.")
+
+        self._runs.add_message(run.id, text)
+
+        when = (
+            "on the next cycle"
+            if run.status is RunStatus.WAITING_FOR_HUMAN
+            else "when the turn that runs ends"
+        )
+
+        return CommandResult(f"{run.issue_key}: the agent gets the message {when}.")
+
     def change(self, issue_key: str, change: str) -> CommandResult:
         """A new run of the completed ticket, where a new implementation agent
         makes the change on the same branch."""
