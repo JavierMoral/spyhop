@@ -219,3 +219,12 @@ def test_the_settings_record_the_end_of_the_supervisor_session(tmp_path: Path) -
 
     assert settings["hooks"] == {"SessionEnd": [{"hooks": hook}]}
     assert not any("declare" in rule for rule in settings["permissions"]["allow"])
+
+
+def test_the_task_names_the_team_of_the_person(tmp_path: Path) -> None:
+    team = ContextBuilder(template_environment(tmp_path), ORCA, team="@liferay-page-management")
+
+    assert "## Team" not in builder(tmp_path).render_task(ticket(), workflow())
+    assert "El equipo de la persona es `@liferay-page-management`" in team.render_task(
+        ticket(), workflow()
+    )

@@ -75,11 +75,13 @@ class ContextBuilder:
         orca_executable: Path,
         recall_command: str | None = None,
         spyhop: Path = Path("spyhop"),
+        team: str | None = None,
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
         self._recall_command = recall_command
         self._spyhop = spyhop
+        self._team = team
 
     def prepare(
         self,
@@ -115,6 +117,7 @@ class ContextBuilder:
             guidance=guidance,
             orca=str(self._orca_executable),
             recall_command=self._recall_command,
+            team=self._team,
         )
 
     def render_settings(self, workflow: ResolvedWorkflow) -> str:

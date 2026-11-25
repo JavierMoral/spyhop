@@ -12,12 +12,13 @@ from typing import Any
 import pytest
 
 from spyhop.application import checkpoint_runner
+from spyhop.application.run_commands import RunCommandError, RunCommands
 from spyhop.application.work_runner import prompt_file
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import UnitError
 from spyhop.domain.models import AutomationRun, ChecksPhase, StepRun, Worktree
 from tests.factories import settings
-from tests.fakes import SPYHOP, Harness, git
+from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
 from tests.unit.test_checkpoint_planner import checkpoint
 
 BUG = {
@@ -575,3 +576,33 @@ async def test_a_worktree_without_the_report_exclusions_gets_them(tmp_path: Path
     await harness.supervisor.supervise()
 
     assert [row.name for row in running(harness, run)] == ["regressions"]
+
+
+async def test_a_person_accepts_the_failed_checks_and_the_next_phase_starts(
+    tmp_path: Path,
+) -> None:
+    harness = harness_with(tmp_path, {"checks": ["ticket-info"]}, "implement")
+    run, _ = await started(harness)
+    commands = RunCommands(
+        harness.runs, harness.worktrees, lambda: harness.orca, PLAN_REVIEW, PLAN_APPROVED
+    )
+
+    with pytest.raises(RunCommandError, match="no failed checkpoints that wait for you"):
+        commands.accept("LPD-1")
+
+    await harness.supervisor.supervise()
+    answer(harness, run, "ticket-info", "FAIL", HIGH)
+    await harness.supervisor.supervise()
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
+
+    commands.accept("LPD-1")
+    await harness.supervisor.supervise()
+
+    turn = harness.checkpoint_runs.last_work(run.id)
+
+    assert harness.run(run.id).phase == 1
+    assert harness.run(run.id).status is RunStatus.RUNNING
+    assert turn is not None and (turn.name, turn.turn) == ("implement", "launch")
+    assert pending_commands(harness, run) == []

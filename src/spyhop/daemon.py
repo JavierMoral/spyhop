@@ -219,6 +219,7 @@ def _agents(
         executable,
         settings.knowledge.recall_command,
         spyhop_executable(),
+        settings.application.team,
     )
     supervisor_session = SupervisorSession(
         worktrees=worktrees,

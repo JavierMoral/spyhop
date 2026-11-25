@@ -307,7 +307,15 @@ the checkpoint files stay in use: a run whose workflow or checkpoint is
 removed waits for you.
 
 After a fix, or a change of the ticket, the failed checks run again. To run
-them again yourself, use `spyhop checkpoints rerun KEY`. Add `--failed` to run
+them again yourself, use `spyhop checkpoints rerun KEY`. To continue after a
+failed check that waits for you, use `spyhop checkpoints accept KEY`: the run
+goes on to the next phase.
+
+The `ownership` checkpoint, after `plan_review`, estimates where the fix goes
+and makes sure that `.github/CODEOWNERS` gives those components to your team
+(`application.team`, for example `@liferay-page-management`). Unless it is
+very sure that your team owns the fix, it fails, and the supervisor session
+asks you if you continue with the fix or give the ticket to the other team. Add `--failed` to run
 only the failed and stale checkpoints: the round keeps each PASS whose inputs
 did not change.
 

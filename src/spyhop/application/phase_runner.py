@@ -288,6 +288,13 @@ class PhaseRunner:
             await self.enter(run, worktree, workflow, run.phase + 1)
         elif phase.on_fail == "fix" and outcome.round < phase.rounds:
             await self.request_fix(run, worktree, outcome.failed)
+        elif self._runs.take_acceptance(run.id):
+            _log.info("%s: a person accepted the failed checkpoints", run.issue_key)
+
+            await self._alerts.tell(
+                run, "la persona acepta los checkpoints fallidos; empieza la fase siguiente"
+            )
+            await self.enter(run, worktree, workflow, run.phase + 1)
         else:
             rounds = f" after {outcome.round} rounds" if phase.on_fail == "fix" else ""
 

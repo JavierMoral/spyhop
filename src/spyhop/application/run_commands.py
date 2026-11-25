@@ -153,6 +153,19 @@ class RunCommands:
             f"{run.issue_key}: plan approved; the next phase starts on the next cycle.", warnings
         )
 
+    def accept(self, issue_key: str) -> CommandResult:
+        """The person accepts the failed checkpoints of a run that waits for
+        them, and the run goes on to the next phase."""
+
+        [run, *_] = self._active(issue_key)
+
+        if run.waiting_reason is not WaitingReason.CHECKPOINTS_FAILED:
+            raise RunCommandError(f"{run.issue_key} has no failed checkpoints that wait for you.")
+
+        self._runs.accept_failed_checks(run.id)
+
+        return CommandResult(f"{run.issue_key}: the next phase starts on the next cycle.")
+
     def replan(self, issue_key: str, changes: str) -> CommandResult:
         run = self._in_plan_review(issue_key)
 

@@ -24,6 +24,7 @@ def test_example_configuration_is_valid(tmp_path: Path) -> None:
         ChecksPhase(("ticket-info", "repro-steps", "reproduce"), "human"),
         "plan",
         "plan_review",
+        ChecksPhase(("ownership",), "human"),
         "implement",
         ChecksPhase(
             ("format", "regressions", "verify-fix", "mutation", "variants", "security"), "fix", 3

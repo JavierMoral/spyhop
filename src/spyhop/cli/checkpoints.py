@@ -17,8 +17,10 @@ from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.cli.common import (
     ConfigOption,
     _existing_database,
+    _finish,
     _input_values,
     _load,
+    _run_commands,
     _wake,
     _workflow,
     checkpoints_app,
@@ -112,6 +114,22 @@ def checkpoints_plan(
     }
 
     typer.echo(json.dumps(plan, indent=2))
+
+
+@checkpoints_app.command("accept")
+def checkpoints_accept(
+    issue_key: Annotated[str, typer.Argument(help="Ticket whose failed checkpoints you accept")],
+    config: ConfigOption = None,
+    dry_run: Annotated[
+        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
+    ] = None,
+) -> None:
+    """Accept the failed checkpoints of a run that waits for you.
+
+    The run goes on to the next phase on the next cycle, as if the
+    checkpoints passed. The verdicts and the reports do not change."""
+
+    _finish(lambda: _run_commands(config, dry_run).accept(issue_key))
 
 
 @checkpoints_app.command("rerun")

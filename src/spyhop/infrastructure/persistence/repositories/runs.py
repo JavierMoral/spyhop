@@ -297,6 +297,30 @@ class RunRepository:
             )
         ]
 
+    def accept_failed_checks(self, run_id: str) -> None:
+        """A person accepts the failed checkpoints of the phase: the run goes
+        on to the next phase."""
+
+        self._command(run_id, "accept")
+
+    def take_acceptance(self, run_id: str) -> bool:
+        """Whether a person accepted the failed checkpoints. Consumes the
+        request."""
+
+        with transaction(self._connection):
+            pending = self._connection.execute(
+                "SELECT 1 FROM run_commands "
+                "WHERE run_id = ? AND kind = 'accept' AND consumed_at IS NULL",
+                (run_id,),
+            ).fetchone()
+
+            if pending is None:
+                return False
+
+            self.consume(run_id, "accept")
+
+            return True
+
     def take_plan_changes(self, run_id: str) -> str | None:
         """The changes of the last `spyhop replan`. Consumes that request and
         the ones before it, but not one that arrives after the read."""

@@ -10,6 +10,7 @@ application:
   max_concurrent_agents: 1
   min_free_disk_gb: 20            # no new worktrees below this free space; 0 disables
   dry_run: true                   # only log what would be done
+  # team: "@liferay-page-management"  # your team in .github/CODEOWNERS (ownership checkpoint)
 
 jira:
   base_url: https://your-site.atlassian.net
@@ -63,6 +64,8 @@ pipelines:                        # checkpoints are subagents in
       on_fail: human              # the run waits for you
     - plan
     - plan_review
+    - checks: [ownership]            # the fix is in a component of your team
+      on_fail: human
     - implement
     # - code_review: /code-review-loop --rounds 2  # reviews the commits
     - checks: [format, regressions, verify-fix, mutation, variants, security]

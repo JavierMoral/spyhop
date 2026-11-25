@@ -45,6 +45,10 @@ class ApplicationSettings(BaseModel):
     # free space than this. 0 disables the check.
     min_free_disk_gb: float = Field(default=20, ge=0)
     dry_run: bool = True
+    # The team of the user, as .github/CODEOWNERS of the repository names it,
+    # for example @liferay-page-management. The ownership checkpoint makes
+    # sure that the fix is in a component of this team.
+    team: str | None = None
 
 
 class JiraSettings(BaseModel):
