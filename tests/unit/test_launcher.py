@@ -1,13 +1,13 @@
 import sqlite3
 import threading
-from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
+from spyhop.application.work_runner import prompt_file
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import worktree_name
-from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
+from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
     OrcaCommandError,
     OrcaUncertainError,
@@ -35,8 +35,8 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
 
     run = harness.run(run.id)
     worktree = harness.worktrees.find_current("LPD-1")
-    [session] = harness.sessions.list_for_run(run.id)
-    [launch] = harness.orca.launches
+    [unit] = harness.units.started
+    turn = harness.checkpoint_runs.last_work(run.id)
 
     assert launched.id == run.id
     assert run.status is RunStatus.RUNNING
@@ -47,27 +47,10 @@ async def test_first_run_creates_the_worktree_writes_context_and_launches(
     assert harness.orca.display_names == {worktree.orca_worktree_id: "LPD-1 Summary of LPD-1"}
     assert (worktree.path / "CLAUDE-TASK.md").read_text().startswith("# Task: LPD-1")
     assert (worktree.path / ".claude" / "settings.local.json").exists()
-    assert launch["worktree"] == worktree.orca_worktree_id
-    assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md")
-    assert launch["operation_id"] == session.launch_operation_id
-    assert session.status is SessionStatus.LAUNCHED
-    assert session.agent_handle == "term_1"
+    assert turn is not None and (turn.name, turn.turn) == ("plan", "launch")
+    assert unit["cwd"] == worktree.path
+    assert prompt_file(turn).read_text().startswith("/goal Lee CLAUDE-TASK.md")
     assert run.pipeline == ("plan", "plan_review", "implement")
-
-
-async def test_a_run_keeps_the_runner_of_its_start(tmp_path: Path) -> None:
-    config = settings(tmp_path)
-    config.agents.runner = "headless"
-    harness = Harness(tmp_path, config)
-    run = harness.discover()
-
-    assert harness.run(run.id).runner == "orca"  # not started yet
-
-    await harness.launcher.launch_pending()
-
-    config.agents.runner = "orca"
-
-    assert harness.run(run.id).runner == "headless"
 
 
 @pytest.mark.parametrize(("plan_review", "model"), [(True, "opus"), (False, "sonnet")])
@@ -77,16 +60,15 @@ async def test_plan_comes_from_the_plan_model(
     config = settings(tmp_path)
     config.projects["LPD"].workflows["Bug"].plan_review = plan_review
     harness = Harness(tmp_path, config)
-    run = harness.discover()
+    harness.discover()
 
     await harness.launcher.launch_pending()
 
-    [session] = harness.sessions.list_for_run(run.id)
-    [launch] = harness.orca.launches
+    [unit] = harness.units.started
+    command = [str(part) for part in unit["command"]]
 
-    assert session.model == model
-    assert launch["model"] == model
-    assert launch["effort"] == "high"
+    assert command[command.index("--model") + 1] == model
+    assert command[command.index("--effort") + 1] == "high"
 
 
 async def test_task_lists_the_ticket_ancestors_up_to_the_root(harness: Harness) -> None:
@@ -136,7 +118,7 @@ async def test_next_run_of_the_ticket_reuses_its_worktree(harness: Harness) -> N
     assert harness.run(second.id).status is RunStatus.RUNNING
     assert harness.run(second.id).worktree_id == harness.run(first.id).worktree_id
     assert harness.orca.created == ["LPD-1"]
-    assert len(harness.orca.launches) == 2
+    assert len(harness.units.started) == 2
 
 
 async def test_worktree_linked_in_orca_is_adopted(harness: Harness) -> None:
@@ -185,47 +167,6 @@ async def test_runs_wait_while_orca_is_unavailable(harness: Harness) -> None:
     assert harness.tickets.calls == []
 
 
-async def test_lost_launch_answer_is_replayed_with_the_same_operation_id(
-    harness: Harness,
-) -> None:
-    run = harness.discover()
-    harness.orca.launch_errors.append(OrcaUncertainError("timed out"))
-
-    assert await harness.launcher.launch_pending() == []
-    assert harness.run(run.id).status is RunStatus.READY
-
-    [launching] = harness.sessions.list_for_run(run.id)
-
-    assert launching.status is SessionStatus.LAUNCHING
-
-    await harness.launcher.launch_pending()
-
-    first, second = harness.orca.launches
-
-    assert first["operation_id"] == second["operation_id"] == launching.launch_operation_id
-    assert first["prompt"] == second["prompt"]
-    assert harness.run(run.id).status is RunStatus.RUNNING
-    assert harness.orca.created == ["LPD-1"]
-    assert len(harness.sessions.list_for_run(run.id)) == 1
-
-
-async def test_old_lost_launch_is_handed_to_a_person(harness: Harness) -> None:
-    run = harness.discover()
-    harness.orca.launch_errors.append(OrcaUncertainError("timed out"))
-
-    await harness.launcher.launch_pending()
-
-    harness.clock.advance(timedelta(hours=1))
-
-    await harness.launcher.launch_pending()
-
-    run = harness.run(run.id)
-
-    assert run.status is RunStatus.WAITING_FOR_HUMAN
-    assert run.waiting_reason is WaitingReason.UNKNOWN_STATE
-    assert len(harness.orca.launches) == 1
-
-
 async def test_uncertain_worktree_creation_is_found_by_reference_next_time(
     harness: Harness,
 ) -> None:
@@ -240,21 +181,6 @@ async def test_uncertain_worktree_creation_is_found_by_reference_next_time(
 
     assert harness.orca.created == ["LPD-1"]
     assert harness.run(run.id).status is RunStatus.RUNNING
-
-
-async def test_refused_launch_fails_the_run(harness: Harness) -> None:
-    run = harness.discover()
-    harness.orca.launch_errors.append(OrcaCommandError("agent_not_found", "agent_not_found"))
-
-    await harness.launcher.launch_pending()
-
-    run = harness.run(run.id)
-    [session] = harness.sessions.list_for_run(run.id)
-
-    assert run.status is RunStatus.FAILED
-    assert run.error_message == "Orca refused the launch: agent_not_found"
-    assert run.finished_at is not None
-    assert session.status is SessionStatus.FAILED
 
 
 async def test_busy_slots_hold_pending_runs(harness: Harness) -> None:

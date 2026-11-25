@@ -152,26 +152,21 @@ class OrcaSettings(BaseModel):
 
 class AgentSettings(BaseModel):
     provider: str = "claude"
-    # The plan of a workflow with plan_review comes from an agent on
-    # plan_model. The implementation always comes from an agent on model.
+    # The plan of a workflow with plan_review comes from a session on
+    # plan_model. The implementation always comes from a session on model.
     plan_model: str = "opus"
     model: str = "sonnet"
     effort: str = "high"
-    # How many times a run relaunches an agent that Orca no longer lists, or
-    # tells an agent that stopped without declaring the plan or the end to
-    # continue, before the run waits for a person.
+    # How many times a turn that ends without a valid result gets one more
+    # turn, before the run waits for a person.
     max_restarts: int = Field(default=1, ge=0)
-    # A command, usually a slash command, the agent runs over its commits once
-    # the implementation is done, before writing CLAUDE-RESULT.md.
+    # A command, usually a slash command, that reviews the commits after the
+    # implementation: a code_review phase for a pipeline without one.
     review_command: str | None = None
     # A checkpoint that runs longer than this counts as a FAIL.
     checkpoint_timeout_minutes: float = Field(default=180, gt=0)
-    # Where the implementation agent runs: in an Orca terminal, or as
-    # `claude -p` turns in systemd units. A run keeps the runner that it
-    # started with.
-    runner: Literal["orca", "headless"] = "orca"
-    # A headless turn without a result after this time stops, and the agent
-    # continues in a new turn.
+    # A turn of an agent without a result after this time stops, and the
+    # agent continues in a new turn.
     implement_timeout_minutes: float = Field(default=360, gt=0)
     code_review_timeout_minutes: float = Field(default=120, gt=0)
 

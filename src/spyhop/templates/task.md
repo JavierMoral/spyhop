@@ -94,23 +94,10 @@ CLAUDE-CHECKPOINTS.md. No edites esos ficheros.
   corrijas los hallazgos.
 {% endif %}
 {% endif -%}
-{% if review_command -%}
-## Review
-
-Cuando la implementación esté terminada, con commits locales limpios y los tests
-del módulo en verde, ejecuta `{{ review_command }}` antes de escribir
-CLAUDE-RESULT.md. Deja que aplique automáticamente los hallazgos más importantes
-y vuelve a pasar los tests de los módulos que cambie. Nada de esto se publica: no
-hagas push.
-
-{% endif -%}
 ## Deliverables (CLAUDE-RESULT.md)
 
 - Resumen de los cambios y commits creados.
 - Tests ejecutados y resultados.
-{% if review_command -%}
-- Qué hallazgos de la revisión se aplicaron y cuáles se descartaron, y por qué.
-{% endif -%}
 - Riesgos o limitaciones detectados.
 - Visto pero no tocado: los problemas que has encontrado fuera del alcance del
   ticket y que no has cambiado, con fichero y línea.
@@ -118,7 +105,6 @@ hagas push.
 {% if workflow.plan_review %}
 ## Phases
 
-{% if headless -%}
 Fase A: escribir CLAUDE-PLAN.md y terminar el turno. Una persona revisa el plan.
 Si pide cambios, o te escribe, recibes otro turno en esta misma sesión. La fase
 B la hace otro agente, que no ve esta conversación: deja en CLAUDE-PLAN.md todo
@@ -126,17 +112,4 @@ lo que hayas acordado con la persona.
 
 Fase B: cuando la persona apruebe el plan, Spyhop arranca un agente nuevo que lo
 implementa. El agente de la fase A no la empieza por su cuenta.
-{% else -%}
-Fase A: escribir CLAUDE-PLAN.md y esperar la revisión de una persona. Si te
-responde con cambios, actualiza CLAUDE-PLAN.md y vuelve a declarar el plan como en
-la fase A. La fase B la hace otro agente, que no ve esta conversación: deja en
-CLAUDE-PLAN.md todo lo que hayas acordado con la persona.
-
-Fase B: cuando la persona apruebe el plan (`spyhop approve`), Spyhop lanzará un
-agente nuevo con este objetivo. El agente de la fase A no la empieza por su cuenta:
-
-```
-{{ implement_goal }}
-```
-{% endif -%}
 {% endif -%}

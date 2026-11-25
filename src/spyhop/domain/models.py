@@ -206,38 +206,22 @@ class AutomationRun:
     status_changed_at: datetime | None = None
     # The index of the pipeline phase that runs now.
     phase: int = 0
-    # When Spyhop last asked the agent to fix failed checkpoints. Set while
-    # the agent fixes them.
-    fix_requested_at: datetime | None = None
     # When a person last asked to run the checkpoints of the phase again.
     checks_requested_at: datetime | None = None
     # Whether that request runs only the failed and stale checkpoints.
     checks_failed_only: bool = False
-    # How many times Spyhop relaunched or prompted a lost or stopped agent.
+    # How many times Spyhop gave a turn that ended without a valid result
+    # one more turn.
     restarts: int = 0
-    # The changes to the plan that a new plan agent makes on the next cycle.
+    # The changes to the plan that the plan session makes on the next cycle.
     plan_changes: str | None = None
-    # "declare": the agent declares with `spyhop declare`. "card": a run from
-    # before, whose agent moves its Orca card. Remove "card" once no such run
-    # is active.
-    signals: str = "declare"
-    # What the agent declared last ("plan" or "done"), and when.
-    declared: str | None = None
-    declared_at: datetime | None = None
     # When a person approved the plan with `spyhop approve`.
     approved_at: datetime | None = None
     # The pipeline from when the first phase started; `phase` is an index into
     # it. None: the run has not started, or it is from before this column.
     pipeline: tuple[Phase, ...] | None = None
-    # The supervision cycles without the agent of the run, and since when.
-    missing_cycles: int = 0
-    missing_since: datetime | None = None
-    # Whether the person knows that the plan agent closed during the review.
-    plan_agent_closed_told: bool = False
     # Whether the last wait did not reach the supervisor session.
     alert_pending: bool = False
-    # Where the implementation agent runs, fixed when the run starts.
-    runner: Literal["orca", "headless"] = "orca"
 
 
 @dataclass(frozen=True)
@@ -388,29 +372,6 @@ class OrcaWorktree:
     workspace_status: str | None
     comment: str
     unread: bool
-
-
-@dataclass(frozen=True)
-class LaunchResult:
-    agent_handle: str
-    operation_id: str
-    surface: str
-    prompt_outcome: str | None
-    pane_key: str | None = None
-
-
-@dataclass(frozen=True)
-class AgentRow:
-    """One agent of a worktree in `orca worktree ps`."""
-
-    agent_type: str
-    state: str
-    pane_key: str | None
-    has_live_pty: bool
-    prompt: str | None
-    state_started_at: datetime | None = None
-    # What the agent asks or last said, when Orca gives it.
-    question: str | None = None
 
 
 @dataclass(frozen=True)

@@ -29,7 +29,7 @@ Haz commits locales limpios y deja en verde los tests de los módulos que cambie
 {%- elif turn == "code_review" -%}
 /goal Ejecuta `{{ command }}` sobre los commits de esta rama. Deja que aplique los hallazgos más importantes y vuelve a pasar los tests de los módulos que cambie. Después reescribe CLAUDE-RESULT.md según CLAUDE-TASK.md, con los hallazgos de la revisión que se aplicaron y los que se descartaron, y por qué.
 {%- elif turn == "fix" -%}
-{% with new_agent=False, headless=True %}{% include "fix.md" %}{% endwith %}
+{% include "fix.md" %}
 {%- elif turn == "answer" -%}
 La persona responde a tu pregunta: {{ changes }}
 Sigue con la tarea con esa respuesta.

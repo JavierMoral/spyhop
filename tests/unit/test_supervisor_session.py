@@ -3,14 +3,16 @@ progress of the run and the reasons why it waits for a person."""
 
 from pathlib import Path
 
-from spyhop.application.agent_recovery import MISSING_CYCLES
+import pytest
+
+from spyhop.application.context_builder import ContextError
 from spyhop.application.supervisor_session import UNUSABLE
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
 from spyhop.domain.models import AutomationRun, OrcaTerminal, StepRun, Worktree
 from spyhop.infrastructure.agent_state import write_state
-from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
-from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started, written
+from tests.fakes import Harness
+from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started
 
 
 async def failed_check(tmp_path: Path) -> tuple[Harness, AutomationRun, Worktree]:
@@ -83,28 +85,6 @@ async def test_the_session_starts_with_the_worktree_and_gets_the_round_verdicts_
     assert harness.orca.cards[worktree.orca_worktree_id].startswith(
         "LPD-1: checkpoints_failed: checkpoints failed: ticket-info; see "
     )
-
-
-async def test_the_session_pane_is_not_an_agent_of_the_run(tmp_path: Path) -> None:
-    harness, run, worktree = await failed_check(tmp_path)
-
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
-
-    # The session works on the message about the wait.
-
-    harness.orca.set_agent(worktree.orca_worktree_id, "working", "pane_term_1")
-    harness.tickets.updated["LPD-1"] = "2026-11-02T09:00:00.000+0000"
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).status is RunStatus.RUNNING
-    assert harness.checkpoint_runs.last_round(run.id, 0) == 2
-    round_start, checkpoint_start, resumed = session_prompts(harness, "term_check_1")[-3:]
-
-    assert round_start == "[spyhop] LPD-1: ronda 2 de checkpoints: ticket-info"
-    assert checkpoint_start.startswith("[spyhop] LPD-1: checkpoint ticket-info arrancado")
-    assert resumed == "[spyhop] LPD-1: la run sigue (esperaba: checkpoints_failed)"
 
 
 async def test_a_closed_session_starts_again_with_the_message(tmp_path: Path) -> None:
@@ -237,54 +217,6 @@ async def test_a_session_without_a_handle_is_not_started_again(tmp_path: Path) -
     assert len(harness.orca.terminals) == 1
 
 
-async def test_the_session_hears_once_that_the_plan_agent_is_closed(tmp_path: Path) -> None:
-    harness = harness_with(
-        tmp_path,
-        {"checks": ["ticket-info"]},
-        "plan",
-        "plan_review",
-        "implement",
-        with_supervisor_session=True,
-    )
-    run, worktree = await started(harness)
-
-    await harness.supervisor.supervise()
-    answer(harness, run, "ticket-info")
-    await harness.supervisor.supervise()
-
-    session = harness.sessions.find_launched(run.id)
-
-    assert session is not None and session.pane_key is not None
-
-    written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
-    await harness.supervisor.supervise()
-    harness.orca.agents.clear()
-
-    for _ in range(MISSING_CYCLES + 1):
-        await harness.supervisor.supervise()
-
-    harness.restart_supervisor()
-
-    await harness.supervisor.supervise()
-
-    closed = (
-        "[spyhop] LPD-1: el agente del plan está cerrado; aprueba el plan con `spyhop approve "
-        f"LPD-1`, o abre un agente en {worktree.path} para revisar CLAUDE-PLAN.md"
-    )
-
-    assert session_prompts(harness, "term_check_1").count(closed) == 1
-    assert harness.run(run.id).plan_agent_closed_told
-    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
-
-    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    await harness.supervisor.supervise()
-
-    assert len(harness.orca.launches) == 2
-    assert harness.run(run.id).status is RunStatus.RUNNING
-
-
 async def test_the_session_hears_that_the_first_agent_started(tmp_path: Path) -> None:
     harness = Harness(tmp_path, with_supervisor_session=True)
     run = harness.discover()
@@ -300,15 +232,20 @@ async def test_the_session_hears_that_the_first_agent_started(tmp_path: Path) ->
 
     assert (
         f"[spyhop] LPD-1: worktree listo en {worktree.path} (rama {worktree.branch_name}); "
-        "agente de plan arrancado (opus)"
+        "turno launch de plan arrancado; log en "
     ) in session["command"]
 
 
-async def test_the_session_hears_that_the_run_failed_to_start(tmp_path: Path) -> None:
+async def test_the_session_hears_that_the_run_failed_to_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     harness = Harness(tmp_path, with_supervisor_session=True)
     run = harness.discover()
 
-    harness.orca.launch_errors.append(OrcaCommandError("refused", "bad_request"))
+    def broken(*_: object) -> None:
+        raise ContextError("task.md does not render")
+
+    monkeypatch.setattr(harness.context, "prepare", broken)
 
     await harness.launcher.launch_pending()
 
@@ -316,7 +253,7 @@ async def test_the_session_hears_that_the_run_failed_to_start(tmp_path: Path) ->
 
     assert harness.run(run.id).status is RunStatus.FAILED
     assert (
-        "[spyhop] LPD-1: la run ha fallado al arrancar: Orca refused the launch"
+        "[spyhop] LPD-1: la run ha fallado al arrancar: task.md does not render"
         in (session["command"])
     )
 

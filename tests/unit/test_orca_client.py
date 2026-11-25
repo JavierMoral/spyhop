@@ -2,7 +2,6 @@
 
 import json
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,7 @@ from spyhop.domain.exceptions import (
     OrcaUncertainError,
 )
 from spyhop.domain.models import OrcaTerminal
-from spyhop.infrastructure.orca.client import OrcaClient, new_operation_id
+from spyhop.infrastructure.orca.client import OrcaClient
 from spyhop.infrastructure.process.command_runner import CommandResult, CommandTimeoutError
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "orca"
@@ -176,57 +175,6 @@ async def test_create_worktree_inherits_the_setup_policy_by_default() -> None:
     assert "--setup" not in runner.calls[0][0]
 
 
-async def test_launch_agent_always_passes_its_operation_id() -> None:
-    runner = FakeRunner(fixture("agent_launch.json"))
-    operation_id = "1793555543449-a813c226561c4e8691e50c39dbf32c98"
-
-    result = await client(runner).launch_agent(
-        WORKTREE_ID, "/goal do it", operation_id, "sonnet", "high"
-    )
-
-    assert result.agent_handle == "term_bbd3213b-b48b-40d9-92c4-f3140c82d6ae"
-    assert result.operation_id == operation_id
-    assert result.surface == "terminal"
-    assert result.prompt_outcome == "handed-to-terminal"
-    assert runner.calls[0][0][1:] == [
-        "agent",
-        "launch",
-        "--agent",
-        "claude",
-        "--worktree",
-        f"id:{WORKTREE_ID}",
-        "--surface",
-        "terminal",
-        "--model",
-        "sonnet",
-        "--effort",
-        "high",
-        "--prompt",
-        "/goal do it",
-        "--retry-launch",
-        operation_id,
-        "--json",
-    ]
-
-
-async def test_launch_agent_reads_the_launch_nested_in_worktree_create() -> None:
-    runner = FakeRunner(fixture("worktree_create.json"))
-
-    result = await client(runner).launch_agent(WORKTREE_ID, "/goal", "1-a", None, None)
-
-    assert result.agent_handle == "term_7630b42d-cd7b-43fa-bf26-0095e1dc414e"
-    assert "--model" not in runner.calls[0][0]
-
-
-async def test_refused_launch_is_a_command_error() -> None:
-    runner = FakeRunner(fixture("agent_launch_conflict.json"))
-
-    with pytest.raises(OrcaCommandError) as raised:
-        await client(runner).launch_agent(WORKTREE_ID, "/goal", "1-a", None, None)
-
-    assert raised.value.code == "agent_session_operation_conflict"
-
-
 @pytest.mark.parametrize(
     "answer",
     [
@@ -235,11 +183,11 @@ async def test_refused_launch_is_a_command_error() -> None:
         json.dumps({"ok": False, "error": {"code": "x", "data": {"operationId": "1-a"}}}),
     ],
 )
-async def test_unreadable_launch_outcome_is_uncertain(answer: object) -> None:
+async def test_an_unreadable_prompt_outcome_is_uncertain(answer: object) -> None:
     runner = FakeRunner(answer)  # type: ignore[arg-type]
 
     with pytest.raises(OrcaUncertainError):
-        await client(runner).launch_agent(WORKTREE_ID, "/goal", "1-a", None, None)
+        await client(runner).send_prompt("term_1", "hello")
 
 
 @pytest.mark.parametrize("code", ["terminal_handle_stale", "terminal_not_writable"])
@@ -255,7 +203,7 @@ async def test_a_stale_or_closed_terminal_is_a_command_error(code: str) -> None:
 
 async def test_read_command_timeout_means_unavailable() -> None:
     with pytest.raises(OrcaUnavailableError):
-        await client(FakeRunner(CommandTimeoutError(120))).worktree_agents()
+        await client(FakeRunner(CommandTimeoutError(120))).show_worktree(WORKTREE_ID)
 
 
 async def test_unknown_selector_is_reported_with_its_code() -> None:
@@ -265,48 +213,6 @@ async def test_unknown_selector_is_reported_with_its_code() -> None:
         await client(runner).show_worktree("nope::/x")
 
     assert raised.value.code == "selector_not_found"
-
-
-async def test_worktree_agents_groups_agents_by_worktree() -> None:
-    agents = await client(FakeRunner(fixture("worktree_ps.json"))).worktree_agents()
-
-    [agent] = agents[WORKTREE_ID]
-
-    assert agent.agent_type == "claude"
-    assert agent.state == "done"
-    assert agent.has_live_pty
-    assert agent.prompt is not None and agent.prompt.startswith("/goal ")
-    assert agents["bc8cbd3b-6629-4670-8f86-e580f76aaae4::/home/user/git/project/portal"] == []
-
-
-def test_operation_ids_follow_orca_format() -> None:
-    now = datetime.now(UTC)
-    first, second = new_operation_id(now), new_operation_id(now)
-
-    milliseconds, random_part = first.split("-")
-
-    assert milliseconds.isdigit() and len(milliseconds) == 13
-    assert len(random_part) == 32 and int(random_part, 16) >= 0
-    assert first != second
-
-
-async def test_launch_agent_returns_the_agents_pane() -> None:
-    runner = FakeRunner(fixture("agent_launch.json"))
-
-    result = await client(runner).launch_agent(WORKTREE_ID, "/goal x", "1-a", None, None)
-
-    assert result.pane_key is not None and ":" in result.pane_key
-
-
-async def test_agent_rows_carry_when_their_state_started() -> None:
-    runner = FakeRunner(fixture("worktree_ps_waiting.json"))
-
-    [agent] = (await client(runner).worktree_agents())[WORKTREE_ID]
-
-    assert agent.state == "waiting"
-    assert agent.state_started_at is not None
-    assert agent.state_started_at.year == 2026
-    assert agent.question == "answer: ¿Prefieres la opción A o la B? (Opción A · Opción B)"
 
 
 async def test_close_terminals_stops_every_agent_of_the_worktree() -> None:

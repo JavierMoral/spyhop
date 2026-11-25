@@ -9,7 +9,6 @@ import json
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
 
 from jinja2 import (
     ChoiceLoader,
@@ -21,7 +20,7 @@ from jinja2 import (
 )
 
 from spyhop.domain.exceptions import SpyhopError
-from spyhop.domain.models import CodeReviewPhase, ResolvedWorkflow, TicketDetails
+from spyhop.domain.models import ResolvedWorkflow, TicketDetails
 
 # Named CLAUDE-*.md so that liferay-portal's "ant clean" (and "ant all") keeps
 # them: its git clean -X removes ignored files except those matching
@@ -46,8 +45,6 @@ EXCLUDED_PATHS = (
     # Written by the implementation agent: a note for one checkpoint.
     "/CLAUDE-NOTE-*.md",
 )
-
-Phase = Literal["plan", "replan", "implement", "change", "full"]
 
 
 class ContextError(SpyhopError):
@@ -76,13 +73,11 @@ class ContextBuilder:
         self,
         templates: Environment,
         orca_executable: Path,
-        review_command: str | None = None,
         recall_command: str | None = None,
         spyhop: Path = Path("spyhop"),
     ) -> None:
         self._templates = templates
         self._orca_executable = orca_executable
-        self._review_command = review_command
         self._recall_command = recall_command
         self._spyhop = spyhop
 
@@ -91,12 +86,11 @@ class ContextBuilder:
         worktree_path: Path,
         ticket: TicketDetails,
         workflow: ResolvedWorkflow,
-        headless: bool = False,
     ) -> None:
         if not worktree_path.is_dir():
             raise ContextError(f"Worktree directory not found: {worktree_path}")
 
-        task = self.render_task(ticket, workflow, headless)
+        task = self.render_task(ticket, workflow)
         settings = self.render_settings(workflow)
 
         (worktree_path / TASK_FILE).write_text(task)
@@ -108,11 +102,9 @@ class ContextBuilder:
 
         add_exclusions(git_exclude_file(worktree_path), EXCLUDED_PATHS)
 
-    def render_task(
-        self, ticket: TicketDetails, workflow: ResolvedWorkflow, headless: bool = False
-    ) -> str:
-        """In a headless run, the code_review phase is its own turn, so the
-        task has no Review section."""
+    def render_task(self, ticket: TicketDetails, workflow: ResolvedWorkflow) -> str:
+        """The code_review phase is its own turn, so the task has no Review
+        section."""
 
         guidance = self._render(workflow.prompt).strip()
 
@@ -122,14 +114,6 @@ class ContextBuilder:
             workflow=workflow,
             guidance=guidance,
             orca=str(self._orca_executable),
-            implement_goal=self.goal(ticket.key, "implement"),
-            headless=headless,
-            review_command=None
-            if headless
-            else next(
-                (phase.command for phase in workflow.phases if isinstance(phase, CodeReviewPhase)),
-                self._review_command,
-            ),
             recall_command=self._recall_command,
         )
 
@@ -149,21 +133,6 @@ class ContextBuilder:
             ) from error
 
         return text if text.endswith("\n") else text + "\n"
-
-    def launch_goal(self, issue_key: str, workflow: ResolvedWorkflow) -> str:
-        return self.goal(issue_key, "plan" if workflow.plan_review else "full")
-
-    def goal(self, issue_key: str, phase: Phase, changes: str = "") -> str:
-        text = self._render(
-            "goal.md",
-            phase=phase,
-            changes=oneline(changes),
-            spyhop=str(self._spyhop),
-            issue_key=issue_key,
-            orca=str(self._orca_executable),
-        )
-
-        return oneline(text)
 
     def turn_prompt(
         self,
@@ -190,19 +159,6 @@ class ContextBuilder:
             failed=list(failed),
             planning=planning or turn in ("plan", "replan"),
             spyhop=str(self._spyhop),
-            orca=str(self._orca_executable),
-        )
-
-        return oneline(text)
-
-    def fix_prompt(self, issue_key: str, failed: Sequence[str], new_agent: bool = False) -> str:
-        text = self._render(
-            "fix.md",
-            new_agent=new_agent,
-            headless=False,
-            spyhop=str(self._spyhop),
-            issue_key=issue_key,
-            failed=list(failed),
             orca=str(self._orca_executable),
         )
 

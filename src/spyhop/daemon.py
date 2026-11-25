@@ -214,11 +214,9 @@ def _agents(
 
     runs = RunRepository(connection)
     worktrees = WorktreeRepository(connection)
-    sessions = SessionRepository(connection)
     context = ContextBuilder(
         template_environment(user_templates_dir()),
         executable,
-        settings.agents.review_command,
         settings.knowledge.recall_command,
         spyhop_executable(),
     )
@@ -242,13 +240,8 @@ def _agents(
     supervisor = AgentSupervisor(
         runs=runs,
         worktrees=worktrees,
-        sessions=sessions,
-        worktree_host=orca,
-        terminal_host=orca,
         context=context,
         agents=settings.agents,
-        plan_review_status=settings.orca.plan_review_status,
-        plan_approved_status=settings.orca.plan_approved_status,
         resolver=resolver,
         check_runner=CheckRunner(
             checkpoint_runs=StepRunRepository(connection),
@@ -263,6 +256,8 @@ def _agents(
         work_runner=work_runner,
         supervisor_session=supervisor_session,
         agent_states_dir=state_dir() / AGENT_STATES,
+        board=orca,
+        plan_review_status=settings.orca.plan_review_status,
         knowledge=KnowledgeWriter(
             StepRunRepository(connection),
             settings.knowledge.write_script,
@@ -274,12 +269,10 @@ def _agents(
     launcher = AgentLauncher(
         runs=runs,
         worktrees=worktrees,
-        sessions=sessions,
         resolver=resolver,
         jira=jira,
         jira_settings=settings.jira,
         worktree_host=orca,
-        terminal_host=orca,
         context=context,
         agents=settings.agents,
         max_concurrent_agents=settings.application.max_concurrent_agents,

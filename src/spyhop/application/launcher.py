@@ -1,12 +1,14 @@
-"""Turns registered runs into agents working in Orca.
+"""Turns registered runs into runs that work: a worktree in Orca, and the
+first turn of a headless agent or the first checks.
 
 DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
 
 - PREPARING reads the ticket, gets or creates the ticket's worktree and writes
   the agent's context. Every step is safe to repeat, so a run interrupted here
   (Orca or JIRA down, timeout, restart) simply prepares again next cycle.
-- READY launches the agent. The operation id is stored before calling Orca and
-  reused on every attempt, so the launch is never duplicated (see OrcaClient).
+- READY starts the first checks, or the first turn of the agent (see
+  WorkRunner). The row of the turn is stored before its unit starts, so the
+  turn never starts twice.
 - A worktree script that asks to try again keeps the run in PREPARING with
   waiting_reason worktree_script, and runs again next cycle.
 - Only a definite refusal or a broken setup fails the run. Spyhop does not
@@ -19,7 +21,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.context_builder import ContextBuilder, ContextError
 from spyhop.application.launch_errors import NotYet, RunFailed, Waiting
 from spyhop.application.step_runner import log_file
@@ -28,7 +29,6 @@ from spyhop.application.work_runner import WorkRunner
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import AgentSettings, JiraSettings
-from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import (
     JiraAuthenticationError,
@@ -46,7 +46,7 @@ from spyhop.domain.models import (
     TicketRef,
     Worktree,
 )
-from spyhop.domain.protocols import TerminalHost, TicketGateway, WorktreeHost, ensure_ready
+from spyhop.domain.protocols import TicketGateway, WorktreeHost, ensure_ready
 from spyhop.infrastructure.jira.mapping import (
     ANCESTOR_FIELDS,
     TICKET_FIELDS,
@@ -56,7 +56,6 @@ from spyhop.infrastructure.jira.mapping import (
 )
 from spyhop.infrastructure.persistence.repositories import (
     RunRepository,
-    SessionRepository,
     WorktreeRepository,
 )
 
@@ -82,8 +81,7 @@ class _Prepared:
 
 def with_code_review(workflow: ResolvedWorkflow, command: str | None) -> ResolvedWorkflow:
     """The workflow with a code_review phase after implement that runs
-    ``command`` (agents.review_command), when it has no code_review phase. An
-    Orca run runs that command in the implementation turn instead."""
+    ``command`` (agents.review_command), when it has no code_review phase."""
 
     phases = workflow.phases
 
@@ -103,37 +101,31 @@ class AgentLauncher:
         self,
         runs: RunRepository,
         worktrees: WorktreeRepository,
-        sessions: SessionRepository,
         resolver: WorkflowResolver,
         jira: TicketGateway,
         jira_settings: JiraSettings,
         worktree_host: WorktreeHost,
-        terminal_host: TerminalHost,
         context: ContextBuilder,
         agents: AgentSettings,
         max_concurrent_agents: int,
         provisioner: WorktreeProvisioner,
+        work_runner: WorkRunner,
         supervisor_session: SupervisorSession | None = None,
         notify: Callable[[str, str], Awaitable[None]] | None = None,
-        now: Clock = utc_now,
-        work_runner: WorkRunner | None = None,
     ) -> None:
         self._runs = runs
         self._work = work_runner
         self._supervisor_session = supervisor_session
         self._notify = notify
         self._worktrees = worktrees
-        self._sessions = sessions
         self._resolver = resolver
         self._jira = jira
         self._jira_settings = jira_settings
         self._worktree_host = worktree_host
-        self._terminal_host = terminal_host
         self._context = context
         self._agents = agents
         self._max_concurrent_agents = max_concurrent_agents
         self._provisioner = provisioner
-        self._starter = AgentStarter(sessions, terminal_host, agents, now)
 
     async def launch_pending(self) -> list[AutomationRun]:
         """Advances pending runs, oldest first, while there are free slots.
@@ -145,7 +137,7 @@ class AgentLauncher:
             return []
 
         try:
-            await ensure_ready(self._worktree_host, self._terminal_host)
+            await ensure_ready(self._worktree_host)
         except OrcaUnavailableError as error:
             _log.info("%d run(s) waiting for Orca: %s", len(pending), error)
 
@@ -245,23 +237,18 @@ class AgentLauncher:
         try:
             worktree = await self._provisioner.worktree(ticket, workflow)
 
-            # A run keeps its runner; a new run gets the one of the settings.
-
-            runner = self._agents.runner if run.pipeline is None else run.runner
-
-            if run.pipeline is None and runner == "headless":
+            if run.pipeline is None:
                 workflow = with_code_review(workflow, self._agents.review_command)
 
-            self._context.prepare(worktree.path, ticket, workflow, runner == "headless")
+            self._context.prepare(worktree.path, ticket, workflow)
         except (OrcaCommandError, ContextError) as error:
             raise RunFailed(str(error)) from error
 
         # CLAUDE-TASK.md describes this pipeline, and run.phase is an index
-        # into it from now on. The run also keeps its runner.
+        # into it from now on.
 
         if run.pipeline is None:
             self._runs.set_pipeline(run.id, workflow.phases)
-            self._runs.set_runner(run.id, self._agents.runner)
 
         self._runs.mark_ready(run.id, worktree.id)
         await self._tell_notices(run, worktree)
@@ -269,8 +256,8 @@ class AgentLauncher:
         return _Prepared(workflow, worktree)
 
     async def _launch(self, run: AutomationRun, prepared: _Prepared) -> bool:
-        # The implementation of a plan comes later, from a new agent on
-        # agents.model (see AgentSupervisor).
+        # The implementation of a plan comes later, in a new session on
+        # agents.model (see PhaseRunner).
 
         workflow = prepared.workflow
         change = self._runs.pending_change(run.id)
@@ -295,8 +282,6 @@ class AgentLauncher:
 
             return True
 
-        plan_review = workflow.plan_review
-
         if change is not None:
             # A change after a completed run: the run starts at the
             # implementation, and the phases after it run again.
@@ -306,65 +291,15 @@ class AgentLauncher:
             if run.phase != implement:
                 self._runs.set_phase(run.id, implement)
 
-            model = self._agents.model
-            goal = self._context.goal(run.issue_key, "change", change)
-            step = "implement"
-        else:
-            model = self._agents.plan_model if plan_review else self._agents.model
-            goal = self._context.launch_goal(run.issue_key, workflow)
-            step = "plan" if plan_review else "implement"
+        step = "plan" if change is None and workflow.plan_review else "implement"
 
-        current = self._runs.get(run.id) or run
-
-        if current.runner == "headless":
-            return await self._launch_turn(current, prepared, change, step)
-
-        try:
-            session = await self._starter.start(run, prepared.worktree, model, goal, step)
-        except LaunchOutcomeUnknown:
-            self._runs.mark_waiting(
-                run.id, WaitingReason.UNKNOWN_STATE, "launch outcome unknown; check Orca"
-            )
-
-            if self._supervisor_session is not None:
-                await self._supervisor_session.alert(
-                    prepared.worktree, "unknown_state: launch outcome unknown; check Orca"
-                )
-
-            return False
-        except OrcaCommandError as error:
-            raise RunFailed(f"Orca refused the launch: {error}") from error
-
-        self._runs.mark_running(run.id)
-        self._runs.consume(run.id, "change")
-        await self._starter.label(run, session)
-
-        _log.info(
-            "%s: agent %s started in %s (branch %s, %s, %s)",
-            run.issue_key,
-            session.agent_handle,
-            prepared.worktree.path,
-            prepared.worktree.branch_name,
-            "plan review" if prepared.workflow.plan_review else "no plan review",
-            session.model,
-        )
-
-        await self._tell(
-            prepared.worktree,
-            f"worktree listo en {prepared.worktree.path} (rama {prepared.worktree.branch_name}); "
-            f"agente de {session.role} arrancado ({session.model})",
-        )
-
-        return True
+        return await self._launch_turn(self._runs.get(run.id) or run, prepared, change, step)
 
     async def _launch_turn(
         self, run: AutomationRun, prepared: _Prepared, change: str | None, step: str
     ) -> bool:
         """Starts the first turn of a headless agent: the plan, the whole
         task, or the change of a person after a completed run."""
-
-        if self._work is None:
-            raise RunFailed("this Spyhop runs no headless turns")
 
         worktree = prepared.worktree
 

@@ -281,7 +281,7 @@ def _check_disk(alias: str, path: Path, min_free_gb: float) -> Check:
 def _check_templates(settings: Settings, user_templates: Path | None = None) -> Check:
     user_templates = user_templates or user_templates_dir()
     environment = template_environment(user_templates)
-    names = {"task.md", "goal.md", "fix.md", "supervisor.md", "settings.local.json.j2"} | {
+    names = {"task.md", "turn.md", "fix.md", "supervisor.md", "settings.local.json.j2"} | {
         workflow.prompt
         for project in settings.enabled_projects().values()
         for workflow in project.workflows.values()

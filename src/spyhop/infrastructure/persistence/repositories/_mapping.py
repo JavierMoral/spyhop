@@ -49,21 +49,13 @@ def _to_run(row: sqlite3.Row) -> AutomationRun:
         retry_of=row["retry_of"],
         status_changed_at=_to_datetime(row["status_changed_at"]),
         phase=row["phase"],
-        fix_requested_at=_to_datetime(row["fix_requested_at"]),
         checks_requested_at=_to_datetime(row["checks_requested_at"]),
         checks_failed_only=bool(row["checks_failed_only"]),
         restarts=row["restarts"],
         plan_changes=row["plan_changes"],
-        signals=row["signals"],
-        declared=row["declared"],
-        declared_at=_to_datetime(row["declared_at"]),
         approved_at=_to_datetime(row["approved_at"]),
         pipeline=_pipeline_from_json(row["pipeline"]),
-        missing_cycles=row["missing_cycles"],
-        missing_since=_to_datetime(row["missing_since"]),
-        plan_agent_closed_told=bool(row["plan_agent_closed_told"]),
         alert_pending=bool(row["alert_pending"]),
-        runner=row["runner"],
     )
 
 

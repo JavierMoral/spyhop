@@ -25,11 +25,9 @@ from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
 from spyhop.domain.models import (
-    AgentRow,
     AutomationRun,
     IssueEntry,
     JiraUser,
-    LaunchResult,
     OrcaTerminal,
     OrcaWorktree,
     RemoveResult,
@@ -151,16 +149,13 @@ class FakeOrca:
         self.root = root
         self.worktrees: dict[str, OrcaWorktree] = {}
         self.references: dict[str, str] = {}
-        self.launches: list[dict[str, Any]] = []
         self.created: list[str] = []
         self.bases: list[str] = []
         self.unavailable = False
-        self.launch_errors: list[Exception] = []
         self.create_errors: list[Exception] = []
         self.linked: list[str] = []
         self.link_errors: list[Exception] = []
         self.display_names: dict[str, str] = {}
-        self.agents: dict[str, list[AgentRow]] = {}
         self.open_terminals: dict[str, int] = {}
         self.closed_terminals: list[str] = []
         self.removed: list[str] = []
@@ -170,7 +165,6 @@ class FakeOrca:
         self.terminals: list[dict[str, str]] = []
         self.terminal_errors: list[Exception] = []
         self.prompts: list[tuple[str, str]] = []
-        self.titles: dict[str, str] = {}
         self.colors: dict[str, str] = {}
         self.names: dict[str, str] = {}
         self.prompt_errors: list[Exception] = []
@@ -274,52 +268,11 @@ class FakeOrca:
 
         return worktree
 
-    async def launch_agent(
-        self,
-        orca_worktree_id: str,
-        prompt: str,
-        operation_id: str,
-        model: str | None,
-        effort: str | None,
-    ) -> LaunchResult:
-        self.launches.append(
-            {
-                "worktree": orca_worktree_id,
-                "prompt": prompt,
-                "operation_id": operation_id,
-                "model": model,
-                "effort": effort,
-            }
-        )
-
-        if self.launch_errors:
-            raise self.launch_errors.pop(0)
-
-        number = len(self.launches)
-        pane_key = f"tab{number}:leaf{number}"
-
-        self.open_terminals[orca_worktree_id] = self.open_terminals.get(orca_worktree_id, 0) + 1
-
-        return LaunchResult(f"term_{number}", operation_id, "terminal", "submitted", pane_key)
-
-    async def worktree_agents(self) -> dict[str, list[AgentRow]]:
-        if self.unavailable:
-            raise OrcaUnavailableError("Orca is closed")
-
-        # Like `worktree ps`: every worktree, also one without agents, and no
-        # removed worktree.
-
-        return {
-            orca_worktree_id: self.agents.get(orca_worktree_id, [])
-            for orca_worktree_id in self.worktrees
-        }
-
     async def close_terminals(self, orca_worktree_id: str) -> int:
         if orca_worktree_id not in self.worktrees:
             raise OrcaCommandError("selector_not_found", "selector_not_found")
 
         self.closed_terminals.append(orca_worktree_id)
-        self.agents.pop(orca_worktree_id, None)
 
         return self.open_terminals.pop(orca_worktree_id, 0)
 
@@ -364,9 +317,6 @@ class FakeOrca:
     async def close_terminal(self, terminal: str) -> None:
         self.closed.append(terminal)
 
-    async def rename_terminal(self, terminal: str, title: str) -> None:
-        self.titles[terminal] = title
-
     async def send_prompt(self, terminal: str, prompt: str) -> None:
         # The /color and /rename commands are kept apart from the messages.
 
@@ -389,29 +339,6 @@ class FakeOrca:
         self.worktrees[orca_worktree_id] = dataclasses.replace(
             self.worktrees[orca_worktree_id], workspace_status=status
         )
-
-    def set_agent(
-        self,
-        orca_worktree_id: str,
-        state: str,
-        pane_key: str,
-        since: datetime | None = None,
-        question: str | None = None,
-    ) -> None:
-        """Replaces the agent of that pane, keeping the worktree's others."""
-
-        others = [row for row in self.agents.get(orca_worktree_id, []) if row.pane_key != pane_key]
-        row = AgentRow(
-            agent_type="claude",
-            state=state,
-            pane_key=pane_key,
-            has_live_pty=True,
-            prompt=None,
-            state_started_at=since or self.clock(),
-            question=question,
-        )
-
-        self.agents[orca_worktree_id] = [*others, row]
 
 
 class FakeClock:
@@ -493,20 +420,17 @@ class Harness:
         self.launcher = AgentLauncher(
             runs=self.runs,
             worktrees=self.worktrees,
-            sessions=self.sessions,
             resolver=WorkflowResolver(self.config),
             jira=self.tickets,
             jira_settings=self.config.jira,
             worktree_host=self.orca,
-            terminal_host=self.orca,
             context=self.context,
             agents=self.config.agents,
             max_concurrent_agents=self.config.application.max_concurrent_agents,
             provisioner=self.provisioner,
+            work_runner=self.work_runner,
             supervisor_session=self.supervisor_session,
             notify=self.notify,
-            now=self.clock,
-            work_runner=self.work_runner,
         )
         self.cleaned: list[Path] = []
         self.cleanup_errors: list[Exception] = []
@@ -550,21 +474,15 @@ class Harness:
         self.supervisor = AgentSupervisor(
             runs=self.runs,
             worktrees=self.worktrees,
-            sessions=self.sessions,
-            worktree_host=self.orca,
-            terminal_host=self.orca,
             context=self.context,
             agents=self.config.agents,
-            plan_review_status=PLAN_REVIEW,
-            plan_approved_status=PLAN_APPROVED,
             resolver=WorkflowResolver(self.config),
-            check_runner=self.check_runner,
             work_runner=self.work_runner,
+            check_runner=self.check_runner,
             supervisor_session=self.supervisor_session,
             agent_states_dir=self.agent_states_dir,
-            # The tests count cycles; the time rule has its own test.
-            missing_after=timedelta(0),
-            now=self.clock,
+            board=self.orca,
+            plan_review_status=PLAN_REVIEW,
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:

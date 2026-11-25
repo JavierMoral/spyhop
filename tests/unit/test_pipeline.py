@@ -5,18 +5,19 @@ import json
 import os
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from spyhop.application import checkpoint_runner
+from spyhop.application.work_runner import prompt_file
 from spyhop.domain.enums import RunStatus, WaitingReason
-from spyhop.domain.exceptions import OrcaCommandError, OrcaUnavailableError, UnitError
+from spyhop.domain.exceptions import UnitError
 from spyhop.domain.models import AutomationRun, ChecksPhase, StepRun, Worktree
 from tests.factories import settings
-from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
+from tests.fakes import SPYHOP, Harness, git
 from tests.unit.test_checkpoint_planner import checkpoint
 
 BUG = {
@@ -125,7 +126,6 @@ async def test_checks_before_the_plan_run_without_an_agent_and_then_start_it(
     run, worktree = await started(harness)
 
     assert run.status is RunStatus.RUNNING
-    assert harness.orca.launches == []
 
     await harness.supervisor.supervise()
 
@@ -142,10 +142,11 @@ async def test_checks_before_the_plan_run_without_an_agent_and_then_start_it(
     answer(harness, run, "ticket-info")
     await harness.supervisor.supervise()
 
+    plan = harness.checkpoint_runs.last_work(run.id)
+
     assert harness.run(run.id).phase == 1
-    assert len(harness.orca.launches) == 1
-    assert harness.orca.launches[0]["model"] == "opus"
-    assert "escribe CLAUDE-PLAN.md" in harness.orca.launches[0]["prompt"]
+    assert plan is not None and (plan.name, plan.turn) == ("plan", "launch")
+    assert "escribe CLAUDE-PLAN.md" in prompt_file(plan).read_text()
     assert "| ticket-info | PASS | ticket=2026-11-01T09:00:00.000+0000 | 1 |" in (
         (worktree.path / "CLAUDE-CHECKPOINTS.md").read_text()
     )
@@ -228,7 +229,7 @@ async def test_rerun_of_the_failed_checkpoints_keeps_each_pass_with_the_same_inp
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).phase == 1
-    assert len(harness.units.started) == 3
+    assert len(harness.units.started) == 4  # three checkpoints and the implement turn
     assert "| security | PASS | " in (worktree.path / "CLAUDE-CHECKPOINTS.md").read_text()
 
 
@@ -249,24 +250,42 @@ async def test_rerun_of_the_failed_checkpoints_runs_a_pass_with_changed_inputs(
     assert sorted(row.name for row in running(harness, run)) == ["security", "ticket-info"]
 
 
-async def implemented(harness: Harness) -> tuple[AutomationRun, Worktree, str]:
-    """The implementation agent declared the end; the checks start."""
+def end_turn(harness: Harness, run: AutomationRun) -> StepRun:
+    """Writes the done result of the last turn of the run, as `spyhop steps
+    exec --kind work` would."""
+
+    row = harness.checkpoint_runs.last_work(run.id)
+
+    assert row is not None
+
+    row.output_file.parent.mkdir(parents=True, exist_ok=True)
+    row.output_file.write_text(
+        json.dumps(
+            {
+                "exit_code": 0,
+                "output": {"is_error": False, "structured_output": {"status": "done"}},
+            }
+        )
+    )
+
+    return row
+
+
+async def implemented(harness: Harness) -> tuple[AutomationRun, Worktree, StepRun]:
+    """The implementation turn ended done; the checks start."""
 
     run, worktree = await started(harness)
-    session = harness.sessions.find_launched(run.id)
-
-    assert session is not None and session.pane_key is not None
 
     git(worktree.path, "checkout", "--quiet", "-b", "LPD-1")
     (worktree.path / "App.java").write_text("class App { int fixed; }\n")
     git(worktree.path, "commit", "--quiet", "-am", "LPD-1 Fix")
-    written(worktree.path / "CLAUDE-RESULT.md", "done")
-    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
+    written(worktree.path / "CLAUDE-RESULT.md", "done", ahead=1)
+
+    row = end_turn(harness, run)
 
     await harness.supervisor.supervise()
 
-    return harness.run(run.id), worktree, session.pane_key
+    return harness.run(run.id), worktree, row
 
 
 async def test_checks_after_the_implementation_run_in_stages_and_complete_the_run(
@@ -299,22 +318,6 @@ async def test_checks_after_the_implementation_run_in_stages_and_complete_the_ru
     assert table.index("| security | PASS") < table.index("| mutation | PASS")
 
 
-async def test_an_orca_run_reviews_in_the_implementation_and_passes_the_code_review(
-    tmp_path: Path,
-) -> None:
-    harness = harness_with(
-        tmp_path, "implement", {"code_review": "/code-review-loop"}, {"checks": ["regressions"]}
-    )
-    run, worktree, _ = await implemented(harness)
-
-    assert (
-        "ejecuta `/code-review-loop` antes de escribir"
-        in (worktree.path / "CLAUDE-TASK.md").read_text()
-    )
-    assert run.phase == 2
-    assert [row.name for row in running(harness, run)] == ["regressions"]
-
-
 async def test_a_run_in_progress_keeps_its_pipeline_when_the_configuration_changes(
     tmp_path: Path,
 ) -> None:
@@ -345,110 +348,6 @@ async def test_a_run_from_before_the_stored_pipeline_gets_it_on_supervision(
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).pipeline == ("implement", ChecksPhase(("regressions",), "fix"))
-
-
-async def test_a_fix_prompt_that_orca_cannot_take_is_asked_again(tmp_path: Path) -> None:
-    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
-    run, _, _ = await implemented(harness)
-    send_prompt = harness.orca.send_prompt
-    closed = [OrcaUnavailableError("Orca is closed")]
-
-    async def closed_once(terminal: str, prompt: str) -> None:
-        if closed:
-            raise closed.pop()
-
-        await send_prompt(terminal, prompt)
-
-    harness.orca.send_prompt = closed_once  # type: ignore[method-assign]
-    answer(harness, run, "regressions", "FAIL", HIGH)
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).fix_requested_at is None
-
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).fix_requested_at is not None
-
-
-async def test_a_failed_check_asks_the_agent_to_fix_it_and_runs_a_new_round(
-    tmp_path: Path,
-) -> None:
-    harness = harness_with(
-        tmp_path, "implement", {"checks": ["regressions", "mutation"], "on_fail": "fix"}
-    )
-    run, worktree, pane = await implemented(harness)
-    session = harness.sessions.find_launched(run.id)
-
-    assert session is not None
-
-    answer(harness, run, "regressions", "FAIL", HIGH)
-    await harness.supervisor.supervise()
-
-    # mutation comes after regressions, so it is skipped in this round.
-
-    [(terminal, prompt)] = harness.orca.prompts
-
-    assert terminal == session.agent_handle
-    assert "han fallado: regressions." in prompt
-    assert harness.run(run.id).fix_requested_at is not None
-    assert "**high** `App.java:1`: Broken." in (
-        (worktree.path / "CLAUDE-CHECKPOINT-regressions.md").read_text()
-    )
-
-    # The old CLAUDE-RESULT.md does not end the fix.
-
-    harness.orca.set_agent(worktree.orca_worktree_id, "working", pane)
-    await harness.supervisor.supervise()
-
-    assert harness.checkpoint_runs.last_round(run.id, 1) == 1
-
-    git(worktree.path, "commit", "--quiet", "--allow-empty", "-m", "LPD-1 Fix the caller")
-    written(worktree.path / "CLAUDE-RESULT.md", "fixed", ahead=1)
-    harness.runs.declare(run.id, "done")
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).fix_requested_at is None
-    assert harness.checkpoint_runs.last_round(run.id, 1) == 2
-    assert [row.name for row in running(harness, run)] == ["regressions"]
-
-
-async def test_a_new_agent_fixes_the_findings_when_the_agent_is_gone(tmp_path: Path) -> None:
-    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
-    run, _, _ = await implemented(harness)
-    launches = len(harness.orca.launches)
-
-    harness.orca.prompt_errors.append(OrcaCommandError("terminal_handle_stale", "stale"))
-    answer(harness, run, "regressions", "FAIL", HIGH)
-    await harness.supervisor.supervise()
-
-    fixing = harness.run(run.id)
-    launch = harness.orca.launches[launches]
-
-    assert fixing.status is RunStatus.RUNNING
-    assert fixing.fix_requested_at is not None
-    assert launch["prompt"].startswith("/goal Lee CLAUDE-TASK.md y CLAUDE-RESULT.md")
-    assert "han fallado: regressions." in launch["prompt"]
-
-
-async def test_a_rerun_after_a_fix_request_starts_a_round_without_the_fix(
-    tmp_path: Path,
-) -> None:
-    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
-    run, worktree, pane = await implemented(harness)
-
-    answer(harness, run, "regressions", "FAIL", HIGH)
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).fix_requested_at is not None
-
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
-    harness.runs.request_checks(run.id, failed_only=True)
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).fix_requested_at is None
-    assert harness.checkpoint_runs.last_round(run.id, 1) == 2
-    assert [row.name for row in running(harness, run)] == ["regressions"]
 
 
 async def test_the_last_round_does_not_fix(tmp_path: Path) -> None:
@@ -666,51 +565,6 @@ async def test_a_unit_that_does_not_start_gets_a_report(tmp_path: Path) -> None:
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
 
 
-async def test_an_approved_plan_without_plan_review_starts_a_new_agent(tmp_path: Path) -> None:
-    harness = harness_with(tmp_path, "implement")
-    run, worktree = await started(harness)
-    session = harness.sessions.find_launched(run.id)
-
-    assert session is not None and session.pane_key is not None
-
-    written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
-
-    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    await harness.supervisor.supervise()
-
-    assert len(harness.orca.launches) == 2
-    assert harness.orca.launches[1]["prompt"] == harness.context.goal("LPD-1", "implement")
-    assert harness.run(run.id).status is RunStatus.RUNNING
-
-
-async def test_a_fix_whose_next_round_is_blocked_runs_the_round_once_unblocked(
-    tmp_path: Path,
-) -> None:
-    harness = harness_with(tmp_path, "implement", {"checks": ["regressions"], "on_fail": "fix"})
-    run, worktree, pane = await implemented(harness)
-
-    answer(harness, run, "regressions", "FAIL", HIGH)
-    await harness.supervisor.supervise()
-    (worktree.path / "Notes.java").write_text("class Notes {}\n")
-    written(worktree.path / "CLAUDE-RESULT.md", "fixed", ahead=1)
-    harness.runs.declare(run.id, "done")
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", pane)
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).waiting_reason is WaitingReason.UNKNOWN_STATE
-
-    (worktree.path / "Notes.java").unlink()
-    await harness.supervisor.supervise()
-
-    assert len(harness.orca.prompts) == 1
-    assert harness.checkpoint_runs.last_round(run.id, 1) == 2
-
-
 async def test_a_worktree_without_the_report_exclusions_gets_them(tmp_path: Path) -> None:
     harness = harness_with(tmp_path, {"checks": ["ticket-info", "regressions"]}, "implement")
     run, worktree = await started(harness)
@@ -721,73 +575,3 @@ async def test_a_worktree_without_the_report_exclusions_gets_them(tmp_path: Path
     await harness.supervisor.supervise()
 
     assert [row.name for row in running(harness, run)] == ["regressions"]
-
-
-async def test_each_agent_has_the_title_the_name_and_the_color_of_its_role(tmp_path: Path) -> None:
-    harness = harness_with(tmp_path, "plan", "plan_review", "implement")
-    run, worktree = await started(harness)
-    agents = harness.config.agents
-
-    assert harness.orca.titles == {"term_1": f"plan {agents.plan_model}"}
-
-    session = harness.sessions.find_launched(run.id)
-
-    assert session is not None and session.pane_key is not None
-
-    written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
-    await harness.supervisor.supervise()
-    harness.set_card(worktree.orca_worktree_id, PLAN_APPROVED)
-    await harness.supervisor.supervise()
-
-    assert harness.orca.titles == {
-        "term_1": f"plan {agents.plan_model}",
-        "term_2": f"implement {agents.model}",
-    }
-    assert harness.orca.names == harness.orca.titles
-    assert harness.orca.colors == {"term_1": "blue", "term_2": "orange"}
-
-
-async def test_replan_starts_a_new_plan_agent_and_the_plan_waits_again(tmp_path: Path) -> None:
-    harness = harness_with(tmp_path, "plan", "plan_review", "implement")
-    run, worktree = await started(harness)
-    session = harness.sessions.find_launched(run.id)
-
-    assert session is not None and session.pane_key is not None
-
-    written(worktree.path / "CLAUDE-PLAN.md", "plan")
-    harness.set_card(worktree.orca_worktree_id, PLAN_REVIEW)
-    harness.orca.set_agent(worktree.orca_worktree_id, "done", session.pane_key)
-    await harness.supervisor.supervise()
-    harness.orca.agents.clear()
-    harness.runs.set_plan_agent_closed_told(run.id, True)
-    harness.runs.request_plan_changes(run.id, "Add a test\nfor the empty list.")
-    await harness.supervisor.supervise()
-
-    replanned = harness.run(run.id)
-    new_session = harness.sessions.find_launched(run.id)
-
-    assert pending_commands(harness, run) == []
-
-    assert len(harness.orca.launches) == 2
-    assert "cambia CLAUDE-PLAN.md con estos cambios" in harness.orca.launches[1]["prompt"]
-    assert "Add a test for the empty list." in harness.orca.launches[1]["prompt"]
-    assert replanned.status is RunStatus.RUNNING
-    assert replanned.plan_changes is None
-    # The close of the new plan agent is news to the person again.
-    assert not replanned.plan_agent_closed_told
-    assert new_session is not None and new_session.pane_key is not None
-    assert new_session.role == "plan"
-
-    written(worktree.path / "CLAUDE-PLAN.md", "new plan", ahead=1)
-    harness.runs.declare(run.id, "plan")
-    harness.orca.set_agent(
-        worktree.orca_worktree_id,
-        "done",
-        new_session.pane_key,
-        datetime.now(UTC) + timedelta(seconds=1),
-    )
-    await harness.supervisor.supervise()
-
-    assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW

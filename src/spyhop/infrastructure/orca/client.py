@@ -17,7 +17,6 @@ Verified against Orca 1.4.245; the captured answers are in tests/fixtures/orca.
 
 import json
 import logging
-import secrets
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,8 +28,6 @@ from spyhop.domain.exceptions import (
     OrcaUncertainError,
 )
 from spyhop.domain.models import (
-    AgentRow,
-    LaunchResult,
     OrcaTerminal,
     OrcaWorktree,
     RemoveResult,
@@ -60,10 +57,6 @@ _DEFINITE_CODES = {
     # The terminal is closed: the input did not go.
     "terminal_not_writable",
 }
-
-
-def new_operation_id(issued_at: datetime) -> str:
-    return f"{int(issued_at.timestamp() * 1000)}-{secrets.token_hex(16)}"
 
 
 class OrcaClient:
@@ -205,45 +198,6 @@ class OrcaClient:
             uncertain=False,
         )
 
-    async def launch_agent(
-        self,
-        orca_worktree_id: str,
-        prompt: str,
-        operation_id: str,
-        model: str | None,
-        effort: str | None,
-    ) -> LaunchResult:
-        args = [
-            "agent",
-            "launch",
-            "--agent",
-            AGENT,
-            "--worktree",
-            f"id:{orca_worktree_id}",
-            "--surface",
-            SURFACE,
-        ]
-
-        if model:
-            args += ["--model", model]
-
-            if effort:
-                args += ["--effort", effort]
-
-        args += ["--prompt", prompt, "--retry-launch", operation_id]
-
-        result = await self._call(args, self._operation_timeout, uncertain=True)
-
-        return to_launch_result(result, operation_id)
-
-    async def worktree_agents(self) -> dict[str, list[AgentRow]]:
-        result = await self._call(["worktree", "ps"], self._operation_timeout, uncertain=False)
-
-        return {
-            row["worktreeId"]: [to_agent_row(agent) for agent in row.get("agents", [])]
-            for row in result.get("worktrees", [])
-        }
-
     async def close_terminals(self, orca_worktree_id: str) -> int:
         """Stops the worktree's agents and closes its terminals."""
 
@@ -307,15 +261,6 @@ class OrcaClient:
 
         await self._call(
             ["terminal", "close", "--terminal", terminal], self._operation_timeout, uncertain=True
-        )
-
-    async def rename_terminal(self, terminal: str, title: str) -> None:
-        """Sets the title of the tab of the terminal."""
-
-        await self._call(
-            ["terminal", "rename", "--terminal", terminal, "--title", title],
-            self._operation_timeout,
-            uncertain=False,
         )
 
     async def send_prompt(self, terminal: str, prompt: str) -> None:
@@ -439,39 +384,6 @@ def to_orca_worktree(data: dict[str, Any]) -> OrcaWorktree:
         workspace_status=data.get("workspaceStatus"),
         comment=data.get("comment") or "",
         unread=bool(data.get("isUnread", data.get("unread", False))),
-    )
-
-
-def to_launch_result(result: dict[str, Any], operation_id: str) -> LaunchResult:
-    # `agent launch` answers with the launch itself; `worktree create --agent`
-    # nests it under "launch".
-
-    launch = result.get("launch", result)
-    outcome = launch.get("outcome") or {}
-    handle = outcome.get("handle") or result.get("agentTerminalHandle")
-
-    if not handle:
-        raise OrcaUncertainError("Orca accepted the launch but returned no agent handle")
-
-    return LaunchResult(
-        agent_handle=handle,
-        operation_id=launch.get("operationId") or operation_id,
-        surface=outcome.get("kind") or SURFACE,
-        prompt_outcome=(launch.get("prompt") or {}).get("outcome"),
-        pane_key=outcome.get("paneKey"),
-    )
-
-
-def to_agent_row(data: dict[str, Any]) -> AgentRow:
-    return AgentRow(
-        agent_type=data.get("agentType") or "",
-        state=data.get("state") or "",
-        pane_key=data.get("paneKey"),
-        has_live_pty=bool(data.get("hasLivePty")),
-        prompt=data.get("prompt"),
-        state_started_at=_from_epoch_ms(data.get("stateStartedAt")),
-        question=(data.get("programStatus") or {}).get("message")
-        or data.get("lastAssistantMessage"),
     )
 
 

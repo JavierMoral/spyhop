@@ -17,14 +17,12 @@ from spyhop.cli import app
 from spyhop.config.paths import database_file
 from spyhop.config.settings import load_settings
 from spyhop.domain.enums import WaitingReason
-from spyhop.domain.exceptions import OrcaCommandError
 from spyhop.domain.models import AgentExecution, IssueEntry, OrcaWorktree
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     ExecutionRepository,
     RunRepository,
-    SessionRepository,
     StepRunRepository,
     WorktreeRepository,
 )
@@ -711,32 +709,6 @@ class FakeTerminals:
         self.prompts.append((terminal, prompt))
 
 
-def test_tell_sends_the_message_to_the_agent_of_the_active_run(
-    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    terminals = FakeTerminals()
-    connection = connect(database_file(dry_run=False))
-    [automation_run] = RunRepository(connection).list(issue_key="LPD-1")
-    sessions = SessionRepository(connection)
-
-    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: terminals)
-
-    result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
-
-    assert result.exit_code == 1
-    assert "LPD-1 has no agent." in result.output
-
-    session = sessions.create_launching(automation_run.id, "claude", "opus", "1-abc", "plan")
-
-    sessions.mark_launched(session.id, "term_1", "tab:leaf")
-
-    result = CliRunner().invoke(app, ["tell", "lpd-1", "Add a test", "--config", str(config_file)])
-
-    assert result.exit_code == 0
-    assert "LPD-1: message sent to the plan agent term_1." in result.output
-    assert terminals.prompts == [("term_1", "Add a test")]
-
-
 def test_tell_queues_the_message_of_a_headless_agent(
     config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -745,7 +717,6 @@ def test_tell_queues_the_message_of_a_headless_agent(
     runs = RunRepository(connection)
     [automation_run] = runs.list(issue_key="LPD-1")
 
-    runs.set_runner(automation_run.id, "headless")
     StepRunRepository(connection).create_work(
         automation_run.id, 0, "implement", "launch", "s-1", "h", tmp_path
     )
@@ -761,24 +732,6 @@ def test_tell_queues_the_message_of_a_headless_agent(
     status = CliRunner().invoke(app, ["status", "LPD-1", "--config", str(config_file)])
 
     assert "turn: implement launch running session s-1 log " in status.output
-
-
-def test_tell_reports_an_agent_that_orca_refuses(
-    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    terminals = FakeTerminals(OrcaCommandError("terminal_not_found", "no terminal term_1"))
-    connection = connect(database_file(dry_run=False))
-    [automation_run] = RunRepository(connection).list(issue_key="LPD-1")
-    sessions = SessionRepository(connection)
-    session = sessions.create_launching(automation_run.id, "claude", "opus", "1-abc", "plan")
-
-    sessions.mark_launched(session.id, "term_1", "tab:leaf")
-    monkeypatch.setattr("spyhop.cli.common.orca_client", lambda settings: terminals)
-
-    result = CliRunner().invoke(app, ["tell", "LPD-1", "Add a test", "--config", str(config_file)])
-
-    assert result.exit_code == 1
-    assert "Orca refused the message for the plan agent term_1" in result.output
 
 
 def test_tell_needs_an_active_run(
@@ -916,43 +869,18 @@ def test_replan_asks_for_a_new_plan_agent_only_for_a_plan_in_review(
     assert runs.list(issue_key="LPD-1")[0].plan_changes == "Add a test."
 
 
-def test_declare_and_approve_are_stored_without_orca(
-    config_file: Path, run_worktree: Path, monkeypatch: pytest.MonkeyPatch, woken: list[bool]
-) -> None:
-    monkeypatch.setenv("PATH", "/nonexistent")
-
-    runs = RunRepository(connect(database_file(dry_run=False)))
-    [automation_run] = runs.list(issue_key="LPD-1")
-
-    declared = CliRunner().invoke(app, ["declare", "LPD-1", "plan", "--config", str(config_file)])
-    wrong = CliRunner().invoke(app, ["declare", "LPD-1", "maybe", "--config", str(config_file)])
-
-    runs.mark_waiting(automation_run.id, WaitingReason.PLAN_REVIEW)
-
-    approved = CliRunner().invoke(app, ["approve", "LPD-1", "--config", str(config_file)])
-    current = runs.list(issue_key="LPD-1")[0]
-
-    assert declared.exit_code == 0, declared.output
-    assert "the card did not move" in declared.output
-    assert wrong.exit_code == 1
-    assert approved.exit_code == 0, approved.output
-    assert current.declared == "plan" and current.declared_at is not None
-    assert current.approved_at is not None
-    assert woken == [True, True]
-
-
 def test_status_timeline_shows_what_happened_to_the_run(
     config_file: Path, run_worktree: Path
 ) -> None:
-    CliRunner().invoke(app, ["declare", "LPD-1", "plan", "--config", str(config_file)])
+    CliRunner().invoke(app, ["fail", "LPD-1", "--config", str(config_file)])
 
     result = CliRunner().invoke(
-        app, ["status", "LPD-1", "--timeline", "--config", str(config_file)]
+        app, ["status", "LPD-1", "--all", "--timeline", "--config", str(config_file)]
     )
 
     assert result.exit_code == 0, result.output
     assert "created: In Progress (bug_fix)" in result.output
-    assert result.output.index("created:") < result.output.index("declared: plan")
+    assert result.output.index("created:") < result.output.index("status: FAILED")
 
 
 def test_the_checkpoint_prompt_gives_the_note_of_its_checkpoint(tmp_path: Path) -> None:

@@ -7,9 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-import pytest
-
-from spyhop.application.run_commands import RunCommandError, RunCommands
+from spyhop.application.run_commands import RunCommands
 from spyhop.application.work_runner import prompt_file
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.models import AutomationRun, ChecksPhase, CodeReviewPhase, StepRun, Worktree
@@ -20,11 +18,7 @@ REVIEW = {"code_review": "/code-review-loop --rounds 1"}
 
 
 def headless(tmp_path: Path, *pipeline: Any) -> Harness:
-    harness = harness_with(tmp_path, *pipeline)
-
-    harness.config.agents.runner = "headless"
-
-    return harness
+    return harness_with(tmp_path, *pipeline)
 
 
 def turns(harness: Harness) -> list[StepRun]:
@@ -77,9 +71,7 @@ async def test_a_headless_run_implements_reviews_and_checks_in_one_session(
     [first] = turns(harness)
     command = unit_of(harness, first)
 
-    assert harness.orca.launches == []
     assert harness.run(run.id).status is RunStatus.RUNNING
-    assert harness.run(run.id).runner == "headless"
     assert command[:4] == [str(SPYHOP), "steps", "exec", "implement"]
     assert command[command.index("--session") + 1] == first.session_id
     assert "--kind" in command and "--resume" not in command
@@ -242,7 +234,6 @@ async def test_checks_before_the_implementation_start_the_first_turn(tmp_path: P
     [first] = turns(harness)
 
     assert (first.phase, first.turn) == (1, "launch")
-    assert harness.orca.launches == []
 
 
 async def test_a_failed_check_gets_a_fix_turn_and_a_new_round(tmp_path: Path) -> None:
@@ -263,7 +254,6 @@ async def test_a_failed_check_gets_a_fix_turn_and_a_new_round(tmp_path: Path) ->
     assert "--resume" in unit_of(harness, fix)
     assert "han fallado: regressions" in prompt_file(fix).read_text()
     assert "declare" not in prompt_file(fix).read_text()
-    assert harness.orca.launches == []
 
     # No new round while the fix runs, also after a commit of the fix.
 
@@ -387,15 +377,6 @@ async def test_a_message_to_a_run_that_waits_after_its_checks_starts_a_turn(
     assert [(row.name, row.round) for row in running(harness, run)] == [("regressions", 2)]
 
 
-def test_a_message_needs_a_headless_run(tmp_path: Path) -> None:
-    harness = Harness(tmp_path)
-
-    harness.discover()
-
-    with pytest.raises(RunCommandError, match="is not headless"):
-        tell(harness, "Hello")
-
-
 async def test_a_change_after_a_completed_run_resumes_its_session(tmp_path: Path) -> None:
     harness, run, worktree = await implementing(tmp_path, "implement")
     [first] = turns(harness)
@@ -440,7 +421,6 @@ async def test_a_headless_plan_waits_for_its_review_and_a_new_session_implements
     [plan] = turns(harness)
     command = unit_of(harness, plan)
 
-    assert harness.orca.launches == []
     assert (plan.name, plan.turn) == ("plan", "launch")
     assert command[command.index("--model") + 1] == "opus"
     assert "escribe CLAUDE-PLAN.md" in prompt_file(plan).read_text()
@@ -453,6 +433,7 @@ async def test_a_headless_plan_waits_for_its_review_and_a_new_session_implements
 
     assert harness.run(run.id).waiting_reason is WaitingReason.PLAN_REVIEW
     assert len(turns(harness)) == 1
+    assert harness.orca.worktrees[worktree.orca_worktree_id].workspace_status == PLAN_REVIEW
 
     # The changes of the person go to the plan session.
 

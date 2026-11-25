@@ -3,9 +3,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from spyhop.domain.models import (
-    AgentRow,
     JiraUser,
-    LaunchResult,
     OrcaTerminal,
     OrcaWorktree,
     RemoveResult,
@@ -58,17 +56,6 @@ class TerminalHost(Protocol):
 
     async def ensure_ready(self) -> None: ...
 
-    async def launch_agent(
-        self,
-        orca_worktree_id: str,
-        prompt: str,
-        operation_id: str,
-        model: str | None,
-        effort: str | None,
-    ) -> LaunchResult: ...
-
-    async def worktree_agents(self) -> dict[str, list[AgentRow]]: ...
-
     async def close_terminals(self, orca_worktree_id: str) -> int: ...
 
     async def create_terminal(
@@ -79,14 +66,11 @@ class TerminalHost(Protocol):
 
     async def close_terminal(self, terminal: str) -> None: ...
 
-    async def rename_terminal(self, terminal: str, title: str) -> None: ...
-
 
 class BoardMirror(Protocol):
     """Shows the progress of the runs on a board. Spyhop does not read the
-    board: the card of a run from before `spyhop declare` comes from
-    WorktreeHost.show_worktree. A failure of the board is only logged, so the
-    board needs no readiness check."""
+    board. A failure of the board is only logged, so the board needs no
+    readiness check."""
 
     async def mark_card(self, orca_worktree_id: str, comment: str) -> None: ...
 

@@ -243,7 +243,7 @@ class RunRepository:
     def set_phase(self, run_id: str, phase: int) -> None:
         with transaction(self._connection):
             self._connection.execute(
-                "UPDATE automation_runs SET phase = ?, fix_requested_at = NULL WHERE id = ?",
+                "UPDATE automation_runs SET phase = ? WHERE id = ?",
                 (phase, run_id),
             )
 
@@ -255,22 +255,6 @@ class RunRepository:
                 "phase",
                 _phase_name(phases[phase]) if phase < len(phases) else f"phase {phase}",
             )
-
-    def mark_fix_requested(self, run_id: str) -> None:
-        """Back to RUNNING while the agent fixes the findings."""
-
-        with transaction(self._connection):
-            self._connection.execute(
-                "UPDATE automation_runs SET fix_requested_at = ? WHERE id = ?",
-                (_to_text(self._now()), run_id),
-            )
-            self._event(run_id, "fix", "the agent fixes the findings of the checkpoints")
-            self.mark_resumed(run_id)
-
-    def clear_fix_request(self, run_id: str) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET fix_requested_at = NULL WHERE id = ?", (run_id,)
-        )
 
     def request_checks(self, run_id: str, failed_only: bool = False) -> None:
         """Asks for a new round of the checks phase. The next round of the run
@@ -354,17 +338,6 @@ class RunRepository:
             (_to_text(self._now()), command_id),
         )
 
-    def declare(self, run_id: str, what: str) -> None:
-        """The agent declares that the plan is ready (``plan``) or that the
-        work is done (``done``)."""
-
-        with transaction(self._connection):
-            self._connection.execute(
-                "UPDATE automation_runs SET declared = ?, declared_at = ? WHERE id = ?",
-                (what, _to_text(self._now()), run_id),
-            )
-            self._event(run_id, "declared", what)
-
     def approve(self, run_id: str) -> None:
         """A person approves the plan. The supervisor consumes the request when
         it starts the next phase."""
@@ -378,14 +351,6 @@ class RunRepository:
         self._connection.execute(
             "UPDATE automation_runs SET pipeline = ? WHERE id = ?",
             (json.dumps([_phase_to_json(phase) for phase in phases]), run_id),
-        )
-
-    def set_runner(self, run_id: str, runner: str) -> None:
-        """Keeps the runner of the run, so that a change of the configuration
-        does not move an active run to the other runner."""
-
-        self._connection.execute(
-            "UPDATE automation_runs SET runner = ? WHERE id = ?", (runner, run_id)
         )
 
     def request_plan_changes(self, run_id: str, changes: str) -> None:
@@ -423,38 +388,6 @@ class RunRepository:
 
     def _event(self, run_id: str, kind: str, detail: str | None = None) -> None:
         _record_event(self._connection, run_id, kind, detail, self._now())
-
-    def note_missing(self, run_id: str) -> AutomationRun:
-        """Counts one more cycle without the agent of the run."""
-
-        with transaction(self._connection):
-            self._connection.execute(
-                """
-                UPDATE automation_runs
-                SET missing_cycles = missing_cycles + 1,
-                    missing_since = COALESCE(missing_since, ?)
-                WHERE id = ?
-                """,
-                (_to_text(self._now()), run_id),
-            )
-
-            run = self.get(run_id)
-
-        assert run is not None
-
-        return run
-
-    def clear_missing(self, run_id: str) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET missing_cycles = 0, missing_since = NULL WHERE id = ?",
-            (run_id,),
-        )
-
-    def set_plan_agent_closed_told(self, run_id: str, told: bool) -> None:
-        self._connection.execute(
-            "UPDATE automation_runs SET plan_agent_closed_told = ? WHERE id = ?",
-            (int(told), run_id),
-        )
 
     def set_alert_pending(self, run_id: str, pending: bool) -> None:
         self._connection.execute(

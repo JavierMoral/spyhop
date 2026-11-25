@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
+from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import ChecksPhase, CodeReviewPhase, OrcaWorktree
 from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect, transaction
 from spyhop.infrastructure.persistence.repositories import (
@@ -132,11 +132,11 @@ def test_a_status_change_is_not_stored_without_its_event(
     runs = RunRepository(connection)
 
     with pytest.raises(sqlite3.OperationalError):
-        runs.mark_fix_requested("r1")
+        runs.mark_waiting("r1", WaitingReason.UNKNOWN_STATE, "lost")
 
     run = runs.get("r1")
 
-    assert run is not None and run.fix_requested_at is None
+    assert run is not None and run.status is RunStatus.RUNNING
     assert not connection.in_transaction
 
 

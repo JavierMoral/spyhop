@@ -40,7 +40,7 @@ from spyhop.config.paths import (
 )
 from spyhop.daemon import run_daemon
 from spyhop.domain.clock import utc_now
-from spyhop.domain.exceptions import OrcaCommandError, SpyhopError
+from spyhop.domain.exceptions import SpyhopError
 from spyhop.domain.models import AgentExecution
 from spyhop.infrastructure.agent_state import AGENT_STATES, pane_key, write_state
 from spyhop.infrastructure.jira.mapping import ticket_text
@@ -448,25 +448,6 @@ def approve(
 
 
 @app.command()
-def declare(
-    issue_key: Annotated[str, typer.Argument(help="Ticket of the agent")],
-    what: Annotated[
-        str, typer.Argument(help="plan: CLAUDE-PLAN.md is ready. done: CLAUDE-RESULT.md is ready")
-    ],
-    config: ConfigOption = None,
-    dry_run: Annotated[
-        bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
-    ] = None,
-) -> None:
-    """Declare that the plan or the work of the run is ready.
-
-    The agent of the run runs this command at the end of its /goal. The card
-    of the worktree also moves, to show it on the board."""
-
-    _finish(lambda: _run_commands(config, dry_run).declare(issue_key, what))
-
-
-@app.command()
 def replan(
     issue_key: Annotated[str, typer.Argument(help="Ticket whose plan changes")],
     changes: Annotated[str, typer.Argument(help="The changes to the plan")],
@@ -475,11 +456,10 @@ def replan(
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Which database to use")
     ] = None,
 ) -> None:
-    """Start a new plan agent that changes CLAUDE-PLAN.md.
+    """Give the plan session the changes to CLAUDE-PLAN.md.
 
-    For a plan that waits for its review when its agent is closed. The running
-    daemon starts the agent on its next cycle, and the plan waits for the
-    review again."""
+    For a plan that waits for its review. The running daemon starts the turn
+    on its next cycle, and the plan waits for the review again."""
 
     _finish(lambda: _run_commands(config, dry_run).replan(issue_key, changes))
 
@@ -495,10 +475,10 @@ def tell(
 ) -> None:
     """Send a message to the agent of a ticket's active run.
 
-    Orca types the message into the terminal of the agent and submits it. A
-    headless agent gets it as its next turn, when the turn that runs ends.
-    After a completed run, a new run starts where a new implementation agent
-    makes the change, and the checkpoints after the implementation run again."""
+    The agent gets it as its next turn: at once when the run waits, or when
+    the turn that runs ends. After a completed run, a new run starts where
+    the implementation session makes the change, and the checkpoints after
+    the implementation run again."""
 
     settings = _load(config)
     connection = connect(_existing_database(config, dry_run, settings))
@@ -509,44 +489,12 @@ def tell(
 
         return
 
-    automation_run = active[0]
-
-    if (
-        automation_run.runner == "headless"
-        and StepRunRepository(connection).last_work(automation_run.id) is not None
-    ):
-        _finish(lambda: _run_commands(config, dry_run).message(issue_key, text))
-
-        return
-
-    session = SessionRepository(connection).find_launched(automation_run.id)
-
-    if session is None or session.agent_handle is None:
-        typer.echo(f"{automation_run.issue_key} has no agent.", err=True)
+    if StepRunRepository(connection).last_work(active[0].id) is None:
+        typer.echo(f"{active[0].issue_key}: the agent of the run has not started yet.", err=True)
 
         raise typer.Exit(1)
 
-    agent = f"{session.role or 'run'} agent {session.agent_handle}"
-
-    try:
-        asyncio.run(_orca(settings).send_prompt(session.agent_handle, text))
-    except OrcaCommandError as error:
-        typer.echo(
-            f"{automation_run.issue_key}: Orca refused the message for the {agent}, "
-            f"which can be closed: {error}",
-            err=True,
-        )
-
-        raise typer.Exit(1) from None
-    except SpyhopError as error:
-        typer.echo(
-            f"{automation_run.issue_key}: the message may not have reached the {agent}: {error}",
-            err=True,
-        )
-
-        raise typer.Exit(1) from None
-
-    typer.echo(f"{automation_run.issue_key}: message sent to the {agent}.")
+    _finish(lambda: _run_commands(config, dry_run).message(issue_key, text))
 
 
 @app.command()

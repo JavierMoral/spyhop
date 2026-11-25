@@ -1,10 +1,9 @@
-"""What a person or an agent asks of a run: approve or change the plan,
-declare a step, retry a run, change a completed run or give it up. The CLI only reads the arguments
-and shows the result.
+"""What a person asks of a run: approve or change the plan, give a message
+to its agent, retry a run, change a completed run or give it up. The CLI only
+reads the arguments and shows the result.
 
 The board card moves only as a reflection, so a failure of the board is a
-warning. The exception is the approval of a run from before
-`spyhop declare`, which the supervisor still reads from the card."""
+warning."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,12 +13,6 @@ from spyhop.domain.exceptions import SpyhopError
 from spyhop.domain.models import AutomationRun, Worktree
 from spyhop.domain.protocols import BoardMirror
 from spyhop.infrastructure.persistence.repositories import RunRepository, WorktreeRepository
-
-# What an agent declares: the board column and the comment of its card.
-DECLARATIONS = {
-    "plan": ("plan_review_status", "plan listo"),
-    "done": ("plan_approved_status", "listo para revisión"),
-}
 
 
 class RunCommandError(SpyhopError):
@@ -87,14 +80,11 @@ class RunCommands:
         )
 
     def message(self, issue_key: str, text: str) -> CommandResult:
-        """A message for the headless agent of the active run. It goes as the
-        next turn of the agent: at once when the run waits, or when the turn
-        that runs ends."""
+        """A message for the agent of the active run. It goes as the next
+        turn of the agent: at once when the run waits, or when the turn that
+        runs ends."""
 
         [run, *_] = self._active(issue_key)
-
-        if run.runner != "headless":
-            raise RunCommandError(f"{run.issue_key}: the agent of the run is not headless.")
 
         if not text.strip():
             raise RunCommandError("Give the message.")
@@ -155,12 +145,6 @@ class RunCommands:
                 worktree.orca_worktree_id, self._statuses["plan_approved_status"]
             )
         except SpyhopError as error:
-            # A run from before `spyhop declare` reads the approval from the
-            # card, so without the card there is no approval to store.
-
-            if run.signals == "card":
-                raise RunCommandError(f"{run.issue_key}: plan not approved: {error}") from error
-
             warnings = (f"{run.issue_key}: the card did not move: {error}",)
 
         self._runs.approve(run.id)
@@ -168,30 +152,6 @@ class RunCommands:
         return CommandResult(
             f"{run.issue_key}: plan approved; the next phase starts on the next cycle.", warnings
         )
-
-    async def declare(self, issue_key: str, what: str) -> CommandResult:
-        if what not in DECLARATIONS:
-            raise RunCommandError(f"Declare one of: {', '.join(DECLARATIONS)}.")
-
-        [run, *_] = self._active(issue_key)
-
-        self._runs.declare(run.id, what)
-
-        worktree = self._worktree(run)
-        warnings: tuple[str, ...] = ()
-
-        if worktree is not None:
-            status, comment = DECLARATIONS[what]
-
-            try:
-                board = self._board()
-
-                await board.set_card_status(worktree.orca_worktree_id, self._statuses[status])
-                await board.mark_card(worktree.orca_worktree_id, f"{run.issue_key}: {comment}")
-            except SpyhopError as error:
-                warnings = (f"{run.issue_key}: the card did not move: {error}",)
-
-        return CommandResult(f"{run.issue_key}: {what} declared.", warnings)
 
     def replan(self, issue_key: str, changes: str) -> CommandResult:
         run = self._in_plan_review(issue_key)

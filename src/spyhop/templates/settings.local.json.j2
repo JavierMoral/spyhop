@@ -1,10 +1,10 @@
 {#- Permission profile written to <worktree>/.claude/settings.local.json.
-    Orca starts Claude with --dangerously-skip-permissions, so "allow" only
+    Spyhop starts Claude with --dangerously-skip-permissions, so "allow" only
     matters if that changes; "deny" is enforced either way. -#}
 {%- set allow = [] -%}
 {%- for command in [
     "git status", "git diff", "git log", "git show", "git add", "git commit",
-    "spyhop checkpoints check", "spyhop ticket", "spyhop declare"] -%}
+    "spyhop checkpoints check", "spyhop ticket"] -%}
 {%- do allow.append("Bash(" ~ command ~ "*)") -%}
 {%- endfor -%}
 {%- for command in build_commands -%}
@@ -25,15 +25,9 @@
 {%- do deny.append("Bash(" ~ orca ~ " jira comment add*)") -%}
 {%- do deny.append("Bash(" ~ orca ~ " worktree rm*)") -%}
 {%- endfor -%}
-{#- The hooks record the state of the agent for the supervisor of Spyhop. -#}
+{#- The hook records the end of the supervisor session, the only session in
+    an Orca terminal, so that Spyhop starts a new one (see AgentSupervisor). -#}
 {%- set hook = [{"type": "command", "command": spyhop ~ " hook"}] -%}
-{%- set question = [{"matcher": "AskUserQuestion", "hooks": hook}] -%}
-{%- set hooks = {
-    "UserPromptSubmit": [{"hooks": hook}],
-    "PreToolUse": question,
-    "PostToolUse": question,
-    "Notification": [{"hooks": hook}],
-    "Stop": [{"hooks": hook}],
-    "SessionEnd": [{"hooks": hook}]} -%}
+{%- set hooks = {"SessionEnd": [{"hooks": hook}]} -%}
 {{ {"permissions": {"defaultMode": "acceptEdits", "allow": allow, "deny": deny}, "hooks": hooks}
     | tojson(indent=2) }}
