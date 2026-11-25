@@ -5,7 +5,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from platformdirs import user_config_path, user_state_path
+from platformdirs import user_config_path, user_data_path, user_state_path
 
 APP_NAME = "spyhop"
 
@@ -18,6 +18,13 @@ def config_dir() -> Path:
 
 def state_dir() -> Path:
     return user_state_path(APP_NAME)
+
+
+def evals_dir() -> Path:
+    """The eval cases. They hold private tickets, so they live here and not
+    in a repository."""
+
+    return user_data_path(APP_NAME) / "evals"
 
 
 def default_config_file() -> Path:

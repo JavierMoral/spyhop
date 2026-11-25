@@ -85,10 +85,7 @@ def validate(payload: dict[str, Any] | None, expected_head: str) -> CheckpointRe
             "FAIL", f"claude ended with an error: {output.get('subtype')}", None
         )
 
-    data = output.get("structured_output")
-
-    if data is None:
-        data = _json_object(str(output.get("result") or ""))
+    data = structured_data(output)
 
     if not isinstance(data, dict):
         return CheckpointResult("FAIL", "the result has no JSON object", None)
@@ -127,10 +124,27 @@ def _contract_problem(data: dict[str, Any], expected_head: str) -> str | None:
     return None
 
 
+def structured_data(output: dict[str, Any]) -> Any:
+    """The JSON object of the result event of claude: its structured output,
+    or the JSON of its text answer when the agent wrote the object as text."""
+
+    data = output.get("structured_output")
+
+    if data is None:
+        data = _json_object(str(output.get("result") or ""))
+
+    return data
+
+
 def _json_object(text: str) -> Any:
-    """The JSON object of a text answer, also inside a code fence."""
+    """The JSON object of a text answer, also inside a code fence after
+    other text."""
 
     text = text.strip()
+    fence = text.rfind("```json")
+
+    if fence >= 0:
+        text = text[fence:]
 
     if text.startswith("```"):
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0]

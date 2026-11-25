@@ -9,10 +9,12 @@ import os
 import statistics
 import sys
 from datetime import timedelta
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import typer
 
+from spyhop.application.evals import EVAL_TICKETS_ENV_VAR
 from spyhop.application.executions import history as agent_history
 from spyhop.application.executions import profile_history, total_tokens
 from spyhop.application.janitor import Cleanup, WorktreeRemover
@@ -535,7 +537,23 @@ def ticket(
 ) -> None:
     """Show a JIRA ticket with all its fields and comments.
 
-    Rich text becomes plain text. Fields without a value are left out."""
+    Rich text becomes plain text. Fields without a value are left out. When
+    SPYHOP_EVAL_TICKETS is set, `spyhop eval` runs: the ticket comes from
+    the <KEY>.txt file in that directory, not from JIRA."""
+
+    eval_tickets = os.environ.get(EVAL_TICKETS_ENV_VAR)
+
+    if eval_tickets:
+        ticket_file = Path(eval_tickets) / f"{issue_key.upper()}.txt"
+
+        if not ticket_file.is_file():
+            typer.echo(f"{issue_key.upper()}: the eval has no ticket {ticket_file}", err=True)
+
+            raise typer.Exit(1)
+
+        typer.echo(ticket_file.read_text(), nl=False)
+
+        return
 
     settings = _load(config)
 

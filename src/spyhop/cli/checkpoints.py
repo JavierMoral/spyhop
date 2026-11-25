@@ -3,8 +3,9 @@
 import fcntl
 import json
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -267,22 +268,44 @@ def checkpoints_check(
 
 
 def _run_checkpoint(
-    name: str, base: str, head_sha: str, root: Path
+    name: str, base: str, head_sha: str, root: Path, transcript: Path | None = None
 ) -> tuple[int, dict[str, object] | None]:
     """Runs the subagent and shows its steps. Returns the exit code of claude
-    and its result event."""
+    and its result event. With ``transcript``, writes each event of the
+    stream to that file."""
+
+    return _run_agent(
+        f"{AGENT_PREFIX}{name}",
+        checkpoint_prompt(name, base, head_sha, root),
+        RESULT_SCHEMA,
+        root,
+        transcript,
+    )
+
+
+def _run_agent(
+    agent: str,
+    prompt: str,
+    schema: dict[str, Any],
+    root: Path,
+    transcript: Path | None = None,
+) -> tuple[int, dict[str, object] | None]:
+    """Runs ``agent`` with ``prompt`` in ``root`` and shows its steps. Returns
+    the exit code of claude and its result event, which holds the JSON object
+    of ``schema``. With ``transcript``, writes each event of the stream to
+    that file."""
 
     command = [
         "claude",
         "-p",
-        checkpoint_prompt(name, base, head_sha, root),
+        prompt,
         "--agent",
-        f"{AGENT_PREFIX}{name}",
+        agent,
         "--verbose",
         "--output-format",
         "stream-json",
         "--json-schema",
-        json.dumps(RESULT_SCHEMA),
+        json.dumps(schema),
         "--dangerously-skip-permissions",
     ]
     result: dict[str, object] | None = None
@@ -296,27 +319,34 @@ def _run_checkpoint(
 
     assert process.stdout is not None
 
-    for line in process.stdout:
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
+    with transcript.open("w") if transcript else nullcontext() as log:
+        for line in process.stdout:
+            if log is not None:
+                log.write(line)
 
-        if not isinstance(event, dict):
-            continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
 
-        if event.get("type") == "result":
-            result = event
-        elif event.get("type") == "assistant":
-            for content in (event.get("message") or {}).get("content") or []:
-                if not isinstance(content, dict):
-                    continue
+            if not isinstance(event, dict):
+                continue
 
-                if content.get("type") == "tool_use" and content.get("name") != "StructuredOutput":
-                    detail = json.dumps(content.get("input"))[:200]
+            if event.get("type") == "result":
+                result = event
+            elif event.get("type") == "assistant":
+                for content in (event.get("message") or {}).get("content") or []:
+                    if not isinstance(content, dict):
+                        continue
 
-                    typer.echo(f"> {content.get('name')}: {detail}")
-                elif content.get("type") == "text":
-                    typer.echo(content.get("text", ""))
+                    if (
+                        content.get("type") == "tool_use"
+                        and content.get("name") != "StructuredOutput"
+                    ):
+                        detail = json.dumps(content.get("input"))[:200]
+
+                        typer.echo(f"> {content.get('name')}: {detail}")
+                    elif content.get("type") == "text":
+                        typer.echo(content.get("text", ""))
 
     return process.wait(), result
