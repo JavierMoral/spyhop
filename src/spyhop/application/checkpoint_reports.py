@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from spyhop.application.checkpoint_planner import AGENT_PREFIX
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
-from spyhop.domain.models import CheckpointRun
+from spyhop.domain.models import StepRun
 
 REPORT_FILE = "CLAUDE-CHECKPOINT-{name}.md"
 
@@ -155,7 +155,7 @@ def _json_object(text: str) -> Any:
         return None
 
 
-def append_report(root: Path, row: CheckpointRun, result: CheckpointResult, now: datetime) -> None:
+def append_report(root: Path, row: StepRun, result: CheckpointResult, now: datetime) -> None:
     data = result.data or {}
     lines = [
         f"## {now.astimezone():%Y-%m-%d %H:%M}, phase {row.phase}, round {row.round}: "
@@ -197,9 +197,7 @@ def append_report(root: Path, row: CheckpointRun, result: CheckpointResult, now:
     report.write_text(existing.rstrip("\n") + "\n\n" + "\n".join(lines) + "\n")
 
 
-def write_verdicts(
-    root: Path, checkpoints: Sequence[str], latest: dict[str, CheckpointRun]
-) -> None:
+def write_verdicts(root: Path, checkpoints: Sequence[str], latest: dict[str, StepRun]) -> None:
     lines = [
         "# Checkpoints",
         "",

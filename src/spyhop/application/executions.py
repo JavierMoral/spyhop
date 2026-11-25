@@ -25,10 +25,10 @@ from spyhop.application.supervisor_session import TITLE as SUPERVISOR_TITLE
 from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.models import AgentExecution, AutomationRun
 from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
     ExecutionRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 
@@ -390,7 +390,7 @@ class ExecutionRecorder:
         runs: RunRepository,
         worktrees: WorktreeRepository,
         sessions: SessionRepository,
-        checkpoint_runs: CheckpointRunRepository,
+        checkpoint_runs: StepRunRepository,
         claude_dir: Path,
         agents_dir: Path,
     ) -> None:

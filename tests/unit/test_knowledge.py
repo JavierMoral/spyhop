@@ -6,7 +6,7 @@ from typing import Any
 
 from spyhop.application.knowledge import KnowledgeWriter, fixed_findings
 from spyhop.domain.enums import RunStatus
-from spyhop.domain.models import CheckpointRun
+from spyhop.domain.models import StepRun
 from tests.unit.test_stats import checkpoint_run
 from tests.unit.test_supervisor import run_in
 
@@ -24,7 +24,7 @@ FINDINGS = [
 ]
 
 
-def result(tmp_path: Path, row: CheckpointRun, findings: list[dict[str, Any]]) -> CheckpointRun:
+def result(tmp_path: Path, row: StepRun, findings: list[dict[str, Any]]) -> StepRun:
     output_file = tmp_path / f"{row.id}.json"
     data = {"verdict": row.verdict, "head": "abc", "commands": [], "findings": findings}
 
@@ -51,10 +51,10 @@ def test_only_high_and_medium_findings_of_a_fixed_checkpoint_are_stored(tmp_path
 
 
 class Rows:
-    def __init__(self, rows: list[CheckpointRun]) -> None:
+    def __init__(self, rows: list[StepRun]) -> None:
         self.rows = rows
 
-    def list_for_run(self, run_id: str) -> list[CheckpointRun]:
+    def list_for_run(self, run_id: str) -> list[StepRun]:
         return self.rows
 
 

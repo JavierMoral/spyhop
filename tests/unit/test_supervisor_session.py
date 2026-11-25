@@ -7,7 +7,7 @@ from spyhop.application.agent_recovery import MISSING_CYCLES
 from spyhop.application.supervisor_session import UNUSABLE
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUncertainError
-from spyhop.domain.models import AutomationRun, CheckpointRun, OrcaTerminal, Worktree
+from spyhop.domain.models import AutomationRun, OrcaTerminal, StepRun, Worktree
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, Harness
 from tests.unit.test_pipeline import HIGH, answer, harness_with, running, started, written
 
@@ -24,7 +24,7 @@ async def failed_check(tmp_path: Path) -> tuple[Harness, AutomationRun, Worktree
     return harness, run, worktree
 
 
-def running_or_done(harness: Harness, run: AutomationRun) -> CheckpointRun:
+def running_or_done(harness: Harness, run: AutomationRun) -> StepRun:
     [row] = harness.checkpoint_runs.list_round(run.id, 0, 1)
 
     return row

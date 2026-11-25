@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from spyhop.application.checkpoint_reports import read_output
-from spyhop.domain.models import AutomationRun, CheckpointRun
-from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository
+from spyhop.domain.models import AutomationRun, StepRun
+from spyhop.infrastructure.persistence.repositories import StepRunRepository
 from spyhop.infrastructure.process.command_runner import (
     CommandRunner,
     CommandTimeoutError,
@@ -31,7 +31,7 @@ SEVERITIES = ("high", "medium")
 class KnowledgeWriter:
     def __init__(
         self,
-        checkpoint_runs: CheckpointRunRepository,
+        checkpoint_runs: StepRunRepository,
         script: Path,
         timeout: float,
         runner: CommandRunner | None = None,
@@ -64,11 +64,11 @@ class KnowledgeWriter:
                 )
 
 
-def fixed_findings(run: AutomationRun, rows: list[CheckpointRun]) -> list[dict[str, Any]]:
+def fixed_findings(run: AutomationRun, rows: list[StepRun]) -> list[dict[str, Any]]:
     """The entries for the findings of the failed checkpoints whose last
     verdict is PASS."""
 
-    last: dict[str, CheckpointRun] = {}
+    last: dict[str, StepRun] = {}
 
     for row in rows:
         if row.status == "DONE":
@@ -88,7 +88,7 @@ def fixed_findings(run: AutomationRun, rows: list[CheckpointRun]) -> list[dict[s
     return list(entries.values())
 
 
-def _findings(row: CheckpointRun) -> list[dict[str, Any]]:
+def _findings(row: StepRun) -> list[dict[str, Any]]:
     payload = read_output(row.output_file) if row.output_file.is_file() else None
     output = payload.get("output") if payload else None
     data = output.get("structured_output") if isinstance(output, dict) else None
@@ -103,7 +103,7 @@ def _findings(row: CheckpointRun) -> list[dict[str, Any]]:
     ]
 
 
-def _entry(run: AutomationRun, row: CheckpointRun, finding: dict[str, Any]) -> dict[str, Any]:
+def _entry(run: AutomationRun, row: StepRun, finding: dict[str, Any]) -> dict[str, Any]:
     summary = str(finding["summary"]).strip()
     location = str(finding.get("file") or "")
 

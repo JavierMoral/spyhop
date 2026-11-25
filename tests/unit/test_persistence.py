@@ -7,9 +7,9 @@ from spyhop.domain.enums import SessionStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.models import ChecksPhase, OrcaWorktree
 from spyhop.infrastructure.persistence.database import _MIGRATIONS, connect, transaction
 from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 
@@ -278,7 +278,7 @@ def test_the_checkpoint_rows_become_check_steps(tmp_path: Path) -> None:
     legacy.close()
 
     connection = connect(database)
-    steps = CheckpointRunRepository(connection)
+    steps = StepRunRepository(connection)
 
     # A work row of the same phase and round is not a checkpoint.
 

@@ -19,10 +19,10 @@ from spyhop.application.executions import (
 from spyhop.domain.models import AgentExecution, OrcaWorktree
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
     ExecutionRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 
@@ -267,7 +267,7 @@ def test_the_recorder_records_the_agents_and_the_checkpoints_of_a_worktree(
     )
 
     agents = claude / "agents"
-    checkpoint_runs = CheckpointRunRepository(connection)
+    checkpoint_runs = StepRunRepository(connection)
     row = checkpoint_runs.create(run_id, 0, 1, "security", "x", "b", "h", tmp_path / "results")
 
     agents.mkdir(parents=True)

@@ -4,14 +4,12 @@ from pathlib import Path
 
 from spyhop.application.stats import run_stats
 from spyhop.domain.enums import RunStatus
-from spyhop.domain.models import CheckpointRun, RunEvent
+from spyhop.domain.models import RunEvent, StepRun
 from tests.unit.test_supervisor import NOW, run_in
 
 
-def checkpoint_run(
-    name: str, verdict: str, minutes: int, detail: str | None = None
-) -> CheckpointRun:
-    return CheckpointRun(
+def checkpoint_run(name: str, verdict: str, minutes: int, detail: str | None = None) -> StepRun:
+    return StepRun(
         id=f"c-{name}-{minutes}",
         run_id="r1",
         phase=0,

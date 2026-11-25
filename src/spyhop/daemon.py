@@ -46,12 +46,12 @@ from spyhop.infrastructure.orca.client import OrcaClient
 from spyhop.infrastructure.orca.discovery import find_orca_executable
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
     ExecutionRepository,
     ObservationRepository,
     PollerStateRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 from spyhop.infrastructure.process.units import SystemdUnits
@@ -103,7 +103,7 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
             runs=RunRepository(connection),
             worktrees=WorktreeRepository(connection),
             sessions=SessionRepository(connection),
-            checkpoint_runs=CheckpointRunRepository(connection),
+            checkpoint_runs=StepRunRepository(connection),
             claude_dir=claude_dir(),
             agents_dir=claude_agents_dir(),
         )
@@ -241,7 +241,7 @@ def _agents(
         plan_approved_status=settings.orca.plan_approved_status,
         resolver=resolver,
         check_runner=CheckRunner(
-            checkpoint_runs=CheckpointRunRepository(connection),
+            checkpoint_runs=StepRunRepository(connection),
             units=SystemdUnits(),
             planner=CheckpointPlanner(claude_agents_dir()),
             tickets=jira,
@@ -253,7 +253,7 @@ def _agents(
         supervisor_session=supervisor_session,
         agent_states_dir=state_dir() / AGENT_STATES,
         knowledge=KnowledgeWriter(
-            CheckpointRunRepository(connection),
+            StepRunRepository(connection),
             settings.knowledge.write_script,
             settings.knowledge.write_timeout,
         )

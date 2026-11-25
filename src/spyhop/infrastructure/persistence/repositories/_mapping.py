@@ -11,9 +11,9 @@ from spyhop.domain.enums import RunStatus, SessionStatus, WaitingReason, Worktre
 from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
-    CheckpointRun,
     ChecksPhase,
     Phase,
+    StepRun,
     Worktree,
     validate_pipeline,
 )
@@ -112,8 +112,8 @@ def _pipeline_from_json(text: str | None) -> tuple[Phase, ...] | None:
     return phases
 
 
-def _to_checkpoint_run(row: sqlite3.Row) -> CheckpointRun:
-    return CheckpointRun(
+def _to_step_run(row: sqlite3.Row) -> StepRun:
+    return StepRun(
         id=row["id"],
         run_id=row["run_id"],
         phase=row["phase"],

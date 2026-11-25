@@ -288,9 +288,10 @@ class AgentSession:
 
 
 @dataclass(frozen=True)
-class CheckpointRun:
-    """One checkpoint that Spyhop started in a systemd user unit. The unit
-    writes the result of the agent to ``output_file``."""
+class StepRun:
+    """One step that Spyhop started in a systemd user unit: a checkpoint, or
+    a turn of an agent of the run. The unit writes the result of the agent
+    to ``output_file``."""
 
     id: str
     run_id: str

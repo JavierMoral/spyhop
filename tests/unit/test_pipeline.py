@@ -14,7 +14,7 @@ import pytest
 from spyhop.application import checkpoint_runner
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaCommandError, OrcaUnavailableError, UnitError
-from spyhop.domain.models import AutomationRun, CheckpointRun, ChecksPhase, Worktree
+from spyhop.domain.models import AutomationRun, ChecksPhase, StepRun, Worktree
 from tests.factories import settings
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
 from tests.unit.test_checkpoint_planner import checkpoint
@@ -58,7 +58,7 @@ async def started(harness: Harness) -> tuple[AutomationRun, Worktree]:
     return harness.run(run.id), worktree
 
 
-def running(harness: Harness, run: AutomationRun) -> list[CheckpointRun]:
+def running(harness: Harness, run: AutomationRun) -> list[StepRun]:
     run = harness.run(run.id)
     rows = harness.checkpoint_runs.list_round(
         run.id, run.phase, harness.checkpoint_runs.last_round(run.id, run.phase)

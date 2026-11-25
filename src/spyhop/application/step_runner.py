@@ -17,9 +17,9 @@ from typing import Literal
 
 from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.exceptions import UnitError
-from spyhop.domain.models import CheckpointRun
+from spyhop.domain.models import StepRun
 from spyhop.domain.protocols import UnitGateway
-from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository
+from spyhop.infrastructure.persistence.repositories import StepRunRepository
 
 _log = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def unit_pattern(run_id: str) -> str:
     return f"{UNIT_PREFIX}{run_id}-*"
 
 
-def log_file(row: CheckpointRun) -> Path:
+def log_file(row: StepRun) -> Path:
     return row.output_file.with_suffix(".log")
 
 
@@ -50,7 +50,7 @@ class Poll:
 class StepRunner:
     def __init__(
         self,
-        rows: CheckpointRunRepository,
+        rows: StepRunRepository,
         units: UnitGateway,
         spyhop: Path,
         timeout: timedelta,
@@ -62,7 +62,7 @@ class StepRunner:
         self._timeout = timeout
         self._now = now
 
-    async def start(self, row: CheckpointRun, arguments: Sequence[str], cwd: Path) -> None:
+    async def start(self, row: StepRun, arguments: Sequence[str], cwd: Path) -> None:
         """Starts the unit of the row with `spyhop steps exec` and
         ``arguments``. A second start of the unit does nothing. Raises
         UnitError when the unit does not start."""
@@ -75,7 +75,7 @@ class StepRunner:
 
         self._rows.set_unit(row.id, unit, self._now())
 
-    async def poll(self, row: CheckpointRun) -> Poll:
+    async def poll(self, row: StepRun) -> Poll:
         """The state of a row that runs. Stops the unit of a row without a
         result in time. The timeout counts from the start of the unit."""
 

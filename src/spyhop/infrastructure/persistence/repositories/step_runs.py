@@ -7,17 +7,17 @@ from pathlib import Path
 
 from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.models import (
-    CheckpointRun,
+    StepRun,
 )
 from spyhop.infrastructure.persistence.database import transaction
 from spyhop.infrastructure.persistence.repositories._mapping import (
     _record_event,
-    _to_checkpoint_run,
+    _to_step_run,
     _to_text,
 )
 
 
-class CheckpointRunRepository:
+class StepRunRepository:
     def __init__(self, connection: sqlite3.Connection, now: Clock = utc_now) -> None:
         self._connection = connection
         self._now = now
@@ -32,7 +32,7 @@ class CheckpointRunRepository:
         base: str,
         head: str,
         results_dir: Path,
-    ) -> CheckpointRun:
+    ) -> StepRun:
         """Stored before the unit starts, so a restart of Spyhop does not start
         the checkpoint twice. The result goes to a file named after the row in
         ``results_dir``."""
@@ -79,12 +79,12 @@ class CheckpointRunRepository:
 
             return checkpoint_run
 
-    def get(self, checkpoint_run_id: str) -> CheckpointRun | None:
+    def get(self, checkpoint_run_id: str) -> StepRun | None:
         row = self._connection.execute(
             "SELECT * FROM step_runs WHERE id = ?", (checkpoint_run_id,)
         ).fetchone()
 
-        return _to_checkpoint_run(row) if row else None
+        return _to_step_run(row) if row else None
 
     def last_round(self, run_id: str, phase: int) -> int:
         """The number of the last round of the phase, or 0 before the first."""
@@ -96,16 +96,16 @@ class CheckpointRunRepository:
 
         return int(row[0] or 0)
 
-    def list_round(self, run_id: str, phase: int, round_number: int) -> list[CheckpointRun]:
+    def list_round(self, run_id: str, phase: int, round_number: int) -> list[StepRun]:
         rows = self._connection.execute(
             "SELECT * FROM step_runs "
             "WHERE run_id = ? AND phase = ? AND round = ? AND kind = 'check' ORDER BY rowid",
             (run_id, phase, round_number),
         )
 
-        return [_to_checkpoint_run(row) for row in rows]
+        return [_to_step_run(row) for row in rows]
 
-    def list_for_run(self, run_id: str) -> list[CheckpointRun]:
+    def list_for_run(self, run_id: str) -> list[StepRun]:
         """The checkpoints of the run, oldest first."""
 
         rows = self._connection.execute(
@@ -113,9 +113,9 @@ class CheckpointRunRepository:
             (run_id,),
         )
 
-        return [_to_checkpoint_run(row) for row in rows]
+        return [_to_step_run(row) for row in rows]
 
-    def latest(self, run_id: str, phase: int | None = None) -> dict[str, CheckpointRun]:
+    def latest(self, run_id: str, phase: int | None = None) -> dict[str, StepRun]:
         """The last finished run of each checkpoint of the run, or of one phase
         of the run."""
 
@@ -125,7 +125,7 @@ class CheckpointRunRepository:
             (run_id, phase, phase),
         )
 
-        return {row["name"]: _to_checkpoint_run(row) for row in rows}
+        return {row["name"]: _to_step_run(row) for row in rows}
 
     def set_unit(self, checkpoint_run_id: str, unit: str, started_at: datetime) -> None:
         """The timeout of the checkpoint counts from ``started_at``, the start

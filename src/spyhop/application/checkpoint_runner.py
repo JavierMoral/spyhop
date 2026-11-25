@@ -55,14 +55,14 @@ from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.exceptions import UnitError
 from spyhop.domain.models import (
     AutomationRun,
-    CheckpointRun,
     ChecksPhase,
     ResolvedWorkflow,
+    StepRun,
     Worktree,
 )
 from spyhop.domain.protocols import TicketGateway, UnitGateway
 from spyhop.infrastructure.git import has_changes, head
-from spyhop.infrastructure.persistence.repositories import CheckpointRunRepository
+from spyhop.infrastructure.persistence.repositories import StepRunRepository
 
 _log = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class PhaseOutcome:
 class CheckRunner:
     def __init__(
         self,
-        checkpoint_runs: CheckpointRunRepository,
+        checkpoint_runs: StepRunRepository,
         units: UnitGateway,
         planner: CheckpointPlanner,
         tickets: TicketGateway,
@@ -195,7 +195,7 @@ class CheckRunner:
         workflow: ResolvedWorkflow,
         phase: ChecksPhase,
         number: int,
-        kept: Sequence[CheckpointRun] = (),
+        kept: Sequence[StepRun] = (),
     ) -> PhaseOutcome:
         """Starts the round. Each row in ``kept`` is a PASS that the round
         copies and does not run again."""
@@ -294,7 +294,7 @@ class CheckRunner:
 
     async def _start_unit(
         self,
-        row: CheckpointRun,
+        row: StepRun,
         run: AutomationRun,
         worktree: Worktree,
         workflow: ResolvedWorkflow,
@@ -330,7 +330,7 @@ class CheckRunner:
             )
 
     async def _poll(
-        self, row: CheckpointRun, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
+        self, row: StepRun, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
     ) -> str | None:
         """Records the result of a checkpoint that runs, when there is one.
         Returns why the phase is blocked, or None."""
@@ -355,7 +355,7 @@ class CheckRunner:
         return None
 
     async def _after_exclusive(
-        self, row: CheckpointRun, worktree: Worktree, result: CheckpointResult
+        self, row: StepRun, worktree: Worktree, result: CheckpointResult
     ) -> CheckpointResult:
         if self._planner.read(row.name).mode != "exclusive":
             return result
@@ -373,7 +373,7 @@ class CheckRunner:
 
     async def _record(
         self,
-        row: CheckpointRun,
+        row: StepRun,
         run: AutomationRun,
         worktree: Worktree,
         workflow: ResolvedWorkflow,
@@ -414,7 +414,7 @@ class CheckRunner:
         run: AutomationRun,
         worktree: Worktree,
         workflow: ResolvedWorkflow,
-        rows: Sequence[CheckpointRun],
+        rows: Sequence[StepRun],
     ) -> bool:
         """Whether a failed round starts again by itself: a person asked for
         it, or the inputs of a failed checkpoint changed."""
@@ -439,7 +439,7 @@ class CheckRunner:
 
     async def _kept(
         self, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow, phase: ChecksPhase
-    ) -> list[CheckpointRun]:
+    ) -> list[StepRun]:
         """The last PASS of each checkpoint of the phase whose inputs did not
         change since then."""
 
@@ -465,7 +465,7 @@ class CheckRunner:
         ]
 
 
-def _requested(run: AutomationRun, rows: Sequence[CheckpointRun]) -> bool:
+def _requested(run: AutomationRun, rows: Sequence[StepRun]) -> bool:
     """Whether someone asked for a new round after the start of ``rows``."""
 
     started = min(row.started_at for row in rows)

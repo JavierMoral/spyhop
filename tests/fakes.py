@@ -37,9 +37,9 @@ from spyhop.domain.models import (
 from spyhop.infrastructure.jira.mapping import to_issue
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
-    CheckpointRunRepository,
     RunRepository,
     SessionRepository,
+    StepRunRepository,
     WorktreeRepository,
 )
 from tests.factories import issue, settings
@@ -519,7 +519,7 @@ class Harness:
         self.agents_dir = tmp_path / "agents"
         self.agent_states_dir = tmp_path / "agent-states"
         self.results_dir = tmp_path / "results"
-        self.checkpoint_runs = CheckpointRunRepository(self.connection, self.clock)
+        self.checkpoint_runs = StepRunRepository(self.connection, self.clock)
         self.check_runner = CheckRunner(
             checkpoint_runs=self.checkpoint_runs,
             units=self.units,
