@@ -13,6 +13,7 @@ DISCOVERED → PREPARING → READY → RUNNING, or FAILED with error_message.
   retry FAILED runs by itself.
 """
 
+import dataclasses
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -39,6 +40,7 @@ from spyhop.domain.exceptions import (
 from spyhop.domain.models import (
     AutomationRun,
     ChecksPhase,
+    CodeReviewPhase,
     ResolvedWorkflow,
     TicketDetails,
     TicketRef,
@@ -76,6 +78,24 @@ MAX_ANCESTORS = 10
 class _Prepared:
     workflow: ResolvedWorkflow
     worktree: Worktree
+
+
+def with_code_review(workflow: ResolvedWorkflow, command: str | None) -> ResolvedWorkflow:
+    """The workflow with a code_review phase after implement that runs
+    ``command`` (agents.review_command), when it has no code_review phase. An
+    Orca run runs that command in the implementation turn instead."""
+
+    phases = workflow.phases
+
+    if command is None or any(isinstance(phase, CodeReviewPhase) for phase in phases):
+        return workflow
+
+    implement = phases.index("implement")
+
+    return dataclasses.replace(
+        workflow,
+        pipeline=(*phases[: implement + 1], CodeReviewPhase(command), *phases[implement + 1 :]),
+    )
 
 
 class AgentLauncher:
@@ -228,6 +248,9 @@ class AgentLauncher:
             # A run keeps its runner; a new run gets the one of the settings.
 
             runner = self._agents.runner if run.pipeline is None else run.runner
+
+            if run.pipeline is None and runner == "headless":
+                workflow = with_code_review(workflow, self._agents.review_command)
 
             self._context.prepare(worktree.path, ticket, workflow, runner == "headless")
         except (OrcaCommandError, ContextError) as error:

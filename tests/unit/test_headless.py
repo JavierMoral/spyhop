@@ -8,7 +8,7 @@ from typing import Any
 
 from spyhop.application.work_runner import prompt_file
 from spyhop.domain.enums import RunStatus, WaitingReason
-from spyhop.domain.models import AutomationRun, StepRun, Worktree
+from spyhop.domain.models import AutomationRun, ChecksPhase, CodeReviewPhase, StepRun, Worktree
 from tests.fakes import SPYHOP, Harness, git
 from tests.unit.test_pipeline import answer, harness_with, running, started, written
 
@@ -255,3 +255,18 @@ async def test_a_failed_check_of_a_headless_run_waits_for_a_person(tmp_path: Pat
 
     assert harness.run(run.id).waiting_reason is WaitingReason.CHECKPOINTS_FAILED
     assert harness.orca.launches == []
+
+
+async def test_the_review_command_becomes_a_code_review_phase(tmp_path: Path) -> None:
+    harness = headless(tmp_path, "implement", {"checks": ["regressions"]})
+
+    harness.config.agents.review_command = "/code-review-loop --rounds 2"
+
+    run, worktree = await started(harness)
+
+    assert harness.run(run.id).pipeline == (
+        "implement",
+        CodeReviewPhase("/code-review-loop --rounds 2"),
+        ChecksPhase(("regressions",)),
+    )
+    assert "## Review" not in (worktree.path / "CLAUDE-TASK.md").read_text()
