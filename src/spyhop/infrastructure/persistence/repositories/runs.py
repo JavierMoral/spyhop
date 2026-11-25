@@ -181,9 +181,12 @@ class RunRepository:
             finished_at=_to_text(self._now()),
         )
 
-    def create_retry(self, original: AutomationRun) -> AutomationRun | None:
+    def create_retry(
+        self, original: AutomationRun, change: str | None = None
+    ) -> AutomationRun | None:
         """A new run of the same ticket and transition, pending launch. None
-        when the ticket already has an active run."""
+        when the ticket already has an active run. With ``change``, a new
+        implementation agent makes that change (see AgentLauncher)."""
 
         now = self._now()
         run_id = str(uuid.uuid4())
@@ -214,6 +217,9 @@ class RunRepository:
                 return None
 
             self._event(run_id, "created", f"retry of {original.id[:8]}")
+
+            if change is not None:
+                self._command(run_id, "change", change)
 
         return self.get(run_id)
 
@@ -310,6 +316,18 @@ class RunRepository:
             )
 
             return str(row["payload"])
+
+    def pending_change(self, run_id: str) -> str | None:
+        """The change that the next implementation agent of the run makes."""
+
+        row = self._connection.execute(
+            "SELECT payload FROM run_commands "
+            "WHERE run_id = ? AND kind = 'change' AND consumed_at IS NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+
+        return str(row["payload"]) if row else None
 
     def consume_command(self, command_id: int) -> None:
         self._connection.execute(

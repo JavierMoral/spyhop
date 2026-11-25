@@ -361,7 +361,7 @@ knowledge:
 | `spyhop status [KEY]` | Show the active runs and their agents. `--all` also shows the finished runs. `--timeline` shows the history of each run. |
 | `spyhop approve KEY` | Approve the plan of a run in `plan_review`. |
 | `spyhop replan KEY TEXT` | Change a plan in review when its agent is closed. |
-| `spyhop tell KEY TEXT` | Send a message to the current agent of the run. |
+| `spyhop tell KEY TEXT` | Send a message to the current agent of the run. After a completed run, start a new run where a new implementation agent makes the change. |
 | `spyhop ticket KEY` | Show a JIRA ticket with all its fields and comments. |
 | `spyhop fail KEY` | Stop the active run. The agent and the worktree stay. |
 | `spyhop retry KEY` | Start a finished run again, on the same worktree. |

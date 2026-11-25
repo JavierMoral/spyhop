@@ -47,7 +47,7 @@ EXCLUDED_PATHS = (
     "/CLAUDE-NOTE-*.md",
 )
 
-Phase = Literal["plan", "replan", "implement", "full"]
+Phase = Literal["plan", "replan", "implement", "change", "full"]
 
 
 class ContextError(SpyhopError):

@@ -1,4 +1,5 @@
-"""RunCommands: the logic of approve, declare, replan, retry and fail, without the CLI."""
+"""RunCommands: the logic of approve, declare, replan, retry, change and fail,
+without the CLI."""
 
 from pathlib import Path
 
@@ -99,6 +100,63 @@ def test_replan_needs_a_plan_in_review_and_the_changes(harness: Harness) -> None
     commands(harness).replan("LPD-1", "Add a test")
 
     assert harness.run(run.id).plan_changes == "Add a test"
+
+
+async def test_change_starts_an_implementation_agent_after_a_completed_run(
+    harness: Harness,
+) -> None:
+    with pytest.raises(RunCommandError, match="LPD-1 has no active or completed run"):
+        commands(harness).change("LPD-1", "Keep the acting user")
+
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    with pytest.raises(RunCommandError, match="LPD-1 has no active or completed run"):
+        commands(harness).change("LPD-1", "Keep the acting user")
+
+    harness.finish(run.id)
+
+    with pytest.raises(RunCommandError, match="Give the change"):
+        commands(harness).change("LPD-1", "  ")
+
+    result = commands(harness).change("lpd-1", "Keep the acting user")
+    [retried] = harness.runs.find("LPD-1")
+
+    assert retried.retry_of == run.id
+    assert result.message.startswith(f"LPD-1: run {retried.id[:8]} created")
+    assert harness.runs.pending_change(retried.id) == "Keep the acting user"
+
+    launches = len(harness.orca.launches)
+
+    await harness.launcher.launch_pending()
+
+    started = harness.run(retried.id)
+    launch = harness.orca.launches[launches]
+
+    assert started.status is RunStatus.RUNNING
+    assert started.pipeline is not None
+    assert started.phase == started.pipeline.index("implement")
+    assert started.worktree_id == harness.run(run.id).worktree_id
+    assert "Haz este cambio que pide la persona: Keep the acting user" in launch["prompt"]
+    assert harness.runs.pending_change(retried.id) is None
+
+
+async def test_change_needs_the_worktree_of_the_run(harness: Harness) -> None:
+    run = harness.discover()
+
+    await harness.launcher.launch_pending()
+
+    harness.finish(run.id)
+
+    worktree = harness.worktrees.find_current("LPD-1")
+
+    assert worktree is not None
+
+    worktree.path.rename(worktree.path.with_name("moved"))
+
+    with pytest.raises(RunCommandError, match="the worktree of the run is gone"):
+        commands(harness).change("LPD-1", "Keep the acting user")
 
 
 def test_fail_and_retry(harness: Harness) -> None:

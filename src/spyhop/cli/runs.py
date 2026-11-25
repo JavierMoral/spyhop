@@ -368,16 +368,18 @@ def tell(
 ) -> None:
     """Send a message to the agent of a ticket's active run.
 
-    Orca types the message into the terminal of the agent and submits it."""
+    Orca types the message into the terminal of the agent and submits it.
+    After a completed run, a new run starts where a new implementation agent
+    makes the change, and the checkpoints after the implementation run again."""
 
     settings = _load(config)
     connection = connect(_existing_database(config, dry_run, settings))
     active = RunRepository(connection).list(issue_key=issue_key.upper())
 
     if not active:
-        typer.echo(f"{issue_key.upper()} has no active run.", err=True)
+        _finish(lambda: _run_commands(config, dry_run).change(issue_key, text))
 
-        raise typer.Exit(1)
+        return
 
     automation_run = active[0]
     session = SessionRepository(connection).find_launched(automation_run.id)

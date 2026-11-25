@@ -678,7 +678,7 @@ def test_tell_needs_an_active_run(
     result = CliRunner().invoke(app, ["tell", "LPD-2", "Add a test", "--config", str(config_file)])
 
     assert result.exit_code == 1
-    assert "LPD-2 has no active run." in result.output
+    assert "LPD-2 has no active or completed run." in result.output
     assert terminals.prompts == []
 
 

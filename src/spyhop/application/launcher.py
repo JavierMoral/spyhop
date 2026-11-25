@@ -240,7 +240,10 @@ class AgentLauncher:
         # The implementation of a plan comes later, from a new agent on
         # agents.model (see AgentSupervisor).
 
-        if isinstance(prepared.workflow.phases[0], ChecksPhase):
+        workflow = prepared.workflow
+        change = self._runs.pending_change(run.id)
+
+        if change is None and isinstance(workflow.phases[0], ChecksPhase):
             # The supervisor runs the checks, and then starts the agent.
 
             self._runs.mark_running(run.id)
@@ -260,16 +263,27 @@ class AgentLauncher:
 
             return True
 
-        plan_review = prepared.workflow.plan_review
+        plan_review = workflow.plan_review
+
+        if change is not None:
+            # A change after a completed run: the run starts at the
+            # implementation, and the phases after it run again.
+
+            implement = workflow.phases.index("implement")
+
+            if run.phase != implement:
+                self._runs.set_phase(run.id, implement)
+
+            model = self._agents.model
+            goal = self._context.goal(run.issue_key, "change", change)
+            step = "implement"
+        else:
+            model = self._agents.plan_model if plan_review else self._agents.model
+            goal = self._context.launch_goal(run.issue_key, workflow)
+            step = "plan" if plan_review else "implement"
 
         try:
-            session = await self._starter.start(
-                run,
-                prepared.worktree,
-                self._agents.plan_model if plan_review else self._agents.model,
-                self._context.launch_goal(run.issue_key, prepared.workflow),
-                "plan" if plan_review else "implement",
-            )
+            session = await self._starter.start(run, prepared.worktree, model, goal, step)
         except LaunchOutcomeUnknown:
             self._runs.mark_waiting(
                 run.id, WaitingReason.UNKNOWN_STATE, "launch outcome unknown; check Orca"
@@ -285,6 +299,7 @@ class AgentLauncher:
             raise RunFailed(f"Orca refused the launch: {error}") from error
 
         self._runs.mark_running(run.id)
+        self._runs.consume(run.id, "change")
         await self._starter.label(run, session)
 
         _log.info(

@@ -1,5 +1,5 @@
 """What a person or an agent asks of a run: approve or change the plan,
-declare a step, retry a run or give it up. The CLI only reads the arguments
+declare a step, retry a run, change a completed run or give it up. The CLI only reads the arguments
 and shows the result.
 
 The board card moves only as a reflection, so a failure of the board is a
@@ -9,7 +9,7 @@ warning. The exception is the approval of a run from before
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from spyhop.domain.enums import WaitingReason
+from spyhop.domain.enums import RunStatus, WaitingReason, WorktreeStatus
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.domain.models import AutomationRun, Worktree
 from spyhop.domain.protocols import BoardMirror
@@ -84,6 +84,38 @@ class RunCommands:
         return CommandResult(
             f"{retried.issue_key}: run {retried.id[:8]} created as a retry of {original.id[:8]} "
             f"({original.status})"
+        )
+
+    def change(self, issue_key: str, change: str) -> CommandResult:
+        """A new run of the completed ticket, where a new implementation agent
+        makes the change on the same branch."""
+
+        if not change.strip():
+            raise RunCommandError("Give the change.")
+
+        latest = self._runs.find(issue_key.upper())
+
+        if not latest or latest[0].status is not RunStatus.COMPLETED:
+            raise RunCommandError(f"{issue_key.upper()} has no active or completed run.")
+
+        [original] = latest
+        worktree = self._worktree(original)
+
+        if (
+            worktree is None
+            or worktree.status is not WorktreeStatus.ACTIVE
+            or not worktree.path.exists()
+        ):
+            raise RunCommandError(f"{original.issue_key}: the worktree of the run is gone.")
+
+        retried = self._runs.create_retry(original, change)
+
+        if retried is None:
+            raise RunCommandError(f"{original.issue_key} already has an active run.")
+
+        return CommandResult(
+            f"{retried.issue_key}: run {retried.id[:8]} created; a new implementation agent "
+            "makes the change, and the checkpoints after the implementation run again."
         )
 
     async def approve(self, issue_key: str) -> CommandResult:
