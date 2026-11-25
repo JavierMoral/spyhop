@@ -367,15 +367,29 @@ class AgentLauncher:
             raise RunFailed("this Spyhop runs no headless turns")
 
         worktree = prepared.worktree
+
+        # A change resumes the session of the run that it retries, so the
+        # agent knows its own work.
+
+        session_id = (
+            self._work.last_session(run.retry_of, "implement")
+            if change is not None and run.retry_of
+            else None
+        )
         prompt = self._context.turn_prompt(
             run.issue_key,
             "change" if change is not None else "full",
             worktree.path,
             changes=change or "",
-            new_session=change is not None,
+            new_session=change is not None and session_id is None,
         )
         row = await self._work.turn(
-            run, worktree, "implement", "change" if change is not None else "launch", prompt
+            run,
+            worktree,
+            "implement",
+            "change" if change is not None else "launch",
+            prompt,
+            session_id,
         )
 
         self._runs.mark_running(run.id)

@@ -98,8 +98,11 @@ class WorkRunner:
 
         return row
 
-    def last_session(self, run: AutomationRun, name: str) -> str | None:
-        return self._rows.last_session(run.id, name)
+    def last_session(self, run_id: str, name: str) -> str | None:
+        """The Claude session of the last turn of the agent ``name`` in the
+        run ``run_id``."""
+
+        return self._rows.last_session(run_id, name)
 
     def turn_after_checks(self, run: AutomationRun) -> bool:
         """Whether the last turn of the current checks phase came after the

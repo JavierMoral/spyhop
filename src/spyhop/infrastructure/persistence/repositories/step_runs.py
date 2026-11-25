@@ -149,13 +149,13 @@ class StepRunRepository:
         return row["session_id"] if row else None
 
     def resumes(self, row: StepRun) -> bool:
-        """Whether the turn resumes its session: an earlier turn of the run
-        started it."""
+        """Whether the turn resumes its session: an earlier turn started it,
+        also a turn of the run that this run retries."""
 
         found = self._connection.execute(
-            "SELECT 1 FROM step_runs WHERE run_id = ? AND kind = 'work' AND session_id = ? "
+            "SELECT 1 FROM step_runs WHERE kind = 'work' AND session_id = ? "
             "AND rowid < (SELECT rowid FROM step_runs WHERE id = ?) LIMIT 1",
-            (row.run_id, row.session_id, row.id),
+            (row.session_id, row.id),
         ).fetchone()
 
         return found is not None

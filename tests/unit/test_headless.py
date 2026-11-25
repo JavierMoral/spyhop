@@ -393,3 +393,29 @@ def test_a_message_needs_a_headless_run(tmp_path: Path) -> None:
 
     with pytest.raises(RunCommandError, match="is not headless"):
         tell(harness, "Hello")
+
+
+async def test_a_change_after_a_completed_run_resumes_its_session(tmp_path: Path) -> None:
+    harness, run, worktree = await implementing(tmp_path, "implement")
+    [first] = turns(harness)
+
+    commit(worktree)
+    done(first, worktree)
+    await harness.supervisor.supervise()
+
+    assert harness.run(run.id).status is RunStatus.COMPLETED
+
+    RunCommands(
+        harness.runs, harness.worktrees, lambda: harness.orca, PLAN_REVIEW, PLAN_APPROVED
+    ).change("LPD-1", "Keep the acting user")
+    await harness.launcher.launch_pending()
+
+    [_, change] = turns(harness)
+
+    assert change.run_id != run.id
+    assert (change.turn, change.session_id) == ("change", first.session_id)
+    assert "--resume" in unit_of(harness, change)
+    assert "Haz este cambio que pide la persona en LPD-1: Keep the acting user" in (
+        prompt_file(change).read_text()
+    )
+    assert "su sesión ya no existe" not in prompt_file(change).read_text()

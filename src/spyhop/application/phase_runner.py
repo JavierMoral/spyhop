@@ -125,7 +125,7 @@ class PhaseRunner:
                 # A turn of the implementation session, which knows why it
                 # made each choice.
 
-                session_id = self._work_runner().last_session(run, "implement")
+                session_id = self._work_runner().last_session(run.id, "implement")
 
                 await self.start_turn(
                     run,
@@ -306,7 +306,7 @@ class PhaseRunner:
             if state.state == "resume_failed"
             else state.row.session_id
             if state.row is not None
-            else self._work_runner().last_session(run, "implement")
+            else self._work_runner().last_session(run.id, "implement")
         )
         turn = "answer" if run.waiting_reason is WaitingReason.AGENT_QUESTION else "message"
 
@@ -457,7 +457,7 @@ class PhaseRunner:
         if self._headless(run):
             # A turn of the implementation session, in the checks phase.
 
-            session_id = self._work_runner().last_session(run, "implement")
+            session_id = self._work_runner().last_session(run.id, "implement")
 
             await self.start_turn(
                 run,
