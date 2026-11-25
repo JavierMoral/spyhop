@@ -90,6 +90,22 @@ sub _report {
 	printf "%s\t%s:%d\t%s\n", $check, $path, $number, substr($text, 0, 160);
 }
 
+my $auxiliary_pattern = qr{^(?:is|was|are|were|be|been|has|have|had|does|do|did|can|could|will|would|should|must|may|might)$}i;
+
+sub _message_problem {
+	my ($message) = @_;
+
+	return 'starts with "' . $1 . '", use "Unable to"' if $message =~ /^\s*(Cannot|Can't|Failed to|Error \w+ing)\b/;
+
+	while ($message =~ /\b(\w+)\s+(not\s+(?:allowed|found|supported|permitted|available|valid|defined|enabled|configured)|(?:created|updated|deleted|saved|added|removed)\s+successfully)\b/gi) {
+		return "\"$1 $2\" omits the linking verb" unless $1 =~ $auxiliary_pattern;
+	}
+
+	return '"No ... found" omits the linking verb' if $message =~ /^\s*No\s+\w+(?:\s+(\w+))?\s+found\b/i && !(defined $1 && $1 =~ $auxiliary_pattern);
+
+	return '';
+}
+
 my $language_key_pattern = qr{(?:_language\.get|LanguageUtil\.get|Liferay\.Language\.get)\([^'"]*['"]([a-z0-9.-]+)['"]|<liferay-ui:message key="([a-z0-9.-]+)"};
 
 my $feature_flag_pattern = qr{FeatureFlagManagerUtil\.isEnabled|Liferay\.FeatureFlags\[|featureFlag|FeatureFlags\.};
@@ -216,6 +232,195 @@ for my $path (@order) {
 			}
 
 			push @{$calls{$receiver}}, [$method, $number];
+		}
+
+		# A wrapper declared after the value that it receives through a
+		# setter (rule 203, burrito): `Foo foo = new Foo();` and then
+		# `foo.setBar(bar);`, where `bar` is a local declared above `foo`.
+
+		my (%declarations, @setters);
+
+		$number = 0;
+
+		my $report_wrappers = sub {
+			for my $setter (@setters) {
+				my ($receiver, $argument, $setter_number) = @$setter;
+
+				my $wrapper = $declarations{$receiver};
+				my $value = $declarations{$argument};
+
+				next unless $wrapper && $value && $wrapper->{new};
+				next unless $value->{number} < $wrapper->{number} && $wrapper->{number} < $setter_number;
+				next unless $added_lines{$path}{$wrapper->{number}};
+
+				_report('JAVA_WRAPPER_DECLARED_LATE', $path, $wrapper->{number}, "$receiver (line $wrapper->{number}) receives $argument (line $value->{number}) through $receiver.set...($argument) at line $setter_number");
+			}
+
+			%declarations = ();
+			@setters = ();
+		};
+
+		for my $text (split /\n/, $content) {
+			$number++;
+
+			if ($text =~ /^\t(?:\S|\}$)/) {
+				$report_wrappers->();
+
+				next;
+			}
+
+			if ($text =~ /^\t\t+(?:final\s+)?[A-Z][\w.]*(?:<[^=;]*>)?(?:\[\])*\s+([a-z]\w*)\s*(=\s*new\s+[A-Z][\w.]*(?:<[^()]*>)?\(\))?\s*[=;]?/) {
+				$declarations{$1} //= {new => defined $2, number => $number};
+			}
+
+			if ($text =~ /^\t\t+([a-z]\w*)\.set\w+\(([a-z]\w*)\);/) {
+				push @setters, [$1, $2, $number];
+			}
+		}
+
+		$report_wrappers->();
+
+		# A private method whose parameters are not sorted by name (rule 202).
+		# A vararg parameter stays last.
+
+		while ($content =~ /^\tprivate\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:<[^>]*>\s+)?[\w.<>\[\], ?]+?\s+(_?\w+)\(([^()]*)\)/mg) {
+			my ($name, $parameters) = ($1, $2);
+			my $number = _line_of($content, $-[0]);
+
+			next unless $added_lines{$path}{$number};
+
+			1 while $parameters =~ s/<[^<>]*>//g;
+
+			my @names = map { /(\w+)\s*$/ ? $1 : () } grep { !/\.\.\./ } split /,/, $parameters;
+
+			next unless @names > 1;
+
+			my @sorted = sort { lc($a) cmp lc($b) } @names;
+
+			next if "@names" eq "@sorted";
+
+			_report('JAVA_PARAMETERS_UNSORTED', $path, $number, "$name(" . join(', ', @names) . ") → (" . join(', ', @sorted) . ")");
+		}
+
+		# A narrative message on an assertion (rule 505): a string literal as
+		# the first argument of assertTrue, assertFalse, assertNull or
+		# assertNotNull.
+
+		while ($content =~ /\bAssert\.assert(?:True|False|Null|NotNull)\(\s*"/g) {
+			my $start = $-[0];
+			my $number = _line_of($content, $start);
+			my $message_number = _line_of($content, $+[0]);
+
+			next unless $added_lines{$path}{$number} || $added_lines{$path}{$message_number};
+
+			my $end = index($content, ';', $start);
+
+			_report('JAVA_ASSERTION_MESSAGE', $path, $number, substr($content, $start, ($end < 0 ? length $content : $end) - $start));
+		}
+
+		# A JSONArray built by hand in a loop whose only statements are put
+		# calls on it (rule 305): JSONUtil.toJSONArray builds it.
+
+		while ($content =~ /^(\t+)JSONArray (\w+) =\s*(?:JSONFactoryUtil|_jsonFactory)\.createJSONArray\(\);\n\n+\1for \([^;{]+:[^;{]+\) \{\n(.*?)^\1\}$/mgs) {
+			my ($name, $body) = ($2, $3);
+			my $number = _line_of($content, $-[0]);
+
+			next unless $added_lines{$path}{$number};
+			next if grep { !/^\s*\Q$name\E\.put\(/ } split /;\n/, $body;
+
+			_report('JAVA_JSON_ARRAY_LOOP', $path, $number, "$name is filled in a loop with only $name.put(...) → JSONUtil.toJSONArray(array or collection, element -> ...)");
+		}
+
+		# A boolean method without an is or has prefix, or a presence test
+		# named exists... or contains... (rule 102). A method that overrides
+		# another one keeps the name of its supertype, and an OSGi configuration
+		# keeps the name of its key.
+
+		my @lines = $content =~ /\@Meta\.OCD\b/ ? () : split /\n/, $content;
+
+		for my $index (0 .. $#lines) {
+			next unless $added_lines{$path}{$index + 1};
+			next unless $lines[$index] =~ /^\t+(?:(?:public|protected|private|static|final|synchronized|abstract|default)\s+)*(?:boolean|Boolean)\s+(_?([a-z]\w*))\s*\(/;
+
+			my ($name, $bare) = ($1, $2);
+
+			next if $bare =~ /^(?:is|has)[A-Z0-9_]/;
+
+			my $annotation = $index - 1;
+
+			$annotation-- while $annotation >= 0 && $lines[$annotation] =~ /^\t+@/ && $lines[$annotation] !~ /^\t+\@Override\b/;
+
+			next if $annotation >= 0 && $lines[$annotation] =~ /^\t+\@Override\b/;
+
+			_report('JAVA_BOOLEAN_METHOD_NAME', $path, $index + 1, "boolean $name(...)");
+		}
+	}
+
+	# A message without its linking verb, or a failure message that does not
+	# start with "Unable to" (rule 710): Java strings, shell and GitHub
+	# workflow output, and language values. Tests are skipped.
+
+	if (!$is_test && $path =~ /\.(?:java|sh)$|^\.github\/.*\.ya?ml$|(?:^|\/)Language[\w-]*\.properties$/) {
+		for my $hunk (@{$hunks{$path}}) {
+			for my $added (@{$hunk->{added}}) {
+				my ($number, $text) = @$added;
+
+				my @messages;
+
+				if ($path =~ /\.properties$/) {
+					push @messages, $1 if $text =~ /^[^#!\s][^=]*=(.+)$/;
+				}
+				else {
+					push @messages, $1 while $text =~ /"((?:[^"\\]|\\.)*)"/g;
+					push @messages, $1 while $path !~ /\.java$/ && $text =~ /'([^']*)'/g;
+				}
+
+				for my $message (@messages) {
+					my $problem = _message_problem($message);
+
+					if ($problem) {
+						_report('MESSAGE_WITHOUT_VERB', $path, $number, "\"$message\": $problem");
+
+						last;
+					}
+				}
+			}
+		}
+	}
+
+	# An added shell function out of its alphabetical slot among its
+	# neighbors (rules 202 and 907). Public functions and _private functions
+	# sort apart.
+
+	if ($path =~ /\.sh$/) {
+		my @functions;
+		my $number = 0;
+
+		for my $text (split /\n/, $content) {
+			$number++;
+
+			push @functions, [$1 // $2, $number] if $text =~ /^(?:function\s+([\w-]+)|([\w-]+)\s*\(\)\s*\{)/;
+		}
+
+		for my $index (0 .. $#functions) {
+			my ($name, $function_number) = @{$functions[$index]};
+
+			next unless $added_lines{$path}{$function_number};
+
+			my $private = $name =~ /^_/;
+
+			for my $neighbor ($index - 1, $index + 1) {
+				next if $neighbor < 0 || $neighbor > $#functions;
+
+				my $other = $functions[$neighbor][0];
+
+				next unless ($other =~ /^_/) == $private;
+				next unless $neighbor < $index ? lc($other) gt lc($name) : lc($name) gt lc($other);
+
+				_report('SHELL_FUNCTIONS_UNSORTED', $path, $function_number, "$name is not in its sorted slot next to $other");
+
+				last;
+			}
 		}
 	}
 

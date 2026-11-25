@@ -2,7 +2,7 @@
 
 allowed-tools: [Agent, Bash, Edit, Glob, Grep, Read, Skill, Write]
 argument-hint: "[optional target] [--rounds N] [--effort LEVEL] [--min-severity LEVEL] [--allow-dirty] [--fresh]"
-description: Run /code-review, /custom-pr-reviewer, and the pr-reviewer rules over the branch in a loop, applying what is genuinely actionable each round, until a round comes back with nothing left worth doing. Use when the user invokes /code-review-loop, or asks to review and fix until the reviewers are quiet, to iterate the reviewers to convergence, or to clean a branch up before /pr-check.
+description: Run /code-review, the custom-pr-reviewer and custom-pr-reviewer-naming agents, and the pr-reviewer rules over the branch in a loop, applying what is genuinely actionable each round, until a round comes back with nothing left worth doing. Use when the user invokes /code-review-loop, or asks to review and fix until the reviewers are quiet, to iterate the reviewers to convergence, or to clean a branch up before /pr-check.
 name: code-review-loop
 
 ---
@@ -23,7 +23,7 @@ Activate on `/code-review-loop`, or when the user asks to review and fix until t
 
 `${ARGUMENTS}` holds an optional target and the flags.
 
-The target is a path, a directory, a ticket key, or the literal `staged`, and is passed to `/code-review` and `custom-pr-reviewer` verbatim. With none given, both default to the current branch against the integration ref, which is the intended scope.
+The target is a path, a directory, a ticket key, or the literal `staged`, and is passed to `/code-review`, `custom-pr-reviewer`, and `custom-pr-reviewer-naming` verbatim. With none given, they default to the current branch against the integration ref, which is the intended scope.
 
 The pr-reviewer takes only a commit range or `--staged`. For the target `staged`, give it `--staged`. For all other targets, give it `"${merge_base}..HEAD"`. When the target is a path or a directory, keep only the violations whose `file` is in that path.
 
@@ -62,7 +62,7 @@ They are independent and read the same diff, so dispatch them in one turn:
 
 - **`/code-review ${effort} ${target}`**, through the `Agent` tool with `subagent_type: general-purpose` and `model: sonnet`, so that the review runs on the cheaper model. Tell the agent to invoke the `code-review` skill through the `Skill` tool with the arguments `${effort} ${target}`, to edit no file, and to return every finding as the skill reports it, with its file, line, summary, and verdict. Each finding carries a `CONFIRMED` or `PLAUSIBLE` verdict — `PLAUSIBLE` is a lead to verify, never a verdict to apply. When the agent cannot run the skill, invoke `/code-review` through the `Skill` tool in this context instead, and say so in the report.
 
-- **the `custom-pr-reviewer` agent**, through the `Agent` tool, for naming, ordering, idiom, and the functional vetoes. Use the agent rather than the skill: it returns the same catalog's verdict as one report without editing anything, and it keeps N rounds of full reports out of this loop's context. When the agent type is unavailable, invoke the `custom-pr-reviewer` skill instead and decline its offer to fix.
+- **the `custom-pr-reviewer` and `custom-pr-reviewer-naming` agents**, through the `Agent` tool, in the same turn. They count as one reviewer. `custom-pr-reviewer` covers ordering, idiom, and the functional vetoes. `custom-pr-reviewer-naming` covers only the names, and runs on a stronger model. Each one returns one report without editing anything, and they keep N rounds of full reports out of this loop's context. When an agent type is unavailable, continue the round with the other reviewers, and report which agent did not run.
 
 - **the pr-reviewer**, through the `Bash` tool in the foreground, with a timeout of 600000 ms. It checks the diff against the rules in `pr-reviewer/rules` that the source formatter does not enforce. It ignores generated files, frontend sources, generated locale files, and lock files. Find it the way the pr-check validation `pr-reviewer.md` does:
 
