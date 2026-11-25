@@ -482,10 +482,14 @@ def test_check_rejects_a_verdict_of_an_older_ticket(
     ]
 
 
-def fake_claude(directory: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def fake_claude(
+    directory: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[dict[str, object]] | None = None,
+) -> Path:
     """A claude command that prints a stream-json run and records its arguments."""
 
-    events = [
+    events = events or [
         {"type": "system", "subtype": "init"},
         {
             "type": "assistant",
@@ -550,6 +554,86 @@ def test_exec_runs_the_subagent_and_writes_its_result_once(
 
     assert "already has a result" in again.output
     assert calls.read_text().count("--dangerously-skip-permissions") == 1
+
+
+def work_arguments(tmp_path: Path, *options: str) -> list[str]:
+    prompt = tmp_path / "prompt.md"
+
+    prompt.write_text("Implement the ticket")
+
+    return [
+        "steps",
+        "exec",
+        "implement",
+        "--kind",
+        "work",
+        "--session",
+        "s-1",
+        "--prompt-file",
+        str(prompt),
+        "--root",
+        str(tmp_path),
+        "--output",
+        str(tmp_path / "results" / "row.json"),
+        *options,
+    ]
+
+
+def test_exec_runs_a_work_turn_and_keeps_its_last_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Background subagents give an early result event before the end.
+
+    calls = fake_claude(
+        tmp_path / "bin",
+        monkeypatch,
+        [
+            {"type": "result", "is_error": False, "structured_output": {"status": "question"}},
+            {"type": "result", "is_error": False, "structured_output": {"status": "done"}},
+        ],
+    )
+
+    result = CliRunner().invoke(
+        app, work_arguments(tmp_path, "--model", "sonnet", "--effort", "high")
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Step implement: done." in result.output
+    assert json.loads((tmp_path / "results" / "row.json").read_text())["output"][
+        "structured_output"
+    ] == {"status": "done"}
+
+    [call] = calls.read_text().splitlines()
+
+    assert call.startswith("-p Implement the ticket --session-id s-1 ")
+    assert "--disallowed-tools AskUserQuestion --model sonnet --effort high" in call
+    assert "--agent" not in call
+
+
+def test_exec_resumes_the_session_of_a_later_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fake_claude(tmp_path / "bin", monkeypatch)
+
+    CliRunner().invoke(app, work_arguments(tmp_path, "--resume"))
+
+    assert "--resume s-1 " in calls.read_text()
+    assert "--session-id" not in calls.read_text()
+
+
+def test_exec_needs_the_inputs_of_its_kind(tmp_path: Path) -> None:
+    check = CliRunner().invoke(
+        app, ["steps", "exec", "security", "--root", ".", "--output", "o.json"]
+    )
+    work = CliRunner().invoke(
+        app,
+        ["steps", "exec", "implement", "--kind", "work", "--root", ".", "--output", "o.json"],
+    )
+
+    assert check.exit_code == 2
+    assert "a check needs --base and --head" in check.output
+    assert work.exit_code == 2
+    assert "a work turn needs --session and --prompt-file" in work.output
 
 
 def test_the_old_exec_name_writes_a_result_when_it_stops_on_an_error(

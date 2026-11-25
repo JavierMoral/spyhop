@@ -3,29 +3,33 @@
 import json
 import subprocess
 import sys
+from collections.abc import Sequence
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 
 def run_agent(
-    agent: str,
+    agent: str | None,
     prompt: str,
     schema: dict[str, Any],
     root: Path,
     transcript: Path | None = None,
+    options: Sequence[str] = (),
 ) -> tuple[int, dict[str, object] | None]:
-    """Runs ``agent`` with ``prompt`` in ``root`` and shows its steps. Returns
-    the exit code of claude and its result event, which holds the JSON object
-    of ``schema``. With ``transcript``, writes each event of the stream to
-    that file."""
+    """Runs ``agent``, or the main agent when it is None, with ``prompt`` in
+    ``root`` and shows its steps. ``options`` go to claude as they are.
+    Returns the exit code of claude and its last result event, which holds
+    the JSON object of ``schema``: background subagents can give an earlier
+    result event before the end. With ``transcript``, writes each event of
+    the stream to that file."""
 
     command = [
         "claude",
         "-p",
         prompt,
-        "--agent",
-        agent,
+        *(["--agent", agent] if agent else []),
+        *options,
         "--verbose",
         "--output-format",
         "stream-json",

@@ -170,7 +170,7 @@ def checkpoints_exec(
     """The old name of `spyhop steps exec`, for the units that started before
     it."""
 
-    steps_exec(name, base, head_sha, root, output)
+    steps_exec(name, root, output, base, head_sha)
 
 
 @checkpoints_app.command("check")
