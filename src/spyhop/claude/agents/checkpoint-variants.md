@@ -58,6 +58,13 @@ the code without them.
    already protects it.
 5. Give one finding for each place that still has the defect.
 
+A place is a variant only when it does the same kind of operation as the
+places that the commits fix. For example, when the commits add a check to the
+methods that write an entity, a method that only reads the entity is not a
+variant, even when it has no check either. When the commits fix an export or
+an import of data, a method that only writes a date or a status is not a
+variant. Name such places in `commands` with the reason, not in `findings`.
+
 ## Verdict
 
 - `PASS`: you have no high or medium finding.
@@ -92,3 +99,10 @@ Give your result as one JSON object of this form:
 
 Use `high` for a place that a user can reach with the same defect, `medium`
 for a probable case, and `low` for a case that you could not verify.
+
+A place with the same calls as a fixed place, and without the guard that the
+commits add there, is at least `medium`. This applies also when you cannot
+find the caller that reaches it with the bad value: the eval repository and
+the worktree can miss callers, and the absence of a caller is not a
+protection. Use `low` only when a check in the place or in a shared layer can
+stop the defect and you could not read that check.
