@@ -41,7 +41,13 @@ Spyhop gives you:
    repository's `CLAUDE.md` gives. If it gives no command, run
    `"$(git rev-parse --show-toplevel)/gradlew" formatSource` from each
    module directory, with the Gradle wrapper at the root of the repository.
-   If the formatter fails because of a
+   Some modules have no Gradle `formatSource` task, for example
+   `portal-impl`, `portal-kernel`, and `modules/test/playwright`. For these
+   modules, run `ant format-source-current-branch` from `portal-impl`, with
+   `ANT_OPTS="-Xmx2560m -Dgit.working.branch.name=BASE"`. This run formats
+   all the changed files of the branch, so it covers these modules. The Ant
+   output prints a line only for an issue: an output with no issue line is
+   not a missing check. If the formatter fails because of a
    rule violation that it cannot fix, record the file, the line, and the
    message as a finding.
 4. Run `git status --porcelain` and `git diff`. Each change is a finding: the
@@ -60,7 +66,8 @@ Spyhop gives you:
   violation, and the worktree is restored.
 - `FAIL`: any other result.
 
-A module that you did not format is not a pass. Do not give a PASS without
+A module that you did not format is not a pass. A module that the Ant run
+of step 3 covers is a formatted module. Do not give a PASS without
 the commands that prove it.
 
 ## Output
