@@ -21,7 +21,9 @@ from typing import Any
 from spyhop.application.agent_starter import AgentStarter, LaunchOutcomeUnknown
 from spyhop.application.context_builder import ContextBuilder, ContextError
 from spyhop.application.launch_errors import NotYet, RunFailed, Waiting
+from spyhop.application.step_runner import log_file
 from spyhop.application.supervisor_session import SupervisorSession
+from spyhop.application.work_runner import WorkRunner
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import AgentSettings, JiraSettings
@@ -94,8 +96,10 @@ class AgentLauncher:
         supervisor_session: SupervisorSession | None = None,
         notify: Callable[[str, str], Awaitable[None]] | None = None,
         now: Clock = utc_now,
+        work_runner: WorkRunner | None = None,
     ) -> None:
         self._runs = runs
+        self._work = work_runner
         self._supervisor_session = supervisor_session
         self._notify = notify
         self._worktrees = worktrees
@@ -221,7 +225,11 @@ class AgentLauncher:
         try:
             worktree = await self._provisioner.worktree(ticket, workflow)
 
-            self._context.prepare(worktree.path, ticket, workflow)
+            # A run keeps its runner; a new run gets the one of the settings.
+
+            runner = self._agents.runner if run.pipeline is None else run.runner
+
+            self._context.prepare(worktree.path, ticket, workflow, runner == "headless")
         except (OrcaCommandError, ContextError) as error:
             raise RunFailed(str(error)) from error
 
@@ -283,6 +291,11 @@ class AgentLauncher:
             goal = self._context.launch_goal(run.issue_key, workflow)
             step = "plan" if plan_review else "implement"
 
+        current = self._runs.get(run.id) or run
+
+        if current.runner == "headless" and step == "implement":
+            return await self._launch_turn(current, prepared, change)
+
         try:
             session = await self._starter.start(run, prepared.worktree, model, goal, step)
         except LaunchOutcomeUnknown:
@@ -317,6 +330,46 @@ class AgentLauncher:
             prepared.worktree,
             f"worktree listo en {prepared.worktree.path} (rama {prepared.worktree.branch_name}); "
             f"agente de {session.role} arrancado ({session.model})",
+        )
+
+        return True
+
+    async def _launch_turn(
+        self, run: AutomationRun, prepared: _Prepared, change: str | None
+    ) -> bool:
+        """Starts the first turn of a headless implementation agent: the
+        whole task, or the change of a person after a completed run."""
+
+        if self._work is None:
+            raise RunFailed("this Spyhop runs no headless turns")
+
+        worktree = prepared.worktree
+        prompt = self._context.turn_prompt(
+            run.issue_key,
+            "change" if change is not None else "full",
+            worktree.path,
+            changes=change or "",
+            new_session=change is not None,
+        )
+        row = await self._work.turn(
+            run, worktree, "implement", "change" if change is not None else "launch", prompt
+        )
+
+        self._runs.mark_running(run.id)
+        self._runs.consume(run.id, "change")
+
+        _log.info(
+            "%s: headless agent started in %s (branch %s, session %s)",
+            run.issue_key,
+            worktree.path,
+            worktree.branch_name,
+            row.session_id,
+        )
+
+        await self._tell(
+            worktree,
+            f"worktree listo en {worktree.path} (rama {worktree.branch_name}); turno "
+            f"{row.turn} de implement arrancado; log en {log_file(row)}",
         )
 
         return True

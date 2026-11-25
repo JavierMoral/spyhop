@@ -57,6 +57,7 @@ from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.phase_runner import PhaseRunner
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.application.supervisor_session import SupervisorSession
+from spyhop.application.work_runner import WorkRunner
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings
 from spyhop.domain.clock import Clock, utc_now
@@ -71,6 +72,7 @@ from spyhop.domain.models import (
     AgentSession,
     AutomationRun,
     ChecksPhase,
+    CodeReviewPhase,
     ResolvedWorkflow,
 )
 from spyhop.domain.protocols import TerminalHost, WorktreeHost
@@ -175,6 +177,7 @@ class AgentSupervisor:
         plan_approved_status: str,
         resolver: WorkflowResolver,
         check_runner: CheckRunner | None = None,
+        work_runner: WorkRunner | None = None,
         supervisor_session: SupervisorSession | None = None,
         knowledge: KnowledgeWriter | None = None,
         agent_states_dir: Path | None = None,
@@ -201,6 +204,7 @@ class AgentSupervisor:
             check_runner,
             knowledge,
             now,
+            work_runner,
         )
         self._recovery = AgentRecovery(
             runs, terminal_host, agents, self._phases, self._alerts, missing_after, now
@@ -300,6 +304,18 @@ class AgentSupervisor:
 
         if run.plan_changes is not None:
             await self._phases.change_plan(run, worktree, session)
+
+            return
+
+        phase = workflow.phases[run.phase]
+
+        # The turns of a headless agent end with a result, not with a state
+        # of an Orca terminal.
+
+        if run.runner == "headless" and (
+            phase == "implement" or isinstance(phase, CodeReviewPhase)
+        ):
+            await self._phases.work(run, worktree, workflow)
 
             return
 

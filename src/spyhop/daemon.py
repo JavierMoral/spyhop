@@ -21,6 +21,7 @@ from spyhop.application.orchestrator import Orchestrator
 from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.transition_detector import TransitionDetector
+from spyhop.application.work_runner import WorkRunner
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.credentials import credentials_from_environment
@@ -229,6 +230,15 @@ def _agents(
         spyhop=spyhop_executable(),
         model=settings.agents.model,
     )
+    # The checkpoints and the headless turns keep their results in one place.
+
+    work_runner = WorkRunner(
+        rows=StepRunRepository(connection),
+        units=SystemdUnits(),
+        spyhop=spyhop_executable(),
+        results_dir=state_dir() / "checkpoints",
+        agents=settings.agents,
+    )
     supervisor = AgentSupervisor(
         runs=runs,
         worktrees=worktrees,
@@ -250,6 +260,7 @@ def _agents(
             timeout=timedelta(minutes=settings.agents.checkpoint_timeout_minutes),
             supervisor_session=supervisor_session,
         ),
+        work_runner=work_runner,
         supervisor_session=supervisor_session,
         agent_states_dir=state_dir() / AGENT_STATES,
         knowledge=KnowledgeWriter(
@@ -275,6 +286,7 @@ def _agents(
         provisioner=WorktreeProvisioner(worktrees, orca, settings.application.min_free_disk_gb),
         notify=notify,
         supervisor_session=supervisor_session,
+        work_runner=work_runner,
     )
 
     janitor = WorktreeJanitor(

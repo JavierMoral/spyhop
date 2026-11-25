@@ -17,6 +17,7 @@ from spyhop.application.janitor import WorktreeJanitor, WorktreeRemover
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.supervisor_session import SupervisorSession
+from spyhop.application.work_runner import WorkRunner
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import Settings
@@ -478,6 +479,17 @@ class Harness:
             branch_exists=lambda repository, branch: self._git(branch in self.branches),
             free_bytes=lambda path: self.free_bytes(path),
         )
+        self.units = FakeUnits()
+        self.results_dir = tmp_path / "results"
+        self.checkpoint_runs = StepRunRepository(self.connection, self.clock)
+        self.work_runner = WorkRunner(
+            rows=self.checkpoint_runs,
+            units=self.units,
+            spyhop=SPYHOP,
+            results_dir=self.results_dir,
+            agents=self.config.agents,
+            now=self.clock,
+        )
         self.launcher = AgentLauncher(
             runs=self.runs,
             worktrees=self.worktrees,
@@ -494,10 +506,10 @@ class Harness:
             supervisor_session=self.supervisor_session,
             notify=self.notify,
             now=self.clock,
+            work_runner=self.work_runner,
         )
         self.cleaned: list[Path] = []
         self.cleanup_errors: list[Exception] = []
-        self.units = FakeUnits()
         self.remover = WorktreeRemover(
             self.runs,
             self.worktrees,
@@ -518,8 +530,6 @@ class Harness:
         )
         self.agents_dir = tmp_path / "agents"
         self.agent_states_dir = tmp_path / "agent-states"
-        self.results_dir = tmp_path / "results"
-        self.checkpoint_runs = StepRunRepository(self.connection, self.clock)
         self.check_runner = CheckRunner(
             checkpoint_runs=self.checkpoint_runs,
             units=self.units,
@@ -549,6 +559,7 @@ class Harness:
             plan_approved_status=PLAN_APPROVED,
             resolver=WorkflowResolver(self.config),
             check_runner=self.check_runner,
+            work_runner=self.work_runner,
             supervisor_session=self.supervisor_session,
             agent_states_dir=self.agent_states_dir,
             # The tests count cycles; the time rule has its own test.

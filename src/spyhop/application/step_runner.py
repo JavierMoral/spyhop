@@ -75,9 +75,12 @@ class StepRunner:
 
         self._rows.set_unit(row.id, unit, self._now())
 
-    async def poll(self, row: StepRun) -> Poll:
+    async def poll(self, row: StepRun, limit: timedelta | None = None) -> Poll:
         """The state of a row that runs. Stops the unit of a row without a
-        result in time. The timeout counts from the start of the unit."""
+        result in ``limit``, or in the timeout of the runner. The time counts
+        from the start of the unit."""
+
+        timeout = limit or self._timeout
 
         if row.output_file.is_file():
             return Poll("result")
@@ -85,7 +88,7 @@ class StepRunner:
         if row.unit is None:
             return Poll("unstarted")
 
-        if self._now() - row.started_at <= self._timeout:
+        if self._now() - row.started_at <= timeout:
             return Poll("running")
 
         try:
@@ -96,11 +99,12 @@ class StepRunner:
         if _still_runs(row.output_file):
             return Poll(
                 "blocked",
-                f"checkpoint {row.name} has no result after {self._timeout} and its "
+                f"{'checkpoint' if row.kind == 'check' else 'turn of'} {row.name} has no "
+                f"result after {timeout} and its "
                 f"process still runs; stop it with `systemctl --user stop {row.unit}`",
             )
 
-        return Poll("timeout", f"no result after {self._timeout}")
+        return Poll("timeout", f"no result after {timeout}")
 
 
 def _still_runs(output_file: Path) -> bool:

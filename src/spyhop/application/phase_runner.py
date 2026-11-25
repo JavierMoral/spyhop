@@ -11,9 +11,11 @@ from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
 from spyhop.application.context_builder import RESULT_FILE, ContextBuilder
 from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.run_alerts import RunAlerts
+from spyhop.application.step_runner import log_file
+from spyhop.application.work_runner import WorkRunner
 from spyhop.config.settings import AgentSettings
 from spyhop.domain.clock import Clock, utc_now
-from spyhop.domain.enums import WaitingReason
+from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
     OrcaUnavailableError,
@@ -46,8 +48,10 @@ class PhaseRunner:
         check_runner: CheckRunner | None = None,
         knowledge: KnowledgeWriter | None = None,
         now: Clock = utc_now,
+        work_runner: WorkRunner | None = None,
     ) -> None:
         self._runs = runs
+        self._work = work_runner
         self._sessions = sessions
         self._terminal_host = terminal_host
         self._context = context
@@ -117,9 +121,30 @@ class PhaseRunner:
         if isinstance(phase, ChecksPhase):
             await self.checks(run, worktree, workflow, session)
         elif isinstance(phase, CodeReviewPhase):
-            # In an Orca run, the implementation agent ran the review itself.
+            if self._headless(run):
+                # A turn of the implementation session, which knows why it
+                # made each choice.
 
-            await self.enter(run, worktree, workflow, index + 1, session)
+                session_id = self._work_runner().last_session(run, "implement")
+
+                await self.start_turn(
+                    run,
+                    worktree,
+                    "code_review",
+                    "code_review",
+                    self._context.turn_prompt(
+                        run.issue_key,
+                        "code_review",
+                        worktree.path,
+                        command=phase.command,
+                        new_session=session_id is None,
+                    ),
+                    session_id,
+                )
+            else:
+                # In an Orca run, the implementation agent ran the review itself.
+
+                await self.enter(run, worktree, workflow, index + 1, session)
         elif phase == "plan":
             await self.launch(
                 run,
@@ -136,6 +161,21 @@ class PhaseRunner:
             # workflow without plan_review.
 
             approved = workflow.plan_review or run.waiting_reason is WaitingReason.PLAN_REVIEW
+
+            if self._headless(run):
+                await self.start_turn(
+                    run,
+                    worktree,
+                    "implement",
+                    "launch",
+                    self._context.turn_prompt(
+                        run.issue_key, "implement" if approved else "full", worktree.path
+                    ),
+                    previous=session,
+                )
+
+                return
+
             goal = (
                 self._context.goal(run.issue_key, "implement")
                 if approved
@@ -154,6 +194,92 @@ class PhaseRunner:
                 if workflow.plan_review
                 else "use `spyhop retry` or start the agent yourself",
             )
+
+    async def start_turn(
+        self,
+        run: AutomationRun,
+        worktree: Worktree,
+        name: str,
+        turn: str,
+        prompt: str,
+        session_id: str | None = None,
+        previous: AgentSession | None = None,
+    ) -> None:
+        """Starts a headless turn of the agent ``name`` in the current phase.
+        ``previous``: the Orca agent before it, for example the plan agent."""
+
+        row = await self._work_runner().turn(run, worktree, name, turn, prompt, session_id)
+
+        if previous is not None:
+            self._sessions.mark_finished(previous.id)
+
+        self._runs.mark_resumed(run.id)
+
+        _log.info("%s: turn %s of %s started (%s)", run.issue_key, turn, name, row.session_id)
+
+        await self._alerts.tell(run, f"turno {turn} de {name} arrancado; log en {log_file(row)}")
+
+    async def work(
+        self, run: AutomationRun, worktree: Worktree, workflow: ResolvedWorkflow
+    ) -> None:
+        """Follows the headless turn of the current phase and acts on its
+        outcome."""
+
+        state = await self._work_runner().advance(run, worktree)
+        phase = workflow.phases[run.phase]
+        name = "code_review" if isinstance(phase, CodeReviewPhase) else "implement"
+
+        if state.state == "running":
+            await self._alerts.resume(run)
+        elif state.state == "blocked":
+            await self._alerts.wait(run, WaitingReason.UNKNOWN_STATE, state.detail or "")
+        elif state.state == "done":
+            await self.enter(run, worktree, workflow, run.phase + 1, None)
+        elif state.state == "question":
+            await self._alerts.wait(run, WaitingReason.AGENT_QUESTION, state.detail or "")
+        elif state.state == "none":
+            await self._alerts.wait(
+                run, WaitingReason.UNKNOWN_STATE, f"no turn of {name} in this phase"
+            )
+        elif run.restarts < self._agents.max_restarts and run.status is RunStatus.RUNNING:
+            # lost, unfinished or resume_failed: one more turn, in the same
+            # session when it still exists.
+
+            assert state.row is not None
+
+            self._runs.count_restart(run.id)
+
+            new_session = state.state == "resume_failed"
+
+            await self.start_turn(
+                run,
+                worktree,
+                name,
+                "continue",
+                self._context.turn_prompt(
+                    run.issue_key,
+                    "continue",
+                    worktree.path,
+                    changes=state.detail or state.state,
+                    new_session=new_session,
+                ),
+                None if new_session else state.row.session_id,
+            )
+        else:
+            await self._alerts.wait(
+                run,
+                WaitingReason.UNKNOWN_STATE,
+                f"the turn of {name} ended {state.state}: {state.detail}",
+            )
+
+    def _headless(self, run: AutomationRun) -> bool:
+        return run.runner == "headless"
+
+    def _work_runner(self) -> WorkRunner:
+        if self._work is None:
+            raise SpyhopError("this Spyhop runs no headless turns")
+
+        return self._work
 
     async def launch(
         self,
@@ -263,6 +389,15 @@ class PhaseRunner:
         session: AgentSession | None,
         failed: tuple[str, ...],
     ) -> None:
+        if self._headless(run):
+            await self._alerts.wait(
+                run,
+                WaitingReason.CHECKPOINTS_FAILED,
+                f"failed: {', '.join(failed)}; a headless run does not fix the findings yet",
+            )
+
+            return
+
         # Recorded first: a prompt whose outcome is unknown is not sent twice.
 
         self._runs.mark_fix_requested(run.id)

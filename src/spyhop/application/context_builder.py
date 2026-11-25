@@ -87,12 +87,16 @@ class ContextBuilder:
         self._spyhop = spyhop
 
     def prepare(
-        self, worktree_path: Path, ticket: TicketDetails, workflow: ResolvedWorkflow
+        self,
+        worktree_path: Path,
+        ticket: TicketDetails,
+        workflow: ResolvedWorkflow,
+        headless: bool = False,
     ) -> None:
         if not worktree_path.is_dir():
             raise ContextError(f"Worktree directory not found: {worktree_path}")
 
-        task = self.render_task(ticket, workflow)
+        task = self.render_task(ticket, workflow, headless)
         settings = self.render_settings(workflow)
 
         (worktree_path / TASK_FILE).write_text(task)
@@ -104,7 +108,12 @@ class ContextBuilder:
 
         add_exclusions(git_exclude_file(worktree_path), EXCLUDED_PATHS)
 
-    def render_task(self, ticket: TicketDetails, workflow: ResolvedWorkflow) -> str:
+    def render_task(
+        self, ticket: TicketDetails, workflow: ResolvedWorkflow, headless: bool = False
+    ) -> str:
+        """In a headless run, the code_review phase is its own turn, so the
+        task has no Review section."""
+
         guidance = self._render(workflow.prompt).strip()
 
         return self._render(
@@ -114,7 +123,9 @@ class ContextBuilder:
             guidance=guidance,
             orca=str(self._orca_executable),
             implement_goal=self.goal(ticket.key, "implement"),
-            review_command=next(
+            review_command=None
+            if headless
+            else next(
                 (phase.command for phase in workflow.phases if isinstance(phase, CodeReviewPhase)),
                 self._review_command,
             ),
@@ -149,6 +160,29 @@ class ContextBuilder:
             spyhop=str(self._spyhop),
             issue_key=issue_key,
             orca=str(self._orca_executable),
+        )
+
+        return oneline(text)
+
+    def turn_prompt(
+        self,
+        issue_key: str,
+        turn: str,
+        root: Path,
+        changes: str = "",
+        command: str = "",
+        new_session: bool = False,
+    ) -> str:
+        """The prompt of a turn of a headless agent (see turn.md)."""
+
+        text = self._render(
+            "turn.md",
+            turn=turn,
+            issue_key=issue_key,
+            root=str(root),
+            changes=oneline(changes),
+            command=command,
+            new_session=new_session,
         )
 
         return oneline(text)
