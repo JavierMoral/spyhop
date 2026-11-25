@@ -210,7 +210,7 @@ def _agents(
     orca = orca_client(settings)
     executable = orca.executable
 
-    _log.info("Launching and supervising agents through %s", executable)
+    _log.info("Orca for the worktrees and the supervisor sessions: %s", executable)
 
     runs = RunRepository(connection)
     worktrees = WorktreeRepository(connection)

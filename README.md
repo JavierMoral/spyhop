@@ -1,7 +1,7 @@
 <h1 align="center">🐋 spyhop</h1>
 
 <p align="center">
-  <strong>Turn JIRA tickets into Claude Code agents running in Orca.</strong><br/>
+  <strong>Turn JIRA tickets into Claude Code agents, in Orca worktrees.</strong><br/>
   A small local daemon that watches your tickets and starts the work when you do.
 </p>
 
@@ -48,7 +48,12 @@ What you do is in **bold**. Spyhop does the rest. Follow the run in its
    writes `CLAUDE-RESULT.md`. If the workflow has
    [checkpoints](#pipelines-and-checkpoints), Spyhop runs them, and the agent
    fixes what they find. **Review the commits, then push and open the pull
-   request**, yourself or with `/pr` in the agent's terminal.
+   request.**
+
+The agents run as `claude -p` turns in systemd units, not in terminals. You
+talk only with the supervisor session: it sends your messages to the agent
+with `spyhop tell`, and the agent gets each message as its next turn.
+`spyhop status KEY` shows each turn with its log.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree. See
    [When the ticket closes](#when-the-ticket-closes).
 
@@ -383,8 +388,8 @@ knowledge:
 | `spyhop service install` / `uninstall` | Install and start, or remove, the systemd user service. |
 | `spyhop version` | Print the version of Spyhop. |
 
-The agents use `spyhop declare` and `spyhop checkpoints plan` / `check`. You
-do not need them.
+The agents use `spyhop checkpoints plan` / `check`, and the units use
+`spyhop steps exec`. You do not need them.
 
 ### The history of the agents
 
@@ -403,8 +408,9 @@ that a script can do in one call), and the errors of each kind (exit code,
 hook, denied, tool input). The CSV has the full profile of each execution as
 JSON.
 
-The tokens of the agents in Orca come from the transcripts that Claude Code
-keeps in `~/.claude/projects`, and the agent comes from the title of the
+The tokens of the agents of a run and of the supervisor session come from
+the transcripts that Claude Code keeps in `~/.claude/projects`. The turns of
+a run give the agent of each session, and the title gives the supervisor
 session. Claude Code deletes old transcripts after `cleanupPeriodDays`, 30
 days by default. The rows stay in the database. A checkpoint that stops
 before its result has no row.
