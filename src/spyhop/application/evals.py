@@ -15,6 +15,7 @@ security cases are private:
     <evals dir>/<agent>/<case>/case.yaml
     <evals dir>/<agent>/<case>/base/     the files before the change
     <evals dir>/<agent>/<case>/head/     the same files after the change
+    <evals dir>/<agent>/<case>/plan.md   the CLAUDE-PLAN.md of the run, if any
 
 Each run adds one line to <evals dir>/metrics.jsonl. Each version of an agent
 is kept in <evals dir>/agents/<sha256>.md, so a metric can be compared with
@@ -58,6 +59,9 @@ _SHELL_KEYWORDS = {
 EVAL_TICKETS_ENV_VAR = "SPYHOP_EVAL_TICKETS"
 
 TASK_FILE = "CLAUDE-TASK.md"
+
+# A case can give the plan of the run, for a checkpoint that runs after it.
+PLAN_FILE = "plan.md"
 
 SHARED_DIR = "shared"
 
@@ -192,18 +196,32 @@ def load_cases(checkpoint_dir: Path, pattern: str = "*") -> list[EvalCase]:
     return cases
 
 
+def with_team(task: str, team: str | None) -> str:
+    """The task with the Team section that Spyhop writes for a run, when the
+    saved task has none."""
+
+    if team is None or "\n## Team\n" in task:
+        return task
+
+    return (
+        f"{task.rstrip()}\n\n## Team\n\n"
+        f"El equipo de la persona es `{team}`, como lo nombra `.github/CODEOWNERS`.\n"
+    )
+
+
 def build_repository(case: EvalCase, root: Path, task: str | None) -> tuple[str, str]:
     """Creates in ``root`` a repository with one commit for base/ and one for
     head/. Both commits also hold the shared/ files of the agent, and
     origin/master points to the base commit. With ``task``, writes the task
-    file with the list of the files. Returns the SHAs of the two commits."""
+    file with the list of the files. The plan.md of the case becomes
+    CLAUDE-PLAN.md. Returns the SHAs of the two commits."""
 
     shared = case.directory.parent / SHARED_DIR
 
     root.mkdir(parents=True)
 
     _git(root, "init", "-q")
-    (root / ".git" / "info" / "exclude").write_text(f"/{TASK_FILE}\n")
+    (root / ".git" / "info" / "exclude").write_text(f"/{TASK_FILE}\n/CLAUDE-PLAN.md\n")
 
     _commit(root, shared, case.directory / "base", "Base")
 
@@ -220,6 +238,11 @@ def build_repository(case: EvalCase, root: Path, task: str | None) -> tuple[str,
             f"{task}\n## Eval Repository\n\nThis repository contains only these files. "
             f"Do not search for other files.\n\n{files}"
         )
+
+    plan = case.directory / PLAN_FILE
+
+    if plan.is_file():
+        shutil.copyfile(plan, root / "CLAUDE-PLAN.md")
 
     return base, _git(root, "rev-parse", "HEAD")
 

@@ -24,6 +24,7 @@ from spyhop.application.evals import (
     load_cases,
     review_prompt,
     run_metrics,
+    with_team,
 )
 from spyhop.application.executions import result_execution
 from spyhop.cli.common import _load, app
@@ -116,7 +117,8 @@ def eval_checkpoint(
     }
 
     os.environ[EVAL_TICKETS_ENV_VAR] = str(tickets_dir)
-    executions = ExecutionRepository(connect(database_file(_load(None).application.dry_run)))
+    settings = _load(None)
+    executions = ExecutionRepository(connect(database_file(settings.application.dry_run)))
 
     summary: list[dict[str, object]] = []
     cost = 0.0
@@ -124,7 +126,10 @@ def eval_checkpoint(
     try:
         for eval_case in cases:
             task = (
-                (tickets_dir / f"{eval_case.ticket}.task.md").read_text()
+                with_team(
+                    (tickets_dir / f"{eval_case.ticket}.task.md").read_text(),
+                    settings.application.team,
+                )
                 if eval_case.ticket
                 else None
             )

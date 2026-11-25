@@ -21,6 +21,7 @@ from spyhop.application.evals import (
     grade,
     grade_review,
     load_cases,
+    with_team,
 )
 from spyhop.cli import app
 from spyhop.config.paths import database_file, eval_cases_dir, evals_dir
@@ -435,7 +436,7 @@ def evals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setattr(
         "spyhop.cli.evals._load",
-        lambda _: SimpleNamespace(application=SimpleNamespace(dry_run=False)),
+        lambda _: SimpleNamespace(application=SimpleNamespace(dry_run=False, team=None)),
     )
     # The eval sets the variable in os.environ. A delenv of a missing
     # variable records nothing, so set it first: the teardown removes it.
@@ -768,3 +769,34 @@ def test_base_content_keeps_the_member_before_an_added_annotation() -> None:
     base = base_content(head.encode(), {7, 8, 9, 10}, "src/Foo.java").decode()
 
     assert base == "public class Foo {\n\n\tpublic int getA() {\n\t\treturn 1;\n\t}\n\n}\n"
+
+
+def test_the_plan_of_a_case_becomes_the_plan_of_the_run(tmp_path: Path) -> None:
+    directory = write_case(tmp_path / "cases", "lpd-1-ours", PASS_YAML)
+
+    (directory / "plan.md").write_text("# Plan\n")
+
+    (case,) = load_cases(tmp_path / "cases")
+
+    build_repository(case, tmp_path / "one", "# Task: LPD-1\n")
+
+    status = subprocess.run(
+        ["git", "-C", str(tmp_path / "one"), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    assert (tmp_path / "one" / "CLAUDE-PLAN.md").read_text() == "# Plan\n"
+    assert status == ""
+
+
+def test_the_task_of_an_eval_gets_the_team_of_the_settings() -> None:
+    task = with_team("# Task: LPD-1\n", "@liferay-page-management")
+
+    assert task.endswith(
+        "El equipo de la persona es `@liferay-page-management`, como lo nombra "
+        "`.github/CODEOWNERS`.\n"
+    )
+    assert with_team(task, "@other") == task
+    assert with_team("# Task: LPD-1\n", None) == "# Task: LPD-1\n"
