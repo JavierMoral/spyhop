@@ -1,0 +1,36 @@
+# Generated from 2b917f78e684 LRCI-7397 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: getGitHubApiUrl -> getGitHubRestApiUrl, getGitHubAPIURL -> getGitHubRESTAPIURL, _gitHubApiUrl -> _gitHubRestApiUrl, gitHubApiUrl -> gitHubRestApiUrl
+message: "LRCI-7397 Update the code"
+expect:
+  findings:
+    - {rule: "101", any: [
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/CIForwardProcessor.java", lines: [183, 183]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/CentralGitSubrepository.java", lines: [174, 174]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/CentralGitSubrepository.java", lines: [198, 198]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitCommitFactory.java", lines: [125, 125]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubRemoteGitCommit.java", lines: [145, 145]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubRemoteGitRepository.java", lines: [75, 75]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubRemoteGitRepository.java", lines: [331, 331]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubSecondaryRateLimitRuntimeException.java", lines: [14, 14]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubSecondaryRateLimitRuntimeException.java", lines: [16, 16]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubSecondaryRateLimitRuntimeException.java", lines: [20, 20]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubSecondaryRateLimitRuntimeException.java", lines: [25, 25]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubSecondaryRateLimitRuntimeException.java", lines: [29, 30]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitHubSecondaryRateLimitRuntimeException.java", lines: [37, 37]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/GitWorkingDirectory.java", lines: [465, 465]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/JenkinsResultsParserUtil.java", lines: [2071, 2071]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/MergeCentralGitSubrepositoryUtil.java", lines: [206, 206]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/MergeCentralGitSubrepositoryUtil.java", lines: [291, 291]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [103, 103]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [143, 143]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [149, 149]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [263, 263]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [273, 273]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [343, 343]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [355, 355]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [967, 967]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [972, 972]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [1286, 1287]},
+        {file: "modules/test/jenkins-results-parser/src/main/java/com/liferay/jenkins/results/parser/PullRequest.java", lines: [1405, 1405]},
+      ]}

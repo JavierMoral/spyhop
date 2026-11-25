@@ -1,0 +1,10 @@
+# Generated from 02940835967c LPD-81809 As used/burrito because what you want is ownedObjectEntries and sharedObjectEntries
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: ownedObjectEntries -> createdObjectEntries, sharedObjectEntries -> visibleObjectEntries
+message: "LPD-81809 Update the code"
+expect:
+  findings:
+    - {rule: "203", any: [
+        {file: "modules/apps/frontend-data-set/frontend-data-set-impl/src/main/java/com/liferay/frontend/data/set/internal/serializer/BaseFDSSerializer.java", lines: [67, 71]},
+        {file: "modules/apps/frontend-data-set/frontend-data-set-impl/src/main/java/com/liferay/frontend/data/set/internal/serializer/BaseFDSSerializer.java", lines: [100, 102]},
+      ]}

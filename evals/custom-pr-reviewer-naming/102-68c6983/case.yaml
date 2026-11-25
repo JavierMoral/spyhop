@@ -1,0 +1,33 @@
+# Generated from 68c698399afa LPD-69683 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: _existsPortlet -> _existsLayoutPortlet, _hasPortlet -> _hasLayoutPortlet
+message: "LPD-69683 Update the code"
+expect:
+  findings:
+    - {rule: ["102", "105"], check: "NAM-06", any: [
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [58, 58]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [91, 91]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [126, 126]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [145, 145]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [166, 166]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [191, 191]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [214, 214]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [244, 244]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [274, 274]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [305, 305]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [338, 338]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [371, 371]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [396, 396]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [421, 421]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [454, 454]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [489, 489]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [642, 642]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [654, 654]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/PortletPreferencesPostUpgradeDataCleanupProcessTest.java", lines: [668, 668]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/ResourcePermissionPostupgradeDataCleanupProcessTest.java", lines: [61, 61]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/ResourcePermissionPostupgradeDataCleanupProcessTest.java", lines: [91, 91]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/ResourcePermissionPostupgradeDataCleanupProcessTest.java", lines: [93, 93]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/ResourcePermissionPostupgradeDataCleanupProcessTest.java", lines: [124, 124]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/ResourcePermissionPostupgradeDataCleanupProcessTest.java", lines: [159, 159]},
+        {file: "modules/apps/data-cleanup/data-cleanup-test/src/testIntegration/java/com/liferay/data/cleanup/internal/verify/test/ResourcePermissionPostupgradeDataCleanupProcessTest.java", lines: [271, 271]},
+      ]}

@@ -1,0 +1,10 @@
+# Built from f5cd0319d72c LPD-115382 Add test (pull 187195): head is the commit, base its parent.
+# Curated: the tests say Depot, but the object is a DepotEntry, so the names are testGetGroupsDepotEntry*.
+# Brian did not catch it; the commit title of the resent pull already says DepotEntry.
+message: "LPD-115382 Update the code"
+expect:
+  findings:
+    - {check: "NAM-22", any: [
+        {file: "modules/apps/depot/depot-test/src/testIntegration/java/com/liferay/depot/web/internal/item/selector/provider/test/BaseDepotGroupItemSelectorProviderTestCase.java", lines: [99, 99]},
+        {file: "modules/apps/depot/depot-test/src/testIntegration/java/com/liferay/depot/web/internal/item/selector/provider/test/BaseDepotGroupItemSelectorProviderTestCase.java", lines: [124, 124]},
+      ]}

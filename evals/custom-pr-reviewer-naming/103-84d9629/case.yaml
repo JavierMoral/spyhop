@@ -1,0 +1,11 @@
+# Generated from 84d9629c7775 LPD-78068 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: getAgentDefinitions -> getAllAgentDefinitions, getAgentDefinitionsPage -> getAllAgentDefinitionsPage
+message: "LPD-78068 Update the code"
+expect:
+  findings:
+    - {rule: ["103", "111"], any: [
+        {file: "modules/dxp/apps/ai-hub/ai-hub-rest-api/src/main/java/com/liferay/ai/hub/rest/manager/v1_0/AgentDefinitionManager.java", lines: [25, 25]},
+        {file: "modules/dxp/apps/ai-hub/ai-hub-rest-impl/src/main/java/com/liferay/ai/hub/rest/internal/manager/v1_0/AgentDefinitionManagerImpl.java", lines: [80, 80]},
+        {file: "modules/dxp/apps/ai-hub/ai-hub-rest-impl/src/main/java/com/liferay/ai/hub/rest/internal/resource/v1_0/AgentDefinitionResourceImpl.java", lines: [65, 65]},
+      ]}

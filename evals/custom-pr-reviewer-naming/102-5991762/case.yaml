@@ -1,0 +1,11 @@
+# Generated from 59917626112d LPD-82766 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: _containsContent -> _containsText, _hasContent -> _hasText
+message: "LPD-82766 Update the code"
+expect:
+  findings:
+    - {rule: "102", any: [
+        {file: "modules/apps/object/object-web/src/test/java/com/liferay/object/web/internal/object/definitions/display/context/ObjectDefinitionsActionsDisplayContextTest.java", lines: [179, 179]},
+        {file: "modules/apps/object/object-web/src/test/java/com/liferay/object/web/internal/object/definitions/display/context/ObjectDefinitionsActionsDisplayContextTest.java", lines: [192, 192]},
+        {file: "modules/apps/object/object-web/src/test/java/com/liferay/object/web/internal/object/definitions/display/context/ObjectDefinitionsActionsDisplayContextTest.java", lines: [293, 293]},
+      ]}

@@ -1,0 +1,10 @@
+# Generated from d461c0b1983c LPD-86456 case sensitive sort like this: " 1 ", "0", "0, 1", "true", null
+# Curated: one expected finding for each problem; any of its places matches.
+message: "LPD-86456 Update the code"
+expect:
+  findings:
+    - {rule: ["202", "208"], check: "ORD-05", any: [
+        {file: "modules/apps/cookies/cookies-test/src/testIntegration/java/com/liferay/cookies/internal/global/privacy/control/test/GlobalPrivacyControlProviderImplTest.java", lines: [126, 126]},
+        {file: "modules/apps/cookies/cookies-test/src/testIntegration/java/com/liferay/cookies/internal/global/privacy/control/test/GlobalPrivacyControlProviderImplTest.java", lines: [129, 129]},
+        {file: "modules/apps/cookies/cookies-test/src/testIntegration/java/com/liferay/cookies/internal/global/privacy/control/test/GlobalPrivacyControlProviderImplTest.java", lines: [135, 138]},
+      ]}

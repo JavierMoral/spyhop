@@ -1,0 +1,11 @@
+# Generated from 9160fe13619c LPD-102264 SF
+# Curated: one rename, any of its places matches.
+message: "LPD-102264 Update the code"
+expect:
+  findings:
+    - {rule: ["107", "103"], any: [
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/upgrade/v3_0_7/CMSCommentRatingsUpgradeProcess.java", lines: [61, 61]},
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/upgrade/v3_0_7/CMSCommentRatingsUpgradeProcess.java", lines: [71, 72]},
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/upgrade/v3_0_7/CMSCommentRatingsUpgradeProcess.java", lines: [77, 77]},
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/upgrade/v3_0_7/CMSCommentRatingsUpgradeProcess.java", lines: [83, 83]},
+      ]}

@@ -1,0 +1,8 @@
+# Generated from 19d4dbf0667b LCD-51344 Sort method
+# Curated: one expected finding for each problem; any of its places matches.
+message: "LCD-51344 Update the code"
+expect:
+  findings:
+    - {rule: ["202", "907"], any: [
+        {file: "cloud/scripts/setup_gcp.sh", lines: [333, 350]},
+      ]}

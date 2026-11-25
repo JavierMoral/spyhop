@@ -1,0 +1,7 @@
+# Generated from 4b86b09f5d6e LPD-64336 SF
+# Curated: the other hunks of the commit only remove blank lines.
+message: "LPD-64336 Update the code"
+expect:
+  findings:
+    - {rule: "710", file: "modules/dxp/apps/osb/osb-patcher/osb-patcher-api/src/main/java/com/liferay/osb/patcher/util/HelpCenterUtil.java", lines: [87, 87]}
+    - {rule: "710", file: "modules/dxp/apps/osb/osb-patcher/osb-patcher-api/src/main/java/com/liferay/osb/patcher/util/HelpCenterUtil.java", lines: [152, 152]}

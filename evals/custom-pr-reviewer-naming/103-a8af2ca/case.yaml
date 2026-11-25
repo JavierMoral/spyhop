@@ -1,0 +1,10 @@
+# Generated from a8af2ca0f468 LPD-67473 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: metadataJSONObject -> serverMetadataJSONObject
+message: "LPD-67473 Update the code"
+expect:
+  findings:
+    - {rule: "103", check: "NAM-04", any: [
+        {file: "modules/apps/oauth-client/oauth-client-admin-web/src/main/resources/META-INF/resources/admin/update_oauth_client_as_local_metadata.jsp", lines: [77, 77]},
+        {file: "modules/apps/oauth-client/oauth-client-admin-web/src/main/resources/META-INF/resources/admin/update_oauth_client_as_local_metadata.jsp", lines: [88, 88]},
+      ]}

@@ -1,0 +1,13 @@
+# Generated from aa720a98791e LPD-85454 SF
+# Curated: one expected finding for each problem; any of its places matches.
+message: "LPD-85454 Update the code"
+expect:
+  findings:
+    - {rule: "203", any: [
+        {file: "modules/apps/journal/journal-service/src/test/java/com/liferay/journal/internal/util/JournalConverterImplTest.java", lines: [83, 83]},
+        {file: "modules/apps/journal/journal-service/src/test/java/com/liferay/journal/internal/util/JournalConverterImplTest.java", lines: [85, 85]},
+        {file: "modules/apps/journal/journal-service/src/test/java/com/liferay/journal/internal/util/JournalConverterImplTest.java", lines: [91, 92]},
+      ]}
+    - {rule: ["505", "001"], any: [
+        {file: "modules/apps/journal/journal-service/src/test/java/com/liferay/journal/internal/util/JournalConverterImplTest.java", lines: [218, 221]},
+      ]}

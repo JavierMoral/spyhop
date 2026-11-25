@@ -1,0 +1,19 @@
+# Generated from 85875100d419 LPD-0 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: expectedXml -> expectedLogXml, expectedXML -> expectedLogXML
+message: "LPD-0 Update the code"
+expect:
+  findings:
+    - {rule: "101", any: [
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [415, 416]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [469, 469]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [482, 482]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [489, 489]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [491, 491]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [689, 690]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [704, 705]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [732, 733]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [808, 809]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [832, 833]},
+        {file: "modules/apps/portal/portal-log4j-test/src/testIntegration/java/com/liferay/portal/log4j/test/PortalLog4jTest.java", lines: [844, 845]},
+      ]}

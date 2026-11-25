@@ -1,0 +1,16 @@
+# Generated from c75e33ec3ac5 LPD-89150 SF
+# The naming findings are in the custom-pr-reviewer-naming case.
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: startDate -> beginDate, startDateString -> beginDateString, endDate -> finishDate, endDateString -> finishDateString
+message: "LPD-89150 Update the code"
+expect:
+  findings:
+    - {rule: "710", any: [
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [93, 93]},
+      ]}
+    - {rule: "202", any: [
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [189, 189]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [191, 192]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [201, 201]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [203, 204]},
+      ]}

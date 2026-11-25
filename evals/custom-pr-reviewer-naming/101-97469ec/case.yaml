@@ -1,0 +1,21 @@
+# Generated from 97469ecf51a3 LPD-88833 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: mergeToJsonObject -> mergeIntoJsonObject, mergeToJSONObject -> mergeIntoJSONObject
+message: "LPD-88833 Update the code"
+expect:
+  findings:
+    - {rule: "101", any: [
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/main/java/com/liferay/portal/search/elasticsearch8/internal/settings/SettingsHelperImpl.java", lines: [62, 62]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/main/java/com/liferay/portal/search/elasticsearch8/internal/settings/SettingsHelperImpl.java", lines: [96, 96]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/main/java/com/liferay/portal/search/elasticsearch8/internal/settings/SettingsHelperImpl.java", lines: [130, 130]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/main/java/com/liferay/portal/search/elasticsearch8/internal/settings/SettingsHelperImpl.java", lines: [150, 150]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/main/java/com/liferay/portal/search/elasticsearch8/internal/util/IndexUtil.java", lines: [207, 207]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/main/java/com/liferay/portal/search/elasticsearch8/internal/util/IndexUtil.java", lines: [225, 225]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/test/java/com/liferay/portal/search/elasticsearch8/internal/util/IndexUtilTest.java", lines: [38, 38]},
+        {file: "modules/apps/portal-search-elasticsearch8/portal-search-elasticsearch8-impl/src/test/java/com/liferay/portal/search/elasticsearch8/internal/util/IndexUtilTest.java", lines: [80, 80]},
+        {file: "modules/apps/portal-search-opensearch2/portal-search-opensearch2-impl/src/main/java/com/liferay/portal/search/opensearch2/internal/settings/SettingsHelperImpl.java", lines: [59, 59]},
+        {file: "modules/apps/portal-search-opensearch2/portal-search-opensearch2-impl/src/main/java/com/liferay/portal/search/opensearch2/internal/settings/SettingsHelperImpl.java", lines: [93, 93]},
+        {file: "modules/apps/portal-search-opensearch2/portal-search-opensearch2-impl/src/main/java/com/liferay/portal/search/opensearch2/internal/settings/SettingsHelperImpl.java", lines: [128, 128]},
+        {file: "modules/apps/portal-search-opensearch2/portal-search-opensearch2-impl/src/main/java/com/liferay/portal/search/opensearch2/internal/util/IndexUtil.java", lines: [157, 157]},
+        {file: "modules/apps/portal-search-opensearch2/portal-search-opensearch2-impl/src/main/java/com/liferay/portal/search/opensearch2/internal/util/IndexUtil.java", lines: [175, 175]},
+      ]}

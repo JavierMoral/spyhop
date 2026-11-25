@@ -28,7 +28,7 @@ from spyhop.application.evals import (
 from spyhop.application.executions import result_execution
 from spyhop.cli.checkpoints import _run_agent, _run_checkpoint
 from spyhop.cli.common import _load, app
-from spyhop.config.paths import claude_agents_dir, database_file, evals_dir
+from spyhop.config.paths import claude_agents_dir, database_file, eval_cases_dir, evals_dir
 from spyhop.domain.exceptions import SpyhopError
 from spyhop.infrastructure.git import has_changes
 from spyhop.infrastructure.persistence.database import connect
@@ -50,17 +50,19 @@ def eval_checkpoint(
     """Run an agent on its eval cases and compare each result with the
     expected result.
 
-    The cases are in <evals dir>/<agent>/<case>. Each run creates a
+    The cases are in <repository>/evals/<agent>/<case> when the checkout
+    has the agent, otherwise in <evals dir>/<agent>/<case>. Each run creates a
     temporary repository with a commit for base/ and one for head/, and runs
     the agent there. The agent is checkpoint-<agent>.md when it exists, and
     its cases give the expected verdict. Otherwise the agent is <agent>.md,
     a review agent, and its cases give the expected findings. `spyhop
     ticket` reads the tickets of <evals dir>/tickets, not JIRA. Each run adds
-    a line with its consumption and its result to <evals dir>/metrics.jsonl.
+    a line with its consumption and its result to <evals dir>/metrics.jsonl,
+    and the results go to <evals dir>/<agent>/results.
     Exits with 1 when a run fails."""
 
     try:
-        cases = load_cases(evals_dir() / checkpoint, case)
+        cases = load_cases(eval_cases_dir(checkpoint), case)
     except SpyhopError as error:
         typer.echo(str(error), err=True)
 
@@ -255,7 +257,7 @@ def eval_case(
     expected finding that any of them matches. Review the case.yaml file
     before you use the case."""
 
-    case_dir = evals_dir() / agent / (name or f"{rule or check}-{commit[:8]}".lower())
+    case_dir = eval_cases_dir(agent) / (name or f"{rule or check}-{commit[:8]}".lower())
 
     try:
         count = case_from_commit(repository, commit, case_dir, rule, check, one)

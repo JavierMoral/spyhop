@@ -1,0 +1,24 @@
+# Generated from 86c42cdfdcb5 LPD-113827 Rename locals in the attachment and nested fields tests
+# Curated: one rename, any of its places matches.
+message: "LPD-113827 Update the code"
+expect:
+  findings:
+    - {rule: ["103", "107"], any: [
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [793, 793]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [798, 798]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [837, 837]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [846, 846]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [852, 852]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [885, 885]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceAttachmentTest.java", lines: [890, 890]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [307, 307]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [311, 311]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [319, 320]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [333, 334]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [341, 341]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [351, 352]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [370, 370]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [676, 676]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [688, 688]},
+        {file: "modules/apps/object/object-rest-test/src/testIntegration/java/com/liferay/object/rest/internal/resource/v1_0/test/ObjectEntryResourceNestedFieldsTest.java", lines: [710, 710]},
+      ]}

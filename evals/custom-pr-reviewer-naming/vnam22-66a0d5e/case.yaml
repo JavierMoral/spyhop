@@ -1,0 +1,8 @@
+# Generated from 66a0d5e21add LPD-86505 Keep Master always with Layout
+# Curated from the rejected pull 173250: Master alone does not say what it is; the class word is MasterLayout.
+message: "LPD-86505 Update the code"
+expect:
+  findings:
+    - {check: "NAM-22", any: [
+        {file: "modules/apps/layout/layout-page-template-admin-web-test/src/testIntegration/java/com/liferay/layout/page/template/admin/web/internal/importer/test/LayoutsImporterTest.java", lines: [537, 537]},
+      ]}

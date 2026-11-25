@@ -23,7 +23,7 @@ from spyhop.application.evals import (
     load_cases,
 )
 from spyhop.cli import app
-from spyhop.config.paths import database_file
+from spyhop.config.paths import database_file, eval_cases_dir, evals_dir
 from spyhop.domain.exceptions import ConfigurationError
 from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import ExecutionRepository
@@ -411,11 +411,28 @@ def test_ticket_fails_without_the_eval_ticket(tmp_path: Path) -> None:
     assert result.exit_code == 1
 
 
+def test_eval_cases_dir_prefers_the_cases_of_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "spyhop.config.paths.repository_evals_dir", lambda: tmp_path / "repository" / "evals"
+    )
+
+    (tmp_path / "repository" / "evals" / "reviewer").mkdir(parents=True)
+
+    assert eval_cases_dir("reviewer") == tmp_path / "repository" / "evals" / "reviewer"
+    assert eval_cases_dir("security") == evals_dir() / "security"
+
+
 @pytest.fixture
 def evals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        "spyhop.config.paths.repository_evals_dir", lambda: tmp_path / "repository" / "evals"
+    )
     monkeypatch.setattr(
         "spyhop.cli.evals._load",
         lambda _: SimpleNamespace(application=SimpleNamespace(dry_run=False)),

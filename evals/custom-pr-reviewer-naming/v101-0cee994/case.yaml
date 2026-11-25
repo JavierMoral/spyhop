@@ -1,0 +1,12 @@
+# Generated from 0cee99401e12 LPD-91327 Rename redirectUris to redirectURIs in _validate
+# Curated: one rename, any of its places matches.
+message: "LPD-91327 Update the code"
+expect:
+  findings:
+    - {rule: "101", any: [
+        {file: "modules/apps/oauth2-provider/oauth2-provider-rest/src/main/java/com/liferay/oauth2/provider/rest/internal/endpoint/dynamic/registration/LiferayDynamicRegistrationService.java", lines: [372, 372]},
+        {file: "modules/apps/oauth2-provider/oauth2-provider-rest/src/main/java/com/liferay/oauth2/provider/rest/internal/endpoint/dynamic/registration/LiferayDynamicRegistrationService.java", lines: [374, 374]},
+        {file: "modules/apps/oauth2-provider/oauth2-provider-rest/src/main/java/com/liferay/oauth2/provider/rest/internal/endpoint/dynamic/registration/LiferayDynamicRegistrationService.java", lines: [377, 377]},
+        {file: "modules/apps/oauth2-provider/oauth2-provider-rest/src/main/java/com/liferay/oauth2/provider/rest/internal/endpoint/dynamic/registration/LiferayDynamicRegistrationService.java", lines: [379, 379]},
+        {file: "modules/apps/oauth2-provider/oauth2-provider-rest/src/main/java/com/liferay/oauth2/provider/rest/internal/endpoint/dynamic/registration/LiferayDynamicRegistrationService.java", lines: [387, 387]},
+      ]}

@@ -1,0 +1,8 @@
+# Generated from 172687fc5e47 LPD-87754 Sort by _themeDisplay.set*
+# Curated: one expected finding for each problem; any of its places matches.
+message: "LPD-87754 Update the code"
+expect:
+  findings:
+    - {rule: "202", any: [
+        {file: "modules/apps/site/site-test/src/testIntegration/java/com/liferay/site/manager/test/SitemapManagerTest.java", lines: [1310, 1310]},
+      ]}

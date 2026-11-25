@@ -1,0 +1,19 @@
+# Generated from c75e33ec3ac5 LPD-89150 SF
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: startDate -> beginDate, startDateString -> beginDateString, endDate -> finishDate, endDateString -> finishDateString
+message: "LPD-89150 Update the code"
+expect:
+  findings:
+    - {rule: "107", any: [
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [74, 74]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [79, 79]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [86, 86]},
+      ]}
+    - {rule: "107", any: [
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [104, 104]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [106, 107]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [117, 117]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [123, 123]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [125, 126]},
+        {file: "workspaces/liferay-aihub-workspace/client-extensions/liferay-aihub-etc-spring-boot/src/main/java/com/liferay/ai/hub/service/CrawlerJobStatusService.java", lines: [129, 129]},
+      ]}

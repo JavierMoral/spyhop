@@ -1,0 +1,24 @@
+# Generated from 490c039bec34 LPD-108942 Rename the tests after the custom asset display page URL
+# Curated from the rejected pull 183261: DisplayPage is the product word; the class word is AssetDisplayPage.
+message: "LPD-108942 Update the code"
+expect:
+  findings:
+    - {check: "NAM-22", any: [
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [241, 241]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [259, 259]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [281, 281]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [299, 299]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [318, 318]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [320, 320]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [322, 322]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [324, 324]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [525, 525]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [530, 530]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [549, 549]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [615, 615]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [696, 696]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [723, 723]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [744, 744]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [777, 777]},
+        {file: "modules/apps/layout/layout-seo-test/src/testIntegration/java/com/liferay/layout/seo/test/LayoutSEOLinkManagerCanonicalLayoutSEOLinkTest.java", lines: [823, 823]},
+      ]}

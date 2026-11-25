@@ -1,0 +1,9 @@
+# Generated from fb69012cc8e7 LPD-78079 Sort because we're in the REST world
+# Curated: one expected finding for each problem; any of its places matches.
+message: "LPD-78079 Update the code"
+expect:
+  findings:
+    - {rule: "202", check: CON-03, any: [
+        {file: "modules/apps/headless/headless-admin-user/headless-admin-user-impl/src/main/java/com/liferay/headless/admin/user/internal/resource/v1_0/AccountResourceImpl.java", lines: [655, 655]},
+        {file: "modules/apps/headless/headless-admin-user/headless-admin-user-impl/src/main/java/com/liferay/headless/admin/user/internal/resource/v1_0/AccountResourceImpl.java", lines: [1336, 1336]},
+      ]}

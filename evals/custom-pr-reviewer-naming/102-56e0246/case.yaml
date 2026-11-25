@@ -1,0 +1,22 @@
+# Generated from 56e02460f42f LPD-78919 Rename
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: showPreviewDiff -> showDiffPreview, isShowPreviewDiff -> isShowDiffPreview
+message: "LPD-78919 Update the code"
+expect:
+  findings:
+    - {rule: "102", any: [
+        {file: "modules/apps/change-tracking/change-tracking-spi/src/main/java/com/liferay/change/tracking/spi/display/CTDisplayRenderer.java", lines: [118, 118]},
+        {file: "modules/apps/change-tracking/change-tracking-web/src/main/java/com/liferay/change/tracking/web/internal/portlet/action/GetEntryRenderDataMVCResourceCommand.java", lines: [626, 626]},
+        {file: "modules/apps/change-tracking/change-tracking-web/src/main/java/com/liferay/change/tracking/web/internal/portlet/action/GetEntryRenderDataMVCResourceCommand.java", lines: [657, 657]},
+        {file: "modules/apps/dynamic-data-lists/dynamic-data-lists-web/src/main/java/com/liferay/dynamic/data/lists/web/internal/change/tracking/spi/display/DDLRecordCTDisplayRenderer.java", lines: [125, 125]},
+        {file: "modules/apps/dynamic-data-mapping/dynamic-data-mapping-data-provider-web/src/main/java/com/liferay/dynamic/data/mapping/data/provider/web/internal/change/tracking/spi/display/DDMDataProviderInstanceCTDisplayRenderer.java", lines: [100, 100]},
+        {file: "modules/apps/dynamic-data-mapping/dynamic-data-mapping-form-web/src/main/java/com/liferay/dynamic/data/mapping/form/web/internal/change/tracking/spi/display/DDMFormInstanceCTDisplayRenderer.java", lines: [132, 132]},
+        {file: "modules/apps/dynamic-data-mapping/dynamic-data-mapping-form-web/src/main/java/com/liferay/dynamic/data/mapping/form/web/internal/change/tracking/spi/display/DDMFormInstanceRecordCTDisplayRenderer.java", lines: [138, 138]},
+        {file: "modules/apps/fragment/fragment-web/src/main/java/com/liferay/fragment/web/internal/change/tracking/spi/display/FragmentEntryLinkCTDisplayRender.java", lines: [100, 100]},
+        {file: "modules/apps/journal/journal-web/src/main/java/com/liferay/journal/web/internal/change/tracking/spi/display/JournalArticleCTDisplayRenderer.java", lines: [199, 199]},
+        {file: "modules/apps/journal/journal-web/src/main/java/com/liferay/journal/web/internal/change/tracking/spi/display/JournalArticleLocalizationCTDisplayRenderer.java", lines: [105, 105]},
+        {file: "modules/apps/message-boards/message-boards-web/src/main/java/com/liferay/message/boards/web/internal/change/tracking/spi/display/MBMessageCTDisplayRenderer.java", lines: [110, 110]},
+        {file: "modules/apps/portal-workflow/portal-workflow-kaleo-definition-impl/src/main/java/com/liferay/portal/workflow/kaleo/definition/internal/change/tracking/spi/display/KaleoDefinitionCTDisplayRenderer.java", lines: [87, 87]},
+        {file: "modules/apps/portal-workflow/portal-workflow-kaleo-definition-impl/src/main/java/com/liferay/portal/workflow/kaleo/definition/internal/change/tracking/spi/display/KaleoDefinitionVersionCTDisplayRenderer.java", lines: [84, 84]},
+        {file: "modules/apps/wiki/wiki-web/src/main/java/com/liferay/wiki/web/internal/change/tracking/spi/display/WikiPageCTDisplayRenderer.java", lines: [141, 141]},
+      ]}

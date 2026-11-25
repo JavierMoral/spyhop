@@ -1,0 +1,15 @@
+# Generated from ec3609962f90 LPD-89564 Consistency
+# Curated: one expected finding for each problem; any of its places matches.
+# Renamed so that the code is not the example of the catalog: objectDefinitionString -> objectDefinitionText
+message: "LPD-89564 Update the code"
+expect:
+  findings:
+    - {rule: "103", check: [NAM-02, NAM-04], any: [
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/struts/UpdateStructureStrutsAction.java", lines: [69, 69]},
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/struts/UpdateStructureStrutsAction.java", lines: [84, 84]},
+      ]}
+    - {rule: "103", any: [
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/struts/UpdateStructureStrutsAction.java", lines: [190, 190]},
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/struts/UpdateStructureStrutsAction.java", lines: [200, 200]},
+        {file: "modules/apps/site/site-cms-site-initializer/src/main/java/com/liferay/site/cms/site/initializer/internal/struts/UpdateStructureStrutsAction.java", lines: [205, 205]},
+      ]}

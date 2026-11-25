@@ -1,0 +1,9 @@
+# Built from ba285e8160fb LPD-105885 Isolate the request attributes a layout context swap writes
+# Curated: the class has the name of the rejected pull 182022, IsolatedAttributesServletRequest.
+# It extends PersistentHttpServletRequestWrapper, so the name must end in HttpServletRequest.
+message: "LPD-105885 Update the code"
+expect:
+  findings:
+    - {check: "NAM-21", any: [
+        {file: "modules/apps/layout/layout-impl/src/main/java/com/liferay/layout/internal/servlet/IsolatedAttributesServletRequest.java", lines: [23, 26]},
+      ]}

@@ -1,0 +1,8 @@
+# Generated from a72be4faea07 LPD-83848 Sort by themeDisplay.set*
+# Curated: one expected finding for each problem; any of its places matches.
+message: "LPD-83848 Update the code"
+expect:
+  findings:
+    - {rule: "202", check: ORD-01, any: [
+        {file: "modules/apps/layout/layout-reports-test/src/testIntegration/java/com/liferay/layout/reports/web/internal/struts/test/GetLayoutReportsLayoutItemDataStrutsActionTest.java", lines: [531, 534]},
+      ]}

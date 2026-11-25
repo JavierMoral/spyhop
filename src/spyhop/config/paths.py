@@ -21,10 +21,30 @@ def state_dir() -> Path:
 
 
 def evals_dir() -> Path:
-    """The eval cases. They hold private tickets, so they live here and not
-    in a repository."""
+    """The local eval data: the cases with private tickets, the tickets, the
+    results, the metrics, and the copies of the agents. It is not in a
+    repository."""
 
     return user_data_path(APP_NAME) / "evals"
+
+
+def repository_evals_dir() -> Path:
+    """The eval cases in the Spyhop repository. They hold only public code.
+    The directory exists only in a checkout of the repository."""
+
+    return Path(__file__).parents[3] / "evals"
+
+
+def eval_cases_dir(agent: str) -> Path:
+    """The cases of the agent: in the repository when it has them, otherwise
+    in the local eval data."""
+
+    repository_dir = repository_evals_dir() / agent
+
+    if repository_dir.is_dir():
+        return repository_dir
+
+    return evals_dir() / agent
 
 
 def default_config_file() -> Path:

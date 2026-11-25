@@ -1,0 +1,9 @@
+# Built from the rejected pull 187372, head 51ef55fb5e0c: the new test class.
+# Curated: testGetFragmentEntryLinks calls its _test* helpers in sorted order, but a blank line
+# keeps _testGetFragmentEntryLinksWithMasterLayoutFragmentEntryLink out of its sorted slot.
+message: "LPD-0 Update the code"
+expect:
+  findings:
+    - {rule: ["202", "207", "909"], check: "ORD-07", any: [
+        {file: "modules/apps/layout/layout-content-page-editor-web-test/src/testIntegration/java/com/liferay/layout/content/page/editor/web/internal/portlet/action/test/GetFragmentEntryLinksMVCResourceCommandTest.java", lines: [88, 95]},
+      ]}

@@ -1,0 +1,12 @@
+# Generated from 3a605753ed11 LPD-99715 SF
+# Curated: one rename, any of its places matches.
+message: "LPD-99715 Update the code"
+expect:
+  findings:
+    - {rule: "101", any: [
+        {file: "portal-impl/src/com/liferay/portal/dao/orm/common/SQLTransformer.java", lines: [29, 30]},
+        {file: "portal-impl/src/com/liferay/portal/dao/sql/transformer/BaseSQLTransformerLogic.java", lines: [34, 34]},
+        {file: "portal-impl/src/com/liferay/portal/dao/sql/transformer/SQLTransformerLogic.java", lines: [20, 20]},
+        {file: "portal-impl/src/com/liferay/portal/dao/sql/transformer/SQLTransformerLogicFactory.java", lines: [51, 51]},
+        {file: "portal-impl/src/com/liferay/portal/spring/hibernate/PortalHibernateConfiguration.java", lines: [143, 143]},
+      ]}

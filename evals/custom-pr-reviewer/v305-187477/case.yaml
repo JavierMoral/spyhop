@@ -1,0 +1,9 @@
+# Built from the rejected pull 187477, head 257804addc0c: the new test class.
+# Brian: build the "data" JSONArray with JSONUtil.toJSONArray(array, unsafeFunction), not with
+# a loop of jsonArray.put calls (rule 305).
+message: "LPD-0 Update the code"
+expect:
+  findings:
+    - {rule: ["305"], check: "IDI-06", any: [
+        {file: "modules/apps/layout/layout-content-page-editor-web-test/src/testIntegration/java/com/liferay/layout/content/page/editor/web/internal/portlet/action/test/GetFragmentEntryLinksMVCResourceCommandTest.java", lines: [129, 134]},
+      ]}

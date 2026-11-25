@@ -1,0 +1,8 @@
+# Generated from 64441d2c62d0 LPD-70730 Rename method
+# Curated: one rename, any of its places matches.
+message: "LPD-70730 Update the code"
+expect:
+  findings:
+    - {rule: "102", any: [
+        {file: "modules/sdk/gradle-plugins-rest-builder/src/main/java/com/liferay/gradle/plugins/rest/builder/BuildRESTTask.java", lines: [69, 74]},
+      ]}
