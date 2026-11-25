@@ -286,6 +286,14 @@ def test_the_recorder_records_the_agents_and_the_checkpoints_of_a_worktree(
 
     write_jsonl(directory / "cp.jsonl", [call(0, "t1", "Bash", "ls"), result(1, "t1", "a")])
 
+    # A headless agent: two turns of one session without a title.
+
+    checkpoint_runs.create_work(run_id, 1, "plan", "launch", "w1", "h", tmp_path / "results")
+    checkpoint_runs.create_work(run_id, 1, "plan", "replan", "w1", "h", tmp_path / "results")
+    write_jsonl(
+        directory / "w1.jsonl", [prompt(0), reply(5, "m5", 2), prompt(60), reply(65, "m6", 3)]
+    )
+
     executions = ExecutionRepository(connection)
     recorder = ExecutionRecorder(
         executions,
@@ -297,12 +305,13 @@ def test_the_recorder_records_the_agents_and_the_checkpoints_of_a_worktree(
         agents,
     )
 
-    assert recorder.sweep() == 3
+    assert recorder.sweep() == 4
     assert recorder.sweep() == 0
 
     recorded = {execution.session_id: execution for execution in executions.list()}
 
-    assert sorted(recorded) == ["agent", "cp", "supervisor"]
+    assert sorted(recorded) == ["agent", "cp", "supervisor", "w1"]
+    assert (recorded["w1"].agent, recorded["w1"].output_tokens) == ("plan", 5)
     assert (recorded["agent"].agent, recorded["agent"].output_tokens) == ("implement", 9)
     assert (recorded["agent"].run_id, recorded["agent"].issue_key) == (run_id, "LPD-1")
     assert recorded["supervisor"].agent == "supervisor"

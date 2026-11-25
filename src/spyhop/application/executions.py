@@ -445,6 +445,15 @@ class ExecutionRecorder:
                     self._executions.save(execution)
                     recorded += 1
 
+        # The headless agents of a run have no title: their turns give the
+        # agent of each session.
+
+        work = {
+            str(row.session_id): row.name
+            for run in runs
+            for row in self._checkpoint_runs.list_work(run.id)
+        }
+
         # A reopened ticket can get a new worktree at the same path.
 
         paths: dict[Path, set[str]] = {}
@@ -454,14 +463,18 @@ class ExecutionRecorder:
 
         for path, worktree_ids in paths.items():
             recorded += self._sweep_directory(
-                path, [run for run in runs if run.worktree_id in worktree_ids]
+                path, [run for run in runs if run.worktree_id in worktree_ids], work
             )
 
         return recorded
 
-    def _sweep_directory(self, worktree_path: Path, runs: Sequence[AutomationRun]) -> int:
+    def _sweep_directory(
+        self, worktree_path: Path, runs: Sequence[AutomationRun], work: dict[str, str]
+    ) -> int:
         """Records the agents of ``runs``, the runs of the worktrees at
-        ``worktree_path``, newest first."""
+        ``worktree_path``, newest first. ``work`` gives the agent of each
+        session of a headless agent: all the turns of a session are in its
+        transcript."""
 
         directory = transcripts_dir(self._claude_dir, worktree_path)
 
@@ -481,7 +494,7 @@ class ExecutionRecorder:
                 continue
 
             transcript = read_transcript(path)
-            agent = _agent(transcript.title, roles) if transcript else None
+            agent = work.get(path.stem) or (_agent(transcript.title, roles) if transcript else None)
 
             if transcript is None or agent is None:
                 continue
