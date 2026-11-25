@@ -49,7 +49,8 @@ def claude_agents_dir() -> Path:
 
 
 def bundled_claude_dir() -> Path:
-    """The subagents and skills that Spyhop owns, in agents/ and skills/."""
+    """The subagents, skills, and scripts that Spyhop owns, in agents/,
+    skills/, and scripts/."""
 
     return Path(__file__).parent.parent / "claude"
 

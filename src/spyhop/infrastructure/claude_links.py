@@ -1,5 +1,5 @@
-"""Symbolic links from the Claude Code directory to the subagents and skills
-of Spyhop."""
+"""Symbolic links from the Claude Code directory to the subagents, skills,
+and scripts of Spyhop."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,10 +14,15 @@ class Link:
 
 
 def claude_files(bundled: Path, claude: Path) -> list[tuple[Path, Path]]:
-    """The source and the target of each agents/*.md file and each
-    skills/<name> directory of ``bundled``: the same place in ``claude``."""
+    """The source and the target of each agents/*.md file, each
+    skills/<name> directory, and each scripts/<name> directory of
+    ``bundled``: the same place in ``claude``."""
 
-    sources = sorted((bundled / "agents").glob("*.md")) + sorted((bundled / "skills").glob("*/"))
+    sources = (
+        sorted((bundled / "agents").glob("*.md"))
+        + sorted((bundled / "skills").glob("*/"))
+        + sorted((bundled / "scripts").glob("*/"))
+    )
 
     return [(source, claude / source.parent.name / source.name) for source in sources]
 

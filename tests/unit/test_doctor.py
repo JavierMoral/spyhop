@@ -119,7 +119,7 @@ def test_linked_claude_files_are_ok(tmp_path: Path) -> None:
     check = _check_claude_links(root, tmp_path / "claude")
 
     assert check.level is Level.OK
-    assert check.detail == "2 subagents and skills are linked"
+    assert check.detail == "3 subagents, skills, and script directories are linked"
 
 
 def test_a_claude_file_that_is_not_linked_is_an_error(tmp_path: Path) -> None:

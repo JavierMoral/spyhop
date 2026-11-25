@@ -307,7 +307,7 @@ def _check_templates(settings: Settings, user_templates: Path | None = None) -> 
 
 
 def _check_claude_links(bundled: Path | None = None, claude: Path | None = None) -> Check:
-    """Each subagent and skill of Spyhop must be a link in ~/.claude to its
+    """Each subagent, skill, and script directory of Spyhop must be a link in ~/.claude to its
     file in Spyhop, or Claude Code runs another version or none."""
 
     files = claude_files(bundled or bundled_claude_dir(), claude or claude_dir())
@@ -320,7 +320,11 @@ def _check_claude_links(bundled: Path | None = None, claude: Path | None = None)
             f"not linked to Spyhop: {', '.join(missing)}; run `spyhop claude install`",
         )
 
-    return Check(Level.OK, "claude links", f"{len(files)} subagents and skills are linked")
+    return Check(
+        Level.OK,
+        "claude links",
+        f"{len(files)} subagents, skills, and script directories are linked",
+    )
 
 
 def _check_checkpoints(settings: Settings, agents_dir: Path | None = None) -> list[Check]:

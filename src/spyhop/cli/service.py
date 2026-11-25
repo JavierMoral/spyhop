@@ -59,7 +59,7 @@ def version() -> None:
 
 @claude_app.command("install")
 def claude_install() -> None:
-    """Link the subagents and skills of Spyhop in ~/.claude, so that Claude Code
+    """Link the subagents, skills, and scripts of Spyhop in ~/.claude, so that Claude Code
     uses them. Run it again after a new installation of Spyhop."""
 
     links = link_claude_files(bundled_claude_dir(), claude_dir())

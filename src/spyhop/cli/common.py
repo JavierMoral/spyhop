@@ -63,7 +63,7 @@ service_app = typer.Typer(
 )
 claude_app = typer.Typer(
     cls=SortedGroup,
-    help="Manage the Claude Code subagents and skills of Spyhop.",
+    help="Manage the Claude Code subagents, skills, and scripts of Spyhop.",
     no_args_is_help=True,
 )
 

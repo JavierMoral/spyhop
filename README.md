@@ -300,10 +300,12 @@ them again yourself, use `spyhop checkpoints rerun KEY`. Add `--failed` to run
 only the failed and stale checkpoints: the round keeps each PASS whose inputs
 did not change.
 
-Spyhop owns its checkpoints and skills, in
-[`src/spyhop/claude/agents/`](src/spyhop/claude/agents/) and
-[`src/spyhop/claude/skills/`](src/spyhop/claude/skills/). Claude Code reads
-them from `~/.claude/agents/` and `~/.claude/skills/`, so link them there:
+Spyhop owns its checkpoints, skills, and the scripts of its subagents, in
+[`src/spyhop/claude/agents/`](src/spyhop/claude/agents/),
+[`src/spyhop/claude/skills/`](src/spyhop/claude/skills/), and
+[`src/spyhop/claude/scripts/`](src/spyhop/claude/scripts/). Claude Code reads
+them from `~/.claude/agents/`, `~/.claude/skills/`, and `~/.claude/scripts/`,
+so link them there:
 
 ```sh
 spyhop claude install
@@ -371,7 +373,7 @@ knowledge:
 | `spyhop stats [--days N]` | Show the counts, times and costs of the runs of the last days. |
 | `spyhop doctor` | Check the configuration and everything that Spyhop needs to run. |
 | `spyhop config init` | Create the configuration and the credentials file. |
-| `spyhop claude install` | Link the subagents and skills of Spyhop in `~/.claude`. |
+| `spyhop claude install` | Link the subagents, skills, and scripts of Spyhop in `~/.claude`. |
 | `spyhop service install` / `uninstall` | Install and start, or remove, the systemd user service. |
 | `spyhop version` | Print the version of Spyhop. |
 

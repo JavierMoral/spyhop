@@ -13,11 +13,12 @@ def bundled(tmp_path: Path) -> Path:
     (root / "agents").mkdir(parents=True)
     (root / "agents" / "checkpoint-security.md").write_text("agent")
     (root / "skills" / "recall").mkdir(parents=True)
+    (root / "scripts" / "reviewer").mkdir(parents=True)
 
     return root
 
 
-def test_agents_and_skills_are_linked(tmp_path: Path) -> None:
+def test_agents_skills_and_scripts_are_linked(tmp_path: Path) -> None:
     root = bundled(tmp_path)
     claude = tmp_path / "claude"
 
@@ -30,6 +31,7 @@ def test_agents_and_skills_are_linked(tmp_path: Path) -> None:
             True,
         ),
         Link(claude / "skills" / "recall", root / "skills" / "recall", True),
+        Link(claude / "scripts" / "reviewer", root / "scripts" / "reviewer", True),
     ]
     assert (claude / "agents" / "checkpoint-security.md").read_text() == "agent"
     assert (claude / "skills" / "recall").readlink() == root / "skills" / "recall"
@@ -54,7 +56,7 @@ def test_a_file_that_is_not_a_link_is_kept(tmp_path: Path) -> None:
     target.parent.mkdir(parents=True)
     target.write_text("mine")
 
-    [link, _] = link_claude_files(root, tmp_path / "claude")
+    [link, *_] = link_claude_files(root, tmp_path / "claude")
 
     assert link.linked is False
     assert target.read_text() == "mine"
