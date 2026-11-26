@@ -7,6 +7,7 @@ result: done, a question for a person, or nothing valid. The messages of a
 person go to the agent as its next turn."""
 
 import logging
+from datetime import datetime, timedelta
 
 from spyhop.application.checkpoint_runner import CheckRunner
 from spyhop.application.checkpoint_verdicts import VERDICTS_FILE
@@ -14,8 +15,10 @@ from spyhop.application.context_builder import PLAN_FILE, RESULT_FILE, ContextBu
 from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.run_alerts import RunAlerts
 from spyhop.application.step_runner import log_file
+from spyhop.application.turn_progress import read_progress
 from spyhop.application.work_runner import TurnState, WorkRunner
 from spyhop.config.settings import AgentSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import OrcaUnavailableError, OrcaUncertainError, SpyhopError
 from spyhop.domain.models import (
@@ -23,6 +26,7 @@ from spyhop.domain.models import (
     ChecksPhase,
     CodeReviewPhase,
     ResolvedWorkflow,
+    StepRun,
     Worktree,
 )
 from spyhop.domain.protocols import BoardMirror
@@ -43,8 +47,13 @@ class PhaseRunner:
         knowledge: KnowledgeWriter | None = None,
         board: BoardMirror | None = None,
         plan_review_status: str | None = None,
+        now: Clock = utc_now,
     ) -> None:
         self._runs = runs
+        self._now = now
+        # The time and the log offset of the last progress message of each
+        # turn. A restart of Spyhop starts again from the start of the turn.
+        self._progress: dict[str, tuple[datetime, int]] = {}
         self._board = board
         self._plan_review_status = plan_review_status
         self._context = context
@@ -215,6 +224,9 @@ class PhaseRunner:
 
         if state.state == "running":
             await self._alerts.resume(run)
+
+            if state.row is not None:
+                await self._tell_progress(run, state.row)
         elif state.state == "blocked":
             await self._alerts.wait(run, WaitingReason.UNKNOWN_STATE, state.detail or "")
         elif state.state == "done":
@@ -338,6 +350,40 @@ class PhaseRunner:
             await self._board.set_card_status(worktree.orca_worktree_id, self._plan_review_status)
         except SpyhopError as error:
             _log.warning("%s: the card did not move: %s", run.issue_key, error)
+
+    async def _tell_progress(self, run: AutomationRun, row: StepRun) -> None:
+        """Tells the supervisor session what a long turn did since the last
+        message, every agents.progress_minutes."""
+
+        interval = timedelta(minutes=self._agents.progress_minutes)
+
+        if not interval or row.unit is None:
+            return
+
+        last, offset = self._progress.get(row.id, (row.started_at, 0))
+        now = self._now()
+
+        if now - last < interval:
+            return
+
+        progress = read_progress(log_file(row), offset)
+
+        self._progress[row.id] = (now, progress.offset)
+
+        minutes = int((now - row.started_at).total_seconds() // 60)
+        text = f"turno {row.turn} de {row.name} en marcha desde hace {minutes} min: "
+
+        if progress.calls:
+            text += (
+                f"{progress.calls} llamadas desde el último aviso; la última: {progress.last_call}"
+            )
+        else:
+            text += "ninguna llamada nueva desde el último aviso"
+
+        if progress.last_text:
+            text += f"; el agente dice: «{progress.last_text}»"
+
+        await self._alerts.tell(run, text)
 
     def has_messages(self, run: AutomationRun) -> bool:
         return bool(self._runs.pending_messages(run.id))

@@ -483,6 +483,7 @@ class Harness:
             agent_states_dir=self.agent_states_dir,
             board=self.orca,
             plan_review_status=PLAN_REVIEW,
+            now=self.clock,
         )
 
     async def cleanup_script(self, script: Path, worktree: Worktree, time_limit: float) -> None:

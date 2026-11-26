@@ -53,7 +53,9 @@ What you do is in **bold**. Spyhop does the rest. Follow the run in its
 The agents run as `claude -p` turns in systemd units, not in terminals. You
 talk only with the supervisor session: it sends your messages to the agent
 with `spyhop tell`, and the agent gets each message as its next turn.
-`spyhop status KEY` shows each turn with its log.
+`spyhop status KEY` shows each turn with its log. While a turn runs, the supervisor session gets its
+progress every `agents.progress_minutes` (15 by default): the tool calls since
+the last message, the last call, and the last text of the agent.
 4. **Close the ticket in JIRA.** Spyhop removes the worktree. See
    [When the ticket closes](#when-the-ticket-closes).
 

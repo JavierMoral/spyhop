@@ -172,6 +172,9 @@ class AgentSettings(BaseModel):
     # A turn of an agent without a result after this time stops, and the
     # agent continues in a new turn.
     implement_timeout_minutes: float = Field(default=360, gt=0)
+    # While a turn of an agent runs, the supervisor session gets its progress
+    # every this many minutes. 0: no progress messages.
+    progress_minutes: float = Field(default=15, ge=0)
     code_review_timeout_minutes: float = Field(default=120, gt=0)
 
     @field_validator("review_command")

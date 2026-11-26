@@ -102,6 +102,7 @@ agents:
   # review_command: /code-review-loop --rounds 2  # a code_review phase after implement
   # implement_timeout_minutes: 360   # a turn without a result stops, and the agent continues
   # code_review_timeout_minutes: 120
+  # progress_minutes: 15          # the progress of a long turn goes to the supervisor session; 0: never
 
 knowledge:                        # findings of earlier tickets
   # recall_command: /recall       # the agent searches with keywords of the ticket before it plans

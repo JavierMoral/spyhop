@@ -29,6 +29,7 @@ from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.work_runner import WorkRunner
 from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.config.settings import AgentSettings
+from spyhop.domain.clock import Clock, utc_now
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.exceptions import (
     OrcaCommandError,
@@ -59,6 +60,7 @@ class AgentSupervisor:
         agent_states_dir: Path | None = None,
         board: BoardMirror | None = None,
         plan_review_status: str | None = None,
+        now: Clock = utc_now,
     ) -> None:
         self._runs = runs
         self._worktrees = worktrees
@@ -76,6 +78,7 @@ class AgentSupervisor:
             knowledge,
             board,
             plan_review_status,
+            now,
         )
 
     async def supervise(self) -> None:

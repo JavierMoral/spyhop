@@ -484,3 +484,34 @@ async def test_a_headless_plan_waits_for_its_review_and_a_new_session_implements
     assert "--resume" not in command
     assert command[command.index("--model") + 1] == "sonnet"
     assert "implementa CLAUDE-PLAN.md" in prompt_file(implement).read_text()
+
+
+async def test_the_session_gets_the_progress_of_a_long_turn(tmp_path: Path) -> None:
+    harness = harness_with(tmp_path, "implement", with_supervisor_session=True)
+    run, _ = await started(harness)
+    [first] = turns(harness)
+    log = first.output_file.with_suffix(".log")
+
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text('> Bash: {"command": "./gradlew test"}\nTest 1 en verde.\n')
+    await harness.supervisor.supervise()
+
+    def progress() -> list[str]:
+        return [text for _, text in harness.orca.prompts if "en marcha desde hace" in text]
+
+    assert progress() == []
+
+    harness.clock.advance(timedelta(minutes=16))
+    await harness.supervisor.supervise()
+    harness.clock.advance(timedelta(minutes=5))
+    await harness.supervisor.supervise()
+    harness.clock.advance(timedelta(minutes=11))
+    await harness.supervisor.supervise()
+
+    [one, two] = progress()
+
+    assert "turno launch de implement en marcha desde hace 16 min: 1 llamadas" in one
+    assert 'la última: Bash: {"command": "./gradlew test"}' in one
+    assert "el agente dice: «Test 1 en verde.»" in one
+    assert "en marcha desde hace 32 min: ninguna llamada nueva" in two
+    assert harness.run(run.id).status is RunStatus.RUNNING
