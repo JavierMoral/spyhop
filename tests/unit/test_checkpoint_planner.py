@@ -146,9 +146,14 @@ def test_without_inputs_a_verdict_depends_on_head(agents_dir: Path) -> None:
 
 
 def test_inputs_are_kept_in_the_order_of_the_fingerprint(agents_dir: Path) -> None:
-    checkpoint(agents_dir, "reproduce", inputs=["head", "ticket", "base"])
+    checkpoint(agents_dir, "reproduce", inputs=["head", "code", "ticket", "base"])
 
-    assert CheckpointPlanner(agents_dir).read("reproduce").inputs == ("ticket", "base", "head")
+    assert CheckpointPlanner(agents_dir).read("reproduce").inputs == (
+        "ticket",
+        "base",
+        "code",
+        "head",
+    )
 
 
 @pytest.mark.parametrize("inputs", [[], ["plan"], ["head", "head"]])

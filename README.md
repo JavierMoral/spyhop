@@ -308,7 +308,9 @@ applies to the runs that start after the change. The workflow of the run and
 the checkpoint files stay in use: a run whose workflow or checkpoint is
 removed waits for you.
 
-After a fix, or a change of the ticket, the failed checks run again. To run
+After a fix, the failed checks and the checks whose inputs changed run again:
+the round keeps each PASS whose inputs did not change. After a change of the
+ticket, the failed checks run again. To run
 them again yourself, use `spyhop checkpoints rerun KEY`. To continue after a
 failed check that waits for you, use `spyhop checkpoints accept KEY`: the run
 goes on to the next phase.
@@ -347,9 +349,15 @@ model: sonnet
 tools: Bash, Read, Glob, Grep, StructuredOutput
 mode: exclusive          # read: only reads the code, and runs in parallel
 after: [regressions]     # checkpoints that run before this one
-inputs: [head]           # ticket, base, head: a change makes the verdict stale
+inputs: [head]           # ticket, base, code, head: a change makes the verdict stale
 ---
 ```
+
+The `code` input changes only when a commit changes a file that is not a
+test: Spyhop leaves out the `test`, `tests` and `testIntegration` directories
+and the `*-test` modules. A checkpoint that reads only the production code,
+such as `security`, uses `inputs: [base, code]`, so a fix that changes only
+tests does not run it again.
 
 The checkpoint gets the base and head SHAs and the worktree root. It must
 give a `verdict` (`PASS` or `FAIL`), the `head`, the `commands` that it ran

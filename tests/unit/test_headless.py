@@ -12,6 +12,7 @@ from spyhop.application.work_runner import prompt_file
 from spyhop.domain.enums import RunStatus, WaitingReason
 from spyhop.domain.models import AutomationRun, ChecksPhase, CodeReviewPhase, StepRun, Worktree
 from tests.fakes import PLAN_APPROVED, PLAN_REVIEW, SPYHOP, Harness, git
+from tests.unit.test_checkpoint_planner import checkpoint
 from tests.unit.test_pipeline import answer, harness_with, running, started, written
 
 REVIEW = {"code_review": "/code-review-loop --rounds 1"}
@@ -272,6 +273,41 @@ async def test_a_failed_check_gets_a_fix_turn_and_a_new_round(tmp_path: Path) ->
     await harness.supervisor.supervise()
 
     assert harness.run(run.id).status is RunStatus.COMPLETED
+
+
+async def test_a_fix_round_keeps_a_pass_whose_inputs_did_not_change(tmp_path: Path) -> None:
+    harness, run, worktree = await implementing(
+        tmp_path, "implement", {"checks": ["regressions", "security"], "on_fail": "fix"}
+    )
+
+    checkpoint(harness.agents_dir, "security", mode="read", inputs=["base", "code"])
+
+    [first] = turns(harness)
+
+    commit(worktree)
+    done(first, worktree)
+    await harness.supervisor.supervise()
+    answer(harness, run, "security")
+    await harness.supervisor.supervise()
+    answer(harness, run, "regressions", "FAIL")
+    await harness.supervisor.supervise()
+
+    [_, fix] = turns(harness)
+
+    (worktree.path / "src" / "test").mkdir(parents=True)
+    (worktree.path / "src" / "test" / "AppTest.java").write_text("class AppTest {}\n")
+    git(worktree.path, "add", ".")
+    git(worktree.path, "commit", "--quiet", "-m", "LPD-1 Test")
+    done(fix, worktree)
+    await harness.supervisor.supervise()
+
+    assert [(row.name, row.round) for row in running(harness, run)] == [("regressions", 2)]
+
+    [kept] = [
+        row for row in harness.checkpoint_runs.list_round(run.id, 1, 2) if row.name == "security"
+    ]
+
+    assert kept.detail == "kept from round 1"
 
 
 async def test_the_review_command_becomes_a_code_review_phase(tmp_path: Path) -> None:

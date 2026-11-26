@@ -8,6 +8,15 @@ from pathlib import Path
 
 _TIMEOUT = 30
 
+# The test directories and modules, which code_changes leaves out.
+_NOT_TESTS = (
+    ".",
+    ":(exclude,glob)**/test/**",
+    ":(exclude,glob)**/tests/**",
+    ":(exclude,glob)**/testIntegration/**",
+    ":(exclude,glob)**/*-test/**",
+)
+
 
 def branch_exists(repository: Path, branch: str) -> bool:
     try:
@@ -76,12 +85,38 @@ def merge_base(worktree: Path, base_branch: str) -> str | None:
     return None
 
 
+def code_changes(worktree: Path, base: str) -> str | None:
+    """The files that HEAD changes since ``base``, without the test files,
+    with the object of each file before and after. None when Git cannot
+    tell."""
+
+    return _output(
+        worktree,
+        "diff",
+        "--raw",
+        "--no-abbrev",
+        "--no-renames",
+        base,
+        "HEAD",
+        "--",
+        *_NOT_TESTS,
+    )
+
+
 def _rev_parse(path: Path, argument: str) -> str | None:
     return _git(path, "rev-parse", argument)
 
 
 def _git(path: Path, *arguments: str) -> str | None:
-    """The output of a read-only Git command, or None when it fails."""
+    """The output of a read-only Git command, or None when it fails or has no
+    output."""
+
+    return _output(path, *arguments) or None
+
+
+def _output(path: Path, *arguments: str) -> str | None:
+    """The output of a read-only Git command, which can be empty, or None
+    when it fails."""
 
     try:
         completed = subprocess.run(
@@ -97,4 +132,4 @@ def _git(path: Path, *arguments: str) -> str | None:
     if completed.returncode != 0:
         return None
 
-    return completed.stdout.strip() or None
+    return completed.stdout.strip()

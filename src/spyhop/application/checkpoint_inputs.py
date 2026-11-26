@@ -1,13 +1,14 @@
 """The current values of the checkpoint inputs (see checkpoint_verdicts)."""
 
 import asyncio
+import hashlib
 from collections.abc import Iterable
 from pathlib import Path
 
 from spyhop.application.checkpoint_verdicts import INPUT_VALUE
 from spyhop.domain.exceptions import ConfigurationError
 from spyhop.domain.protocols import TicketGateway
-from spyhop.infrastructure.git import head, merge_base
+from spyhop.infrastructure.git import code_changes, head, merge_base
 
 
 async def input_values(
@@ -31,13 +32,22 @@ async def input_values(
 
         values["head"] = current_head
 
-    if "base" in wanted:
+    if "base" in wanted or "code" in wanted:
         base = await asyncio.to_thread(merge_base, root, base_branch)
 
         if base is None:
             raise ConfigurationError(f"Cannot find where HEAD leaves {base_branch} in {root}")
 
-        values["base"] = base
+        if "base" in wanted:
+            values["base"] = base
+
+        if "code" in wanted:
+            changes = await asyncio.to_thread(code_changes, root, base)
+
+            if changes is None:
+                raise ConfigurationError(f"Cannot read the changes of HEAD since {base} in {root}")
+
+            values["code"] = hashlib.sha256(changes.encode()).hexdigest()
 
     if "ticket" in wanted:
         if issue_key is None or tickets is None:

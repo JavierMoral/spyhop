@@ -5,7 +5,7 @@ model: opus
 tools: Bash, Read, Glob, Grep, StructuredOutput
 mode: read
 after: []
-inputs: [head]
+inputs: [base, code]
 ---
 
 You are the **security** checkpoint. You review the commits of this branch for

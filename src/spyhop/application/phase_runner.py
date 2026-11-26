@@ -206,12 +206,13 @@ class PhaseRunner:
             return
 
         if state.state == "done" and isinstance(phase, ChecksPhase):
-            # A fix or a message for the failed round: the round runs again.
+            # A fix or a message for the failed round: the failed and stale
+            # checkpoints run again.
 
             assert state.row is not None and state.row.finished_at is not None
 
             if run.checks_requested_at is None or run.checks_requested_at < state.row.finished_at:
-                self._runs.request_checks(run.id)
+                self._runs.request_checks(run.id, failed_only=True)
 
             await self.checks(self._runs.get(run.id) or run, worktree, workflow)
 

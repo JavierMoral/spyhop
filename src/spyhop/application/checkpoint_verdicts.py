@@ -7,6 +7,8 @@ checkpoint declares its inputs, and a fingerprint records their values:
 - ``ticket``: the ``updated`` field of the JIRA issue of the run.
 - ``base``: the SHA where the branch starts, the merge base with the base
   branch.
+- ``code``: a hash of the files that HEAD changes since ``base``, without the
+  test files. A commit that changes only tests keeps the value.
 - ``head``: the SHA of HEAD.
 
 A fingerprint is ``name=value`` for each input, in the order above, separated
@@ -27,7 +29,7 @@ from spyhop.domain.enums import WaitingReason
 
 VERDICTS_FILE = "CLAUDE-CHECKPOINTS.md"
 
-INPUTS = ("ticket", "base", "head")
+INPUTS = ("ticket", "base", "code", "head")
 
 _COLUMNS = ("Checkpoint", "Verdict", "Inputs")
 _SEPARATOR = re.compile(r":?-+:?")
