@@ -49,6 +49,8 @@ SURFACE = "terminal"
 
 _UNAVAILABLE_CODES = {"runtime_unavailable", "runtime_not_running", "app_not_running"}
 
+NO_TURN_START = "no turn start was observed"
+
 _DEFINITE_CODES = {
     "agent_session_operation_conflict",
     "selector_not_found",
@@ -347,7 +349,13 @@ class OrcaClient:
                 if isinstance(warning, dict):
                     warning = warning.get("message", warning)
 
-                _log.warning("orca %s: %s", name, warning)
+                # Spyhop sends prompts without --wait-submit on purpose, so
+                # this warning comes with each prompt and says nothing new.
+
+                if NO_TURN_START in str(warning):
+                    _log.debug("orca %s: %s", name, warning)
+                else:
+                    _log.warning("orca %s: %s", name, warning)
 
             return result
 

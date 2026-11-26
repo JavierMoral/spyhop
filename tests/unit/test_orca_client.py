@@ -345,3 +345,18 @@ async def test_warnings_are_logged_as_objects_or_strings(caplog: pytest.LogCaptu
 
     assert "orca terminal send: first" in caplog.text
     assert "orca terminal send: second" in caplog.text
+
+
+async def test_the_warning_of_a_prompt_without_a_wait_is_only_a_debug_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    warning = "input was accepted, but no turn start was observed yet"
+    answer = json.dumps({"ok": True, "result": {"warnings": [warning]}})
+
+    caplog.set_level("DEBUG")
+
+    await client(FakeRunner(answer)).send_prompt("term_1", "hello")
+
+    [record] = [record for record in caplog.records if warning in record.getMessage()]
+
+    assert record.levelname == "DEBUG"
