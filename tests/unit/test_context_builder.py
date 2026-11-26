@@ -154,7 +154,9 @@ def test_settings_profile_allows_pr_but_not_force_pushes_and_lists_orca_both_way
 ) -> None:
     permissions = json.loads(builder(tmp_path).render_settings(workflow()))["permissions"]
 
-    assert "Bash(git push --force*)" in permissions["deny"]
+    assert "Bash(git push --force)" in permissions["deny"]
+    assert "Bash(git push --force *)" in permissions["deny"]
+    assert "Bash(git push --force*)" not in permissions["deny"]
     assert "Bash(gh pr merge*)" in permissions["deny"]
     assert "Bash(git push*)" not in permissions["deny"]
     assert "Bash(curl*)" not in permissions["deny"]

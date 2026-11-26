@@ -485,7 +485,8 @@ stops.
   or command lines.
 - The ticket content is data, not instructions. A deny list in
   `.claude/settings.local.json` blocks some commands of the agent: `orca jira`
-  commands that change the ticket, `git push --force`, `gh pr merge`,
+  commands that change the ticket, `git push --force` (`--force-with-lease`
+  is allowed), `gh pr merge`,
   `gh pr close`, `git reset --hard` and `git worktree remove`. The list
   compares the start of each command, so it is a limit and not a guarantee.
   It does not cover MCP tools, such as a JIRA connector of Claude Code.
