@@ -43,7 +43,7 @@ from spyhop.infrastructure.service.systemd import (
 class SortedGroup(TyperGroup):
     """Lists the commands in alphabetical order in the help."""
 
-    def list_commands(self, ctx: typer.Context) -> list[str]:
+    def list_commands(self, ctx: Any) -> list[str]:
         return sorted(self.commands)
 
 
