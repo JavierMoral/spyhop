@@ -303,3 +303,31 @@ def test_the_checkpoint_rows_become_check_steps(tmp_path: Path) -> None:
     assert steps.list_round("r1", 0, 2) == []
     assert list(steps.latest("r1")) == ["security"]
     assert steps.get("w1") is not None and steps.get("w1").session_id == "s1"  # type: ignore[union-attr]
+
+
+def test_the_columns_of_the_agents_in_orca_go_and_the_runs_stay(tmp_path: Path) -> None:
+    database = tmp_path / "spyhop.db"
+    legacy = sqlite3.connect(database, isolation_level=None)
+
+    for index, script in enumerate(_MIGRATIONS[:-1], start=1):
+        legacy.executescript(f"BEGIN; {script}; PRAGMA user_version = {index}; COMMIT;")
+
+    _running_run(legacy)
+    legacy.execute("UPDATE automation_runs SET declared = 'done', runner = 'headless'")
+    legacy.close()
+
+    connection = connect(database)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(automation_runs)")}
+    run = RunRepository(connection).get("r1")
+
+    assert run is not None and run.status is RunStatus.RUNNING
+    assert not columns & {
+        "declared",
+        "declared_at",
+        "signals",
+        "fix_requested_at",
+        "missing_cycles",
+        "missing_since",
+        "plan_agent_closed_told",
+        "runner",
+    }

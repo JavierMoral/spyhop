@@ -42,8 +42,8 @@ class RunRepository:
                     """
                     INSERT INTO automation_runs (
                         id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                        triggered_at, status, created_at, status_changed_at, signals
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
+                        triggered_at, status, created_at, status_changed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -197,8 +197,8 @@ class RunRepository:
                     """
                     INSERT INTO automation_runs (
                         id, issue_key, workflow_name, trigger_status, trigger_history_id,
-                        triggered_at, status, created_at, status_changed_at, retry_of, signals
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'declare')
+                        triggered_at, status, created_at, status_changed_at, retry_of
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,

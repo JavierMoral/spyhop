@@ -22,7 +22,6 @@ from spyhop.application.workflow_resolver import WorkflowResolver
 from spyhop.application.worktree_provisioner import WorktreeProvisioner
 from spyhop.config.settings import Settings
 from spyhop.domain.clock import Clock, utc_now
-from spyhop.domain.enums import WorktreeStatus
 from spyhop.domain.exceptions import JiraError, OrcaCommandError, OrcaUnavailableError
 from spyhop.domain.models import (
     AutomationRun,
@@ -491,26 +490,6 @@ class Harness:
             raise self.cleanup_errors.pop(0)
 
         self.cleaned.append(worktree.path)
-
-    def set_card(self, orca_worktree_id: str, status: str) -> None:
-        """What a move of the card meant before `spyhop declare`: the review
-        column is the plan declared, and the approved column is the end
-        declared and the plan approved. The card also moves."""
-
-        self.orca.set_card(orca_worktree_id, status)
-
-        worktree = next(
-            row
-            for row in self.worktrees.list_by_status(WorktreeStatus.ACTIVE)
-            if row.orca_worktree_id == orca_worktree_id
-        )
-        [run] = self.runs.list(issue_key=worktree.issue_key)
-
-        if status == PLAN_REVIEW:
-            self.runs.declare(run.id, "plan")
-        elif status == PLAN_APPROVED:
-            self.runs.declare(run.id, "done")
-            self.runs.approve(run.id)
 
     async def notify(self, title: str, body: str) -> None:
         self.notifications.append((title, body))

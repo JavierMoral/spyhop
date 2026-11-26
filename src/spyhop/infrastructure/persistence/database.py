@@ -333,6 +333,25 @@ _MIGRATIONS = [
     """
     ALTER TABLE automation_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'orca';
     """,
+    # The agents of a run are headless turns: the columns of the agents in
+    # Orca terminals go. run_view selects runs.*, so it needs no change.
+    """
+    ALTER TABLE automation_runs DROP COLUMN declared;
+
+    ALTER TABLE automation_runs DROP COLUMN declared_at;
+
+    ALTER TABLE automation_runs DROP COLUMN signals;
+
+    ALTER TABLE automation_runs DROP COLUMN fix_requested_at;
+
+    ALTER TABLE automation_runs DROP COLUMN missing_cycles;
+
+    ALTER TABLE automation_runs DROP COLUMN missing_since;
+
+    ALTER TABLE automation_runs DROP COLUMN plan_agent_closed_told;
+
+    ALTER TABLE automation_runs DROP COLUMN runner;
+    """,
 ]
 
 
