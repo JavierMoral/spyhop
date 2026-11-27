@@ -23,12 +23,14 @@ from spyhop.config.paths import (
     user_templates_dir,
 )
 from spyhop.config.settings import ProjectSettings, Settings, load_settings
-from spyhop.domain.exceptions import JiraError, SpyhopError
+from spyhop.domain.exceptions import GitHubError, JiraError, SpyhopError
 from spyhop.domain.models import ChecksPhase
 from spyhop.infrastructure.claude_links import claude_files, is_linked
 from spyhop.infrastructure.disk import GIB, free_bytes
+from spyhop.infrastructure.github import GitHubClient
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.discovery import check_runtime, find_orca_executable
+from spyhop.infrastructure.process.command_runner import CommandRunner
 from spyhop.infrastructure.service.systemd import linger_enabled, unit_active
 
 
@@ -66,6 +68,7 @@ async def run_checks(config_file: Path) -> list[Check]:
         checks.append(
             _check_worktree_script("write_script", settings.knowledge.write_script, "knowledge")
         )
+    checks.extend(await _check_github(settings))
     checks.append(await _check_orca(settings))
     checks.extend(_check_service())
 
@@ -352,6 +355,21 @@ def _check_checkpoints(settings: Settings, agents_dir: Path | None = None) -> li
             checks.append(Check(Level.OK, f"pipeline {name}", f"{count} checkpoints are valid"))
 
     return checks
+
+
+async def _check_github(settings: Settings, runner: CommandRunner | None = None) -> list[Check]:
+    """gh must exist and be signed in, but only when the watcher of the pull
+    requests is on."""
+
+    if not settings.pull_requests.enabled:
+        return []
+
+    try:
+        login = await GitHubClient(runner).login()
+    except GitHubError as error:
+        return [Check(Level.ERROR, "github", str(error))]
+
+    return [Check(Level.OK, "github", f"gh signed in as {login}")]
 
 
 async def _check_orca(settings: Settings) -> Check:

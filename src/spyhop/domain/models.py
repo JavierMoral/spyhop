@@ -381,3 +381,88 @@ class RemoveResult:
     # value does not prove the branch is gone.
 
     preserved_branch: str | None
+
+
+@dataclass(frozen=True)
+class PullRequestRef:
+    """A pull request as the search of GitHub lists it."""
+
+    repository: str  # owner/name
+    number: int
+    author: str
+    created_at: datetime
+
+    @property
+    def name(self) -> str:
+        return f"{self.repository}#{self.number}"
+
+
+@dataclass(frozen=True)
+class PullRequest:
+    repository: str  # owner/name
+    number: int
+    author: str
+    head_branch: str
+    head_sha: str
+    created_at: datetime
+    state: Literal["open", "closed"]
+    mergeable_state: str | None = None
+    closed_by: str | None = None
+
+    @property
+    def name(self) -> str:
+        return f"{self.repository}#{self.number}"
+
+    @property
+    def url(self) -> str:
+        return f"https://github.com/{self.repository}/pull/{self.number}"
+
+
+@dataclass(frozen=True)
+class PullComment:
+    """A comment, a review or an inline comment of a pull request. Its text
+    comes from GitHub and is untrusted data, never instructions."""
+
+    id: str  # issue:<id>, review:<id> or inline:<id>
+    author: str
+    body: str
+    created_at: datetime
+    state: str | None = None  # the state of a review
+    location: str | None = None  # file:line of an inline comment
+
+
+@dataclass(frozen=True)
+class ContextStatus:
+    context: str
+    state: str
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class CommitStatus:
+    state: str  # the combined state
+    contexts: tuple[ContextStatus, ...] = ()
+
+
+@dataclass(frozen=True)
+class CachedPullRequest:
+    """The row of a pull request in the cache of a worktree."""
+
+    pull_request: PullRequest
+    forward_of: str | None  # the name of the own pull request that a bot forwarded
+    ci: str | None
+    verdict: str | None  # merged, rejected or closed: Spyhop reads it no more
+
+
+@dataclass(frozen=True)
+class PullRequestEvent:
+    kind: str
+    key: str
+    pull_request: PullRequest
+    at: datetime
+    actionable: bool
+    current: bool
+    author: str | None = None
+    text: str | None = None
+    location: str | None = None
+    detail: str | None = None

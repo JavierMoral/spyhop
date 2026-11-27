@@ -182,3 +182,21 @@ def test_a_workflow_with_a_wrong_pipeline_key_is_rejected(
             projects={"LPD": {"workflows": {"Bug": workflow}}},
             pipelines={"bug": ["implement"]},
         )
+
+
+def test_without_the_pull_requests_section_the_watcher_is_off(tmp_path: Path) -> None:
+    config = settings(tmp_path)
+
+    assert config.pull_requests.enabled is False
+    assert config.pull_requests.polling_interval == 300
+    assert config.pull_requests.bot_logins == ["liferay-continuous-integration"]
+
+
+def test_a_watcher_interval_below_a_minute_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="polling_interval"):
+        settings(tmp_path, pull_requests={"polling_interval": 59})
+
+
+def test_a_forward_branch_with_an_unknown_placeholder_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="branch"):
+        settings(tmp_path, pull_requests={"forward_branch": "ci-{unknown}"})

@@ -3,9 +3,13 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from spyhop.domain.models import (
+    CommitStatus,
     JiraUser,
     OrcaTerminal,
     OrcaWorktree,
+    PullComment,
+    PullRequest,
+    PullRequestRef,
     RemoveResult,
 )
 
@@ -22,6 +26,20 @@ class JiraGateway(Protocol):
 
 class TicketGateway(Protocol):
     async def issue(self, issue_key: str, fields: list[str]) -> dict[str, Any]: ...
+
+
+class PullRequestGateway(Protocol):
+    """Reads pull requests from GitHub. It never writes."""
+
+    async def login(self) -> str: ...
+
+    async def search(self, query: str) -> list[PullRequestRef]: ...
+
+    async def pull_request(self, repository: str, number: int) -> PullRequest: ...
+
+    async def comments(self, repository: str, number: int) -> list[PullComment]: ...
+
+    async def commit_status(self, repository: str, sha: str) -> CommitStatus: ...
 
 
 class WorktreeHost(Protocol):

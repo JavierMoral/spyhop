@@ -18,6 +18,7 @@ from spyhop.application.evals import EVAL_TICKETS_ENV_VAR
 from spyhop.application.executions import history as agent_history
 from spyhop.application.executions import profile_history, total_tokens
 from spyhop.application.janitor import Cleanup, WorktreeRemover
+from spyhop.application.pull_request_watcher import status_lines
 from spyhop.application.stats import run_stats
 from spyhop.application.step_runner import log_file
 from spyhop.cli.common import (
@@ -48,6 +49,7 @@ from spyhop.infrastructure.persistence.database import connect
 from spyhop.infrastructure.persistence.repositories import (
     ExecutionRepository,
     PollerStateRepository,
+    PullRequestRepository,
     RunRepository,
     SessionRepository,
     StepRunRepository,
@@ -120,6 +122,12 @@ def status(
 
     if last_error:
         typer.echo(f"Last error:     {last_error}")
+
+    worktree = WorktreeRepository(connection).find_current(issue_key) if issue_key else None
+
+    if worktree is not None:
+        for line in status_lines(PullRequestRepository(connection).list(worktree.id)):
+            typer.echo(line)
 
     typer.echo("")
 

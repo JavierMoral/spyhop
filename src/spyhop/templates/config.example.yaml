@@ -109,6 +109,13 @@ knowledge:                        # findings of earlier tickets
   # write_script: ~/bin/spyhop-write-finding  # stores fixed findings
   write_timeout: 60
 
+pull_requests:                    # watches your pull requests after a run completes; it only reads
+  enabled: false                  # needs gh, signed in (`gh auth login`)
+  polling_interval: 300           # seconds; at least 60
+  bot_logins: [liferay-continuous-integration]
+  forward_branch: "ci-forward-{branch}-pr-{number}-sender-{login}"  # empty: no forwarded pull requests
+  merged_comment: "Merged. Thank you."  # a comment that starts with this text confirms the merge
+
 cleanup:                          # remove worktrees of closed tickets (never forced)
   enabled: true
   close_status_categories: ["done"] # JIRA status category keys

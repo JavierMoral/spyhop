@@ -18,6 +18,7 @@ from spyhop.application.knowledge import KnowledgeWriter
 from spyhop.application.launcher import AgentLauncher
 from spyhop.application.monitor import JiraMonitor
 from spyhop.application.orchestrator import Orchestrator
+from spyhop.application.pull_request_watcher import PullRequestWatcher
 from spyhop.application.supervisor import AgentSupervisor
 from spyhop.application.supervisor_session import SupervisorSession
 from spyhop.application.transition_detector import TransitionDetector
@@ -42,6 +43,7 @@ from spyhop.domain.exceptions import (
 )
 from spyhop.infrastructure.agent_state import AGENT_STATES
 from spyhop.infrastructure.desktop import notify
+from spyhop.infrastructure.github import GitHubClient
 from spyhop.infrastructure.jira.client import JiraClient
 from spyhop.infrastructure.orca.client import OrcaClient
 from spyhop.infrastructure.orca.discovery import find_orca_executable
@@ -50,6 +52,7 @@ from spyhop.infrastructure.persistence.repositories import (
     ExecutionRepository,
     ObservationRepository,
     PollerStateRepository,
+    PullRequestRepository,
     RunRepository,
     SessionRepository,
     StepRunRepository,
@@ -112,6 +115,7 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
         stop, wake = _signal_events()
         loop = asyncio.get_running_loop()
         next_poll = loop.time()
+        next_watch = next_poll
         rate_limited = False
 
         while not stop.is_set():
@@ -163,7 +167,7 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
                     agents_error = str(error)
 
             if agents is not None:
-                janitor, supervisor, launcher = agents
+                janitor, supervisor, launcher, watcher = agents
 
                 # Cleaning up and supervising first free the slots of closed and
                 # finished runs for the launches of this same cycle. The cleanup
@@ -192,11 +196,28 @@ async def run_daemon(settings: Settings, once: bool = False, database: Path | No
 
                         _log.warning("Launching failed, will retry: %s", error)
 
+                # GitHub has its own interval, also after an early wake.
+
+                if watcher is not None and loop.time() >= next_watch:
+                    next_watch = loop.time() + settings.pull_requests.polling_interval
+
+                    try:
+                        await watcher.watch()
+                    except Exception:
+                        # No fault of the watcher may stop the service.
+
+                        _log.exception("Pull request watch failed, will retry")
+
             if once:
                 return
 
+            due = next_poll
+
+            if agents is not None and agents[3] is not None:
+                due = min(due, next_watch)
+
             with suppress(TimeoutError):
-                await asyncio.wait_for(wake.wait(), max(next_poll - loop.time(), 0))
+                await asyncio.wait_for(wake.wait(), max(due - loop.time(), 0))
 
         _log.info("Spyhop stopped")
 
@@ -206,7 +227,7 @@ def _agents(
     connection: sqlite3.Connection,
     resolver: WorkflowResolver,
     jira: JiraClient,
-) -> tuple[WorktreeJanitor, AgentSupervisor, AgentLauncher]:
+) -> tuple[WorktreeJanitor, AgentSupervisor, AgentLauncher, PullRequestWatcher | None]:
     orca = orca_client(settings)
     executable = orca.executable
 
@@ -299,7 +320,21 @@ def _agents(
         settings=settings.cleanup,
     )
 
-    return janitor, supervisor, launcher
+    watcher = (
+        PullRequestWatcher(
+            settings.pull_requests,
+            GitHubClient(),
+            PullRequestRepository(connection),
+            worktrees,
+            runs,
+            supervisor_session,
+            orca,
+        )
+        if settings.pull_requests.enabled
+        else None
+    )
+
+    return janitor, supervisor, launcher, watcher
 
 
 def orca_client(settings: Settings) -> OrcaClient:

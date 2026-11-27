@@ -131,6 +131,28 @@ class ProjectSettings(BaseModel):
     workflows: dict[str, WorkflowSettings] = Field(default_factory=dict)
 
 
+class PullRequestSettings(BaseModel):
+    """The watcher of the pull requests of the worktrees. It only reads."""
+
+    enabled: bool = False
+    polling_interval: int = Field(default=300, ge=60)
+    bot_logins: list[str] = Field(default_factory=lambda: ["liferay-continuous-integration"])
+    # The branch that a bot forwards a pull request from. Empty: no forwards.
+    forward_branch: str = "ci-forward-{branch}-pr-{number}-sender-{login}"
+    # A comment that starts with this text says that the pull request merged.
+    merged_comment: str = "Merged. Thank you."
+
+    @field_validator("forward_branch")
+    @classmethod
+    def _known_placeholders(cls, value: str) -> str:
+        try:
+            value.format(branch="b", number=1, login="l")
+        except (KeyError, IndexError, ValueError):
+            raise ValueError("use only {branch}, {number} and {login}") from None
+
+        return value
+
+
 class OrcaSettings(BaseModel):
     executable: ExpandedPath | None = None
     startup_timeout: float = Field(default=30, gt=0)
@@ -217,6 +239,7 @@ class Settings(BaseSettings):
     orca: OrcaSettings = Field(default_factory=OrcaSettings)
     agents: AgentSettings = Field(default_factory=AgentSettings)
     knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
+    pull_requests: PullRequestSettings = Field(default_factory=PullRequestSettings)
     cleanup: CleanupSettings = Field(default_factory=CleanupSettings)
     service: ServiceSettings = Field(default_factory=ServiceSettings)
 

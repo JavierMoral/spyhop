@@ -87,6 +87,23 @@ only when you ask for it.
 Before the worktree exists, a run has no session. Spyhop shows a desktop
 notification for it instead.
 
+### Pull requests
+
+With `pull_requests.enabled: true`, Spyhop watches the pull requests of each
+worktree whose last run completed and has no run active. It finds them from the
+branch: your pull requests with that branch, and the pull requests that a bot
+forwarded from them. It tells the supervisor session each event: a CI failure,
+a review comment, a conflict, a rejection, a merge, and a commit that is not
+sent yet. An event that needs a decision also marks the Orca card unread. After
+a merge, Spyhop stops watching the worktree. `spyhop status KEY` lists the pull
+requests.
+
+The watcher only reads GitHub, with `gh api` and the GET method. It does not
+comment, retest, forward, close or push, and it starts no run and no agent. You
+decide each change in the session, which sends it to the agent with
+`spyhop tell`. The text of a comment goes to the session as data, not as
+instructions. `spyhop doctor` checks `gh` when the watcher is on.
+
 ### When the ticket closes
 
 When a ticket closes, Spyhop stops its agents and removes the worktree:

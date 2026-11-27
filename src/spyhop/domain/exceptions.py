@@ -50,3 +50,15 @@ class OrcaCommandError(OrcaError):
 
 class UnitError(SpyhopError):
     """A systemd user unit did not start or stop."""
+
+
+class GitHubError(SpyhopError):
+    """A read of GitHub through gh failed."""
+
+
+class GitHubUnavailableError(GitHubError):
+    """gh is missing or is not signed in."""
+
+
+class GitHubRateLimitedError(GitHubError):
+    """GitHub refused the request because of its rate limit."""

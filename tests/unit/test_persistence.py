@@ -309,7 +309,9 @@ def test_the_columns_of_the_agents_in_orca_go_and_the_runs_stay(tmp_path: Path) 
     database = tmp_path / "spyhop.db"
     legacy = sqlite3.connect(database, isolation_level=None)
 
-    for index, script in enumerate(_MIGRATIONS[:-1], start=1):
+    headless = next(i for i, script in enumerate(_MIGRATIONS) if "DROP COLUMN runner" in script)
+
+    for index, script in enumerate(_MIGRATIONS[:headless], start=1):
         legacy.executescript(f"BEGIN; {script}; PRAGMA user_version = {index}; COMMIT;")
 
     _running_run(legacy)
@@ -331,3 +333,21 @@ def test_the_columns_of_the_agents_in_orca_go_and_the_runs_stay(tmp_path: Path) 
         "plan_agent_closed_told",
         "runner",
     }
+
+
+def test_the_pull_request_tables_are_new_and_keep_the_data(tmp_path: Path) -> None:
+    database = tmp_path / "spyhop.db"
+    legacy = sqlite3.connect(database, isolation_level=None)
+
+    for index, script in enumerate(_MIGRATIONS[:-1], start=1):
+        legacy.executescript(f"BEGIN; {script}; PRAGMA user_version = {index}; COMMIT;")
+
+    _running_run(legacy)
+    legacy.close()
+
+    connection = connect(database)
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
+    run = RunRepository(connection).get("r1")
+
+    assert {"pull_requests", "pr_events"} <= tables
+    assert run is not None and run.status is RunStatus.RUNNING

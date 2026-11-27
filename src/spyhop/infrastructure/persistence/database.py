@@ -352,6 +352,33 @@ _MIGRATIONS = [
 
     ALTER TABLE automation_runs DROP COLUMN runner;
     """,
+    # The pull requests of each worktree, as a cache, and the events about
+    # them that Spyhop found and told the supervisor session.
+    """
+    CREATE TABLE pull_requests (
+        worktree_id TEXT NOT NULL REFERENCES worktrees(id),
+        repository TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        author TEXT NOT NULL,
+        head_branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        state TEXT NOT NULL,
+        forward_of TEXT,
+        created_at TEXT NOT NULL,
+        ci TEXT,
+        verdict TEXT,
+        PRIMARY KEY (worktree_id, repository, number)
+    );
+
+    CREATE TABLE pr_events (
+        worktree_id TEXT NOT NULL REFERENCES worktrees(id),
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        detected_at TEXT NOT NULL,
+        delivered_at TEXT,
+        PRIMARY KEY (worktree_id, kind, key)
+    );
+    """,
 ]
 
 

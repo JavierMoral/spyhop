@@ -1,15 +1,18 @@
 from pathlib import Path
+from typing import Any
 
 from spyhop.config.settings import ProjectSettings
 from spyhop.doctor import (
     Level,
     _check_checkpoints,
     _check_claude_links,
+    _check_github,
     _check_project,
     _check_templates,
     _check_worktree_script,
 )
 from spyhop.infrastructure.claude_links import link_claude_files
+from spyhop.infrastructure.process.command_runner import CommandResult
 from tests.factories import settings
 from tests.unit.test_checkpoint_planner import checkpoint
 from tests.unit.test_claude_links import bundled
@@ -134,3 +137,36 @@ def test_a_claude_file_that_is_not_linked_is_an_error(tmp_path: Path) -> None:
 
     assert check.level is Level.ERROR
     assert check.detail == (f"not linked to Spyhop: {target}; run `spyhop claude install`")
+
+
+class Gh:
+    """A runner of gh that answers like a signed in gh or like no gh."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.commands: list[list[str]] = []
+        self._error = error
+
+    async def run(self, args: Any, time_limit: float, **_: Any) -> CommandResult:
+        self.commands.append(list(args))
+
+        if self._error:
+            raise self._error
+
+        return CommandResult(0, '{"login": "me"}', "")
+
+
+async def test_with_the_watcher_on_doctor_checks_that_gh_is_signed_in(tmp_path: Path) -> None:
+    config = settings(tmp_path, pull_requests={"enabled": True})
+
+    [ok] = await _check_github(config, Gh())
+    [missing] = await _check_github(config, Gh(FileNotFoundError("gh")))
+
+    assert (ok.level, ok.detail) == (Level.OK, "gh signed in as me")
+    assert missing.level is Level.ERROR
+
+
+async def test_with_the_watcher_off_doctor_does_not_run_gh(tmp_path: Path) -> None:
+    runner = Gh()
+
+    assert await _check_github(settings(tmp_path), runner) == []
+    assert runner.commands == []
